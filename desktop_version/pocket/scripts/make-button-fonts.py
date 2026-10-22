@@ -6,8 +6,8 @@ The glyphs follow Butterscotch Pocket's positional prompts
 (src/openfpga/platform/of_buttons.c in zenibako/Butterscotch): four circles
 in a diamond for the face buttons, and the shoulder pair. Start and Select
 are the row of three small buttons below the screen (Select, the Analogue
-button, Start). Face and small buttons are solid, the pressed one bright
-and the others grey; the circles are too small for Butterscotch's outlines. Butterscotch draws its icons at 13 pixels; here each is redrawn
+button, Start). Every button is solid, the pressed one bright and the
+others grey; the shapes are too small for Butterscotch's outlines. Butterscotch draws its icons at 13 pixels; here each is redrawn
 for the game's 8, 10 and 12 pixel fonts. They are white and take the text
 colour, as Butterscotch's do.
 
@@ -43,25 +43,16 @@ BRIGHT = 255
 DIM = 96
 
 
-def circle(size, filled):
-    """Pixels of a circle of the given size, corners cut, as a set of (x, y).
-    Outline only unless filled. A 3-pixel circle is a plus."""
-    pixels = set()
+def circle(size):
+    """Pixels of a solid circle of the given size, corners cut, as a set of
+    (x, y). A 3-pixel circle is a plus."""
     last = size - 1
-    for y in range(size):
-        for x in range(size):
-            corner = (x in (0, last)) and (y in (0, last))
-            if corner:
-                continue
-            edge = x in (0, last) or y in (0, last)
-            if filled or edge:
-                pixels.add((x, y))
-    return pixels
+    return {(x, y) for y in range(size) for x in range(size)
+            if not (x in (0, last) and y in (0, last))}
 
 
-def rect(w, h, filled):
-    return {(x, y) for y in range(h) for x in range(w)
-            if filled or x in (0, w - 1) or y in (0, h - 1)}
+def rect(w, h):
+    return {(x, y) for y in range(h) for x in range(w)}
 
 
 def glyph(cell, index):
@@ -72,22 +63,23 @@ def glyph(cell, index):
         size = layout["circle"]
         for i, (ox, oy) in enumerate(layout["face"]):
             alpha = BRIGHT if i == index else DIM
-            for x, y in circle(size, True):
+            for x, y in circle(size):
                 pixels[(ox + x, oy + y)] = alpha
     elif index in (4, 5):
         # Select, the Analogue button, Start, left to right.
         w, h, step, top = layout["small"]
         pressed = 2 if index == 4 else 0
         for button in range(3):
-            for x, y in rect(w, h, True):
+            for x, y in rect(w, h):
                 pixels[(button * step + x, top + y)] = BRIGHT if button == pressed else DIM
     else:
         w, h, top = layout["shoulder"]
         filled_right = index == 7
         for right in (False, True):
             ox = cell - w if right else 0
-            for x, y in rect(w, h, right == filled_right):
-                pixels[(ox + x, top + y)] = BRIGHT
+            alpha = BRIGHT if right == filled_right else DIM
+            for x, y in rect(w, h):
+                pixels[(ox + x, top + y)] = alpha
     return pixels
 
 
