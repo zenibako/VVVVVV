@@ -70,11 +70,10 @@ POCKET_DEFS := -DVVV_POCKET -D_GNU_SOURCE \
 ifeq ($(SHOW_FPS),1)
 POCKET_DEFS += -DPOCKET_SHOW_FPS
 endif
-POCKET_INCLUDES := -I$(POCKET_ROOT)/include -I$(SDL3_ROOT)/include \
+POCKET_INCLUDES := -I$(POCKET_ROOT)/src -I$(SDL3_ROOT)/include \
 	-I$(THIRD_PARTY)/tinyxml2 -I$(THIRD_PARTY)/physfs/src \
 	-I$(THIRD_PARTY)/physfs/extras -I$(THIRD_PARTY)/lodepng \
-	-I$(THIRD_PARTY) -I$(THIRD_PARTY)/SheenBidi/Headers \
-	-I$(THIRD_PARTY)/FAudio/include -I$(THIRD_PARTY)/FAudio/src
+	-I$(THIRD_PARTY) -I$(THIRD_PARTY)/SheenBidi/Headers
 
 CFLAGS += -std=gnu99 $(POCKET_DEFS) $(POCKET_INCLUDES)
 CXXFLAGS += -std=c++98 -nostdinc++ -I$(POCKET_ROOT)/compat/cxx $(POCKET_DEFS) $(POCKET_INCLUDES)
@@ -113,9 +112,23 @@ button-fonts:
 
 TEST_BIN := $(BUILD_DIR)/host/compat_test
 SAVEFS_TEST_BIN := $(BUILD_DIR)/host/savefs_test
-test: $(TEST_BIN) $(SAVEFS_TEST_BIN)
+AUDIO_TEST_BIN := $(BUILD_DIR)/host/audio_test
+test: $(TEST_BIN) $(SAVEFS_TEST_BIN) $(AUDIO_TEST_BIN)
 	$(TEST_BIN)
 	$(SAVEFS_TEST_BIN)
+	$(AUDIO_TEST_BIN)
+
+# The sound player against a stand-in for the OS audio output.
+$(AUDIO_TEST_BIN): $(POCKET_ROOT)/tests/audio_test.c $(POCKET_ROOT)/tests/stub/of_audio.h \
+		$(addprefix $(POCKET_ROOT)/src/, pocket_audio.c pocket_audio.h music_pack.h) \
+		$(addprefix $(POCKET_ROOT)/sdl3/, io.c savefs.c savefs.h stdinc.c)
+	@mkdir -p $(dir $@)
+	$(HOST_CC) -std=gnu99 -Wall -Wextra -g $(HOST_SANITIZE) -D_GNU_SOURCE \
+		-DPOCKET_MUSIC_PACK='"$(BUILD_DIR)/host/audio_test.bin"' \
+		-DPOCKET_SAVE_FILE='"$(BUILD_DIR)/host/audio_test.sav"' \
+		-I$(POCKET_ROOT)/tests/stub -I$(POCKET_ROOT)/src -I$(SDL3_ROOT)/include -I$(POCKET_ROOT)/sdl3 \
+		$(POCKET_ROOT)/tests/audio_test.c $(POCKET_ROOT)/src/pocket_audio.c \
+		$(addprefix $(POCKET_ROOT)/sdl3/, io.c savefs.c stdinc.c) -lm -o $@
 
 # The save archive runs against the port's own SDL3 I/O layer.
 $(SAVEFS_TEST_BIN): $(POCKET_ROOT)/tests/savefs_test.c $(addprefix $(POCKET_ROOT)/sdl3/, savefs.c savefs.h io.c stdinc.c)
@@ -150,7 +163,8 @@ HOST_CXX_SRCS := $(GAME_CXX_SRCS) $(THIRD_PARTY)/tinyxml2/tinyxml2.cpp \
 HOST_DEFS := -D_GNU_SOURCE -DLODEPNG_NO_COMPILE_ALLOCATORS -DLODEPNG_NO_COMPILE_DISK \
 	-DPHYSFS_SUPPORTS_DEFAULT=0 -DPHYSFS_SUPPORTS_ZIP=1 -DPHYSFS_PLATFORM_SDL3=1 \
 	-DSB_CONFIG_UNITY -DFAUDIO_SDL3_PLATFORM
-HOST_INCLUDES := -I$(SDL3_PREFIX)/include $(filter-out -I$(SDL3_ROOT)/include,$(POCKET_INCLUDES))
+HOST_INCLUDES := -I$(SDL3_PREFIX)/include $(filter-out -I$(SDL3_ROOT)/include,$(POCKET_INCLUDES)) \
+	-I$(THIRD_PARTY)/FAudio/include -I$(THIRD_PARTY)/FAudio/src
 host_object = $(HOST_DIR)/obj/$(subst ../,__parent__/,$(basename $(1))).o
 HOST_OBJS := $(foreach src,$(HOST_C_SRCS) $(HOST_CXX_SRCS),$(call host_object,$(src)))
 

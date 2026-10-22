@@ -50,6 +50,14 @@
                 "deferload": true
             },
             {
+                "id": 6,
+                "name": "Music",
+                "required": false,
+                "parameters": 0,
+                "filename": "vvvvvv-music.bin",
+                "deferload": true
+            },
+            {
                 "id": 10,
                 "name": "Save",
                 "required": false,

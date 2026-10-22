@@ -299,10 +299,22 @@ SDL_IOStream *SDL_IOFromConstMem(const void *mem, size_t size)
     return io;
 }
 
-/* WAV loading is replaced by the converted sound pack (phase 4). */
+/* PCM WAV files, 8 or 16 bits: the game's sound effects. */
+static Uint32 wav_u32(const Uint8 *p)
+{
+    return p[0] | (p[1] << 8) | (p[2] << 16) | ((Uint32) p[3] << 24);
+}
+
+static Uint16 wav_u16(const Uint8 *p)
+{
+    return (Uint16) (p[0] | (p[1] << 8));
+}
+
 bool SDL_LoadWAV_IO(SDL_IOStream *src, bool closeio, SDL_AudioSpec *spec, Uint8 **audio_buf, Uint32 *audio_len)
 {
-    (void) spec;
+    bool ok = false;
+    Uint8 *file = NULL;
+    size_t size = 0;
     if (audio_buf != NULL)
     {
         *audio_buf = NULL;
@@ -311,11 +323,90 @@ bool SDL_LoadWAV_IO(SDL_IOStream *src, bool closeio, SDL_AudioSpec *spec, Uint8 
     {
         *audio_len = 0;
     }
+    if (src == NULL || spec == NULL || audio_buf == NULL || audio_len == NULL)
+    {
+        SDL_SetError("Parameter is invalid");
+        goto done;
+    }
+    {
+        const Sint64 length = SDL_GetIOSize(src);
+        if (length < 0)
+        {
+            goto done;
+        }
+        size = (size_t) length;
+        file = (Uint8 *) SDL_malloc(size ? size : 1);
+        if (file == NULL || SDL_ReadIO(src, file, size) != size)
+        {
+            SDL_SetError("Can't read WAV file");
+            goto done;
+        }
+    }
+    if (size < 12 || SDL_memcmp(file, "RIFF", 4) != 0 || SDL_memcmp(file + 8, "WAVE", 4) != 0)
+    {
+        SDL_SetError("Not a WAV file");
+        goto done;
+    }
+    {
+        const Uint8 *fmt = NULL;
+        const Uint8 *data = NULL;
+        Uint32 data_size = 0;
+        size_t at = 12;
+        while (at + 8 <= size)
+        {
+            const Uint32 chunk = wav_u32(file + at + 4);
+            const size_t body = at + 8;
+            const Uint32 have = (Uint32) SDL_min((size_t) chunk, size - body);
+            if (SDL_memcmp(file + at, "fmt ", 4) == 0 && have >= 16)
+            {
+                fmt = file + body;
+            }
+            else if (SDL_memcmp(file + at, "data", 4) == 0)
+            {
+                data = file + body;
+                data_size = have;
+            }
+            at = body + chunk + (chunk & 1);
+        }
+        if (fmt == NULL || data == NULL)
+        {
+            SDL_SetError("WAV file has no fmt or data chunk");
+            goto done;
+        }
+        Uint16 tag = wav_u16(fmt);
+        const Uint16 channels = wav_u16(fmt + 2);
+        const Uint32 rate = wav_u32(fmt + 4);
+        const Uint16 bits = wav_u16(fmt + 14);
+        /* WAVE_FORMAT_EXTENSIBLE: the real format leads its subformat. */
+        if (tag == 0xFFFE && wav_u16(fmt + 16) >= 22)
+        {
+            tag = wav_u16(fmt + 24);
+        }
+        if (tag != 1 || (bits != 8 && bits != 16) || channels == 0 || rate == 0)
+        {
+            SDL_SetError("Only 8 and 16-bit PCM WAV files are supported");
+            goto done;
+        }
+        Uint8 *pcm = (Uint8 *) SDL_malloc(data_size ? data_size : 1);
+        if (pcm == NULL)
+        {
+            goto done;
+        }
+        SDL_memcpy(pcm, data, data_size);
+        spec->format = bits == 8 ? SDL_AUDIO_U8 : SDL_AUDIO_S16LE;
+        spec->channels = channels;
+        spec->freq = (int) rate;
+        *audio_buf = pcm;
+        *audio_len = data_size;
+        ok = true;
+    }
+done:
+    SDL_free(file);
     if (closeio && src != NULL)
     {
         SDL_CloseIO(src);
     }
-    return SDL_SetError("WAV loading is not supported");
+    return ok;
 }
 
 /* Filesystem */
