@@ -402,7 +402,7 @@ int pocket_sound_load(const void *pcm, uint32_t bytes, int rate, int channels, i
         const int32_t frac = (int32_t) (at & 0xFFFF);
         const int32_t a = pcm_sample((const uint8_t *) pcm, frame, channels, bits);
         const int32_t b = frame + 1 < frames ? pcm_sample((const uint8_t *) pcm, frame + 1, channels, bits) : a;
-        out[i] = (int16_t) (a + (((b - a) * frac) >> 16));
+        out[i] = (int16_t) (a + (int32_t) (((int64_t) (b - a) * frac) >> 16));
     }
     sounds[slot].samples = out;
     sounds[slot].count = count;

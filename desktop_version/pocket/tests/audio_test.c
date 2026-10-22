@@ -290,6 +290,19 @@ static void test_sounds(void)
     CHECK(output[at8 * 2] == 64 << 8);
     CHECK(output[(at8 + 10) * 2] == 0);
 
+    /* Interpolating between the extremes of 16-bit PCM stays in range. */
+    {
+        const int16_t edge[2] = {-32768, 32767};
+        const int sound_edge = pocket_sound_load(edge, sizeof(edge), 22050, 1, 16);
+        const int at_edge = written;
+        CHECK(sound_edge >= 0);
+        pocket_sound_play(sound_edge);
+        frame();
+        CHECK(output[at_edge * 2] == -32768);
+        CHECK(output[(at_edge + 1) * 2] > -32768 && output[(at_edge + 1) * 2] < 32767);
+        pocket_sound_free(sound_edge);
+    }
+
     /* Paused sounds hold their place. */
     const int paused_at = written;
     pocket_sound_play(sound);

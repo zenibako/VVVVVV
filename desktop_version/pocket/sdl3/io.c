@@ -368,6 +368,12 @@ bool SDL_LoadWAV_IO(SDL_IOStream *src, bool closeio, SDL_AudioSpec *spec, Uint8 
                 data = file + body;
                 data_size = have;
             }
+            /* A chunk that runs to the end, or claims to run past it, is
+             * the last; adding its size could wrap a 32-bit size_t. */
+            if ((size_t) chunk >= size - body)
+            {
+                break;
+            }
             at = body + chunk + (chunk & 1);
         }
         if (fmt == NULL || data == NULL)
