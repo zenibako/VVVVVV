@@ -65,6 +65,9 @@ typedef struct Texture
     /* Runs of visible pixels: row y's are runs[row_runs[y]] up to
      * runs[row_runs[y + 1]], each {x, length, kind}. */
     Uint16 *runs;
+    /* The texture in RGB565 while its runs are valid, for copying opaque
+     * runs onto RGB565 targets as they are. */
+    Uint16 *runs565;
     int *row_runs;
     bool runs_valid;
     int copies_since_change;
@@ -285,7 +288,9 @@ static void free_runs(Texture *t)
 {
     SDL_free(t->runs);
     SDL_free(t->row_runs);
+    SDL_free(t->runs565);
     t->runs = NULL;
+    t->runs565 = NULL;
     t->row_runs = NULL;
     t->runs_valid = false;
 }
@@ -354,6 +359,18 @@ static bool build_runs(Texture *t)
         }
     }
     t->row_runs[h] = n;
+    if (t->runs565 == NULL)
+    {
+        t->runs565 = (Uint16 *) SDL_malloc(sizeof(Uint16) * w * h);
+    }
+    if (t->runs565 != NULL)
+    {
+        const Uint32 *pixels = texels(t);
+        for (int i = 0; i < w * h; i++)
+        {
+            t->runs565[i] = POCKET_ToRGB565(pixels[i]);
+        }
+    }
     t->runs_valid = true;
     return true;
 }
@@ -1304,7 +1321,12 @@ static bool copy_rows(SDL_Renderer *renderer, Texture *src, const SDL_FRect *src
                         continue;
                     }
                     Uint16 *d = row565 + (from - sx0);
-                    if (run[2] == RUN_OPAQUE && !modulated && blend == SDL_BLENDMODE_BLEND)
+                    if (run[2] == RUN_OPAQUE && !modulated && blend == SDL_BLENDMODE_BLEND
+                        && src->runs565 != NULL)
+                    {
+                        SDL_memcpy(d, src->runs565 + (size_t) sy * src->texture.w + from, (size_t) (to - from) * 2);
+                    }
+                    else if (run[2] == RUN_OPAQUE && !modulated && blend == SDL_BLENDMODE_BLEND)
                     {
                         for (int x = from; x < to; x++)
                         {
