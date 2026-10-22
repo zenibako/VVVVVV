@@ -102,7 +102,7 @@ static void open_pack(void)
     }
     for (uint32_t i = 0; i < count; i++)
     {
-        uint8_t entry[sizeof(MusicPackTrack)];
+        uint8_t entry[MUSIC_PACK_ENTRY_SIZE];
         if (fread(entry, 1, sizeof(entry), f) != sizeof(entry))
         {
             free(music.tracks);
@@ -115,10 +115,17 @@ static void open_pack(void)
         t->name[MUSIC_PACK_NAME_LEN - 1] = '\0';
         t->offset = read_u32(entry + 48);
         t->sample_count = read_u32(entry + 52) & ~1u;
-        t->loop_start = read_u32(entry + 56) & ~1u;
-        t->loop_end = read_u32(entry + 60) & ~1u;
-        t->loop_predictor = (int16_t) (entry[64] | (entry[65] << 8));
-        t->loop_step_index = entry[66] > 88 ? 88 : entry[66];
+        t->sample_rate = read_u32(entry + 56);
+        t->loop_start = read_u32(entry + 60) & ~1u;
+        t->loop_end = read_u32(entry + 64) & ~1u;
+        t->loop_predictor = (int16_t) (entry[68] | (entry[69] << 8));
+        t->loop_step_index = entry[70] > 88 ? 88 : entry[70];
+        /* Music is converted to the output rate; anything else is skipped,
+         * silent, keeping the numbering. */
+        if (t->sample_rate != MUSIC_PACK_RATE)
+        {
+            t->sample_count = 0;
+        }
         if (t->loop_end > t->sample_count || t->loop_start >= t->loop_end)
         {
             t->loop_start = 0;

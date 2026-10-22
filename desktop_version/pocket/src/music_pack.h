@@ -1,13 +1,17 @@
-/* vvvvvv-music.bin: the game's music, converted once on a computer to mono
- * IMA ADPCM at the Pocket's output rate, so the device never decodes
- * Vorbis.  Made by tools/vvvvvv-music.c from vvvvvvmusic.vvv and, when
- * present, mmmmmm.vvv.
+/* vvvvvv-music.bin: the game's music, converted once on a computer by
+ * pocket-music (github.com/zenibako/pocket-music) to mono IMA ADPCM at the
+ * Pocket's output rate, so the device never decodes Vorbis.  It is an OFM2
+ * pack:
  *
- * Layout (little-endian):
- *   char     magic[4]    "VVM1"
+ *   char     magic[4]    "OFM2"
  *   uint32_t track_count
- *   track_count x MusicPackTrack, in the order the game numbers its tracks
- *   ADPCM data
+ *   track_count 76-byte entries, in the order the game numbers its tracks
+ *   data
+ *
+ * An entry, little-endian: name[48], NUL padded; offset of the data;
+ * sample_count; sample_rate (0 marks a stored file, which this port has
+ * none of); loop_start; loop_end; int16 loop_predictor; uint8
+ * loop_step_index; uint8 flags; uint32 reserved.
  *
  * A track's name is "pppppp/<id>" or "mmmmmm/<id>", where <id> is the
  * game's music id, such as "0levelcomplete".
@@ -23,21 +27,22 @@
 
 #include <stdint.h>
 
-#define MUSIC_PACK_MAGIC "VVM1"
+#define MUSIC_PACK_MAGIC "OFM2"
 #define MUSIC_PACK_FILE "vvvvvv-music.bin"
 #define MUSIC_PACK_NAME_LEN 48
 #define MUSIC_PACK_RATE 48000
+#define MUSIC_PACK_ENTRY_SIZE 76
 
 typedef struct
 {
     char name[MUSIC_PACK_NAME_LEN]; /* NUL padded */
     uint32_t offset;                /* file offset of the ADPCM data */
     uint32_t sample_count;
+    uint32_t sample_rate;
     uint32_t loop_start;
     uint32_t loop_end;
     int16_t loop_predictor;
     uint8_t loop_step_index;
-    uint8_t reserved[5];
 } MusicPackTrack;
 
 typedef struct

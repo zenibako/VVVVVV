@@ -113,18 +113,19 @@ static void write_pack(void)
     memcpy(header, MUSIC_PACK_MAGIC, 4);
     put_u32(header + 4, 2);
     fwrite(header, 1, 8, f);
-    uint32_t offset = 8 + 2 * sizeof(MusicPackTrack);
+    uint32_t offset = 8 + 2 * MUSIC_PACK_ENTRY_SIZE;
     for (int t = 0; t < 2; t++)
     {
-        uint8_t entry[sizeof(MusicPackTrack)] = {0};
+        uint8_t entry[MUSIC_PACK_ENTRY_SIZE] = {0};
         memcpy(entry, headers[t].name, MUSIC_PACK_NAME_LEN);
         put_u32(entry + 48, offset);
         put_u32(entry + 52, headers[t].sample_count);
-        put_u32(entry + 56, headers[t].loop_start);
-        put_u32(entry + 60, headers[t].loop_end);
-        entry[64] = (uint8_t) headers[t].loop_predictor;
-        entry[65] = (uint8_t) ((uint16_t) headers[t].loop_predictor >> 8);
-        entry[66] = headers[t].loop_step_index;
+        put_u32(entry + 56, MUSIC_PACK_RATE);
+        put_u32(entry + 60, headers[t].loop_start);
+        put_u32(entry + 64, headers[t].loop_end);
+        entry[68] = (uint8_t) headers[t].loop_predictor;
+        entry[69] = (uint8_t) ((uint16_t) headers[t].loop_predictor >> 8);
+        entry[70] = headers[t].loop_step_index;
         fwrite(entry, 1, sizeof(entry), f);
         offset += TRACK_SAMPLES / 2;
     }

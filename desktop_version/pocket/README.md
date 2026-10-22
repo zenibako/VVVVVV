@@ -20,9 +20,9 @@ No game data is included. You need your own `data.zip`.
 | `compat/cxx/` | The small part of the C++ standard library the game uses (`string`, `vector`, `map`, `ostringstream`). The SDK has no C++ library. |
 | `sdl3/` | The SDL3 calls the game makes, implemented on openfpgaOS (input, files, the save archive, surfaces and the software renderer) |
 | `host/` | Shows the port's renderer in a desktop window for `make host-render` |
-| `src/` | Pocket-only code (for now, an FAudio placeholder) |
+| `src/` | Pocket-only code: the sound player that stands in for FAudio |
 | `fonts/` | The game's button fonts with Pocket glyphs added (generated) |
-| `tests/` | Host checks for the compat headers, the save archive and the renderer |
+| `tests/` | Host checks for the compat headers, the save archive, the renderer and the sound player |
 
 The game sources in `../src` build with the same C++98 flags as the desktop
 build. The few changes they need are guarded by `VVV_POCKET`.
@@ -47,8 +47,30 @@ lang folders zipped as `vvvvvv-repo.zip`, laid out like the Android build's
 the card and add your `data.zip` as `Assets/vvvvvv/common/data.zip`. For
 now the Chinese, Japanese and Korean fonts are left out to save memory.
 
-`make test` runs the compat-header and save-archive checks on the host with
-AddressSanitizer and UBSan.
+`make test` runs the compat-header, save-archive and sound checks on the
+host with AddressSanitizer and UBSan.
+
+## Sound
+
+The Pocket can't decode the game's Ogg Vorbis music while it runs, so the
+music is converted once, on a computer, with
+[pocket-music](https://github.com/zenibako/pocket-music):
+
+```sh
+pocket-music vvvvvv vvvvvvmusic.vvv vvvvvv-music.bin
+```
+
+`vvvvvvmusic.vvv` is next to `data.zip` in the game's install folder; add
+`-mmmmmm mmmmmm.vvv` for the MMMMMM soundtrack too. Copy
+`vvvvvv-music.bin` to `Assets/vvvvvv/common/`. Without it the game runs
+without music.
+
+`src/pocket_audio.c` streams the converted tracks (mono IMA ADPCM at
+48 kHz, see `src/music_pack.h`) from the card, loops them at the points the
+game reads from the Ogg comments, and mixes them with the sound effects,
+which load from the WAV files in `data.zip`. It replaces only the two
+FAudio classes in `../src/Music.cpp`; the game's own music logic (fades,
+pausing, track changes, volume settings) is unchanged.
 
 ## Controls and saves
 
