@@ -1075,14 +1075,42 @@ static void copy_span(Uint32 *d, const Uint32 *s, int count, const Texture *src,
     }
 }
 
+/* The same onto an RGB565 pixel: only pixels that blend are widened. */
+static inline void copy_pixel565(Uint16 *d, Uint32 s, const Texture *src, bool modulated)
+{
+    if (!modulated)
+    {
+        const SDL_BlendMode blend = src->blend;
+        const Uint32 a = s >> 24;
+        if (blend == SDL_BLENDMODE_NONE || (blend == SDL_BLENDMODE_BLEND && a == 255))
+        {
+            *d = POCKET_ToRGB565(s);
+            return;
+        }
+        if (a == 0 && (blend == SDL_BLENDMODE_BLEND || blend == SDL_BLENDMODE_ADD))
+        {
+            return;
+        }
+    }
+    Uint32 wide = POCKET_FromRGB565(*d);
+    copy_pixel(&wide, s, src, modulated);
+    *d = POCKET_ToRGB565(wide);
+}
+
+static void copy_span565(Uint16 *d, const Uint32 *s, int count, const Texture *src, bool modulated)
+{
+    for (int i = 0; i < count; i++)
+    {
+        copy_pixel565(d + i, s[i], src, modulated);
+    }
+}
+
 /* Source x for each destination column of the current copy. */
 static int *column_map;
 static int column_map_size;
-/* Widened rows of an RGB565 source and destination. */
+/* A widened row of an RGB565 source. */
 static Uint32 *src_line;
 static int src_line_size;
-static Uint32 *dst_line;
-static int dst_line_size;
 
 static bool copy_rows(SDL_Renderer *renderer, Texture *src, const SDL_FRect *srcrect, const SDL_FRect *dstrect, SDL_FlipMode flip)
 {
@@ -1147,8 +1175,7 @@ static bool copy_rows(SDL_Renderer *renderer, Texture *src, const SDL_FRect *src
         }
     }
 
-    if (row_buffer(&src_line, &src_line_size, src->texture.w) == NULL
-        || row_buffer(&dst_line, &dst_line_size, dst->texture.w) == NULL)
+    if (row_buffer(&src_line, &src_line_size, src->texture.w) == NULL)
     {
         return SDL_SetError("Out of memory");
     }
@@ -1240,7 +1267,9 @@ static bool copy_rows(SDL_Renderer *renderer, Texture *src, const SDL_FRect *src
                 SDL_memcpy(dst->pixels565 + (size_t) y * dst->pitch565 + clip.x, row + sx0, (size_t) clip.w * 2);
                 continue;
             }
-            for (int i = 0; i < src->texture.w; i++)
+            const int from = contiguous ? sx0 : 0;
+            const int to = contiguous ? sx0 + clip.w : src->texture.w;
+            for (int i = from; i < to; i++)
             {
                 src_line[i] = POCKET_FromRGB565(row[i]);
             }
@@ -1251,35 +1280,61 @@ static bool copy_rows(SDL_Renderer *renderer, Texture *src, const SDL_FRect *src
             srow = texels(src) + (size_t) sy * src->texture.w;
         }
         const Uint32 *first = srow + sx0;
-        Uint16 *row565 = NULL;
-        Uint32 *drow;
         if (dst->pixels565 != NULL)
         {
-            /* Convert straight in, or blend on a widened copy of the row
-             * and store it back. */
-            row565 = dst->pixels565 + (size_t) y * dst->pitch565 + clip.x;
+            /* Converted straight in; only blended pixels are widened. */
+            Uint16 *row565 = dst->pixels565 + (size_t) y * dst->pitch565 + clip.x;
             if (raw)
             {
                 for (int i = 0; i < clip.w; i++)
                 {
                     row565[i] = POCKET_ToRGB565(first[i]);
                 }
-                continue;
             }
-            drow = dst_line;
-            for (int i = 0; i < clip.w; i++)
+            else if (by_runs)
             {
-                drow[i] = POCKET_FromRGB565(row565[i]);
+                const Uint16 *run = src->runs + (size_t) src->row_runs[sy] * 3;
+                const Uint16 *last = src->runs + (size_t) src->row_runs[sy + 1] * 3;
+                for (; run < last; run += 3)
+                {
+                    const int from = SDL_max((int) run[0], sx0);
+                    const int to = SDL_min((int) run[0] + run[1], sx0 + clip.w);
+                    if (from >= to)
+                    {
+                        continue;
+                    }
+                    Uint16 *d = row565 + (from - sx0);
+                    if (run[2] == RUN_OPAQUE && !modulated && blend == SDL_BLENDMODE_BLEND)
+                    {
+                        for (int x = from; x < to; x++)
+                        {
+                            *d++ = POCKET_ToRGB565(srow[x]);
+                        }
+                    }
+                    else
+                    {
+                        copy_span565(d, srow + from, to - from, src, modulated);
+                    }
+                }
             }
+            else if (contiguous)
+            {
+                copy_span565(row565, first, clip.w, src, modulated);
+            }
+            else
+            {
+                for (int i = 0; i < clip.w; i++)
+                {
+                    copy_pixel565(row565 + i, srow[column_map[i]], src, modulated);
+                }
+            }
+            continue;
         }
-        else
+        Uint32 *drow = dst->pixels + (size_t) y * dst->texture.w + clip.x;
+        if (raw)
         {
-            drow = dst->pixels + (size_t) y * dst->texture.w + clip.x;
-            if (raw)
-            {
-                SDL_memcpy(drow, first, (size_t) clip.w * 4);
-                continue;
-            }
+            SDL_memcpy(drow, first, (size_t) clip.w * 4);
+            continue;
         }
         if (by_runs)
         {
@@ -1312,13 +1367,6 @@ static bool copy_rows(SDL_Renderer *renderer, Texture *src, const SDL_FRect *src
             for (int i = 0; i < clip.w; i++)
             {
                 copy_pixel(drow + i, srow[column_map[i]], src, modulated);
-            }
-        }
-        if (row565 != NULL)
-        {
-            for (int i = 0; i < clip.w; i++)
-            {
-                row565[i] = POCKET_ToRGB565(drow[i]);
             }
         }
     }
