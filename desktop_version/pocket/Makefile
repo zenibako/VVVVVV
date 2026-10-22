@@ -77,10 +77,17 @@ override OF_SDL2_SRC := $(POCKET_ROOT)/sdl3/no_sdl2.c
 
 .DEFAULT_GOAL := all
 
+# deps, test and host work before the SDK has been fetched.
+ifneq ($(wildcard $(SDK_DIR)/sdk.mk),)
 include $(SDK_DIR)/sdk.mk
 
 # The SDK's C++ ABI shim is C++11.
 $(call sdk_app_object,$(SDK_DIR)/of_cxxabi.cpp): CXXFLAGS += -std=gnu++17
+else
+$(BUILD_DIR)/app.elf:
+	@echo "The openfpgaOS SDK is missing; run 'make deps' first." >&2
+	@exit 1
+endif
 
 all: $(BUILD_DIR)/app.elf
 	@$(SIZE) $< 2>/dev/null || true
@@ -106,18 +113,17 @@ HOST_SANITIZE ?= -fsanitize=address,undefined
 SDL3_PREFIX ?= /usr/local
 HOST_DIR := $(BUILD_DIR)/host
 HOST_BIN := $(HOST_DIR)/vvvvvv
-HOST_PHYSFS_SRCS := $(filter-out %/physfs_platform_sdl3.c,$(PHYSFS_SRCS)) \
-	$(THIRD_PARTY)/physfs/src/physfs_platform_posix.c \
-	$(THIRD_PARTY)/physfs/src/physfs_platform_unix.c
-HOST_C_SRCS := $(GAME_C_SRCS) $(HOST_PHYSFS_SRCS) \
+# PhysFS uses its SDL3 platform backend here too, which works the same on
+# Linux and macOS.
+HOST_C_SRCS := $(GAME_C_SRCS) $(PHYSFS_SRCS) \
 	$(THIRD_PARTY)/c-hashmap/map.c $(THIRD_PARTY)/SheenBidi/Source/SheenBidi.c \
 	$(addprefix $(THIRD_PARTY)/FAudio/src/, FAudio.c FAudio_internal.c \
 		FAudio_internal_simd.c FAudio_operationset.c FAudio_platform_sdl3.c)
 HOST_CXX_SRCS := $(GAME_CXX_SRCS) $(THIRD_PARTY)/tinyxml2/tinyxml2.cpp \
 	$(POCKET_ROOT)/compat/cxx/compat.cpp
 HOST_DEFS := -D_GNU_SOURCE -DLODEPNG_NO_COMPILE_ALLOCATORS -DLODEPNG_NO_COMPILE_DISK \
-	-DPHYSFS_SUPPORTS_DEFAULT=0 -DPHYSFS_SUPPORTS_ZIP=1 -DSB_CONFIG_UNITY \
-	-DFAUDIO_SDL3_PLATFORM
+	-DPHYSFS_SUPPORTS_DEFAULT=0 -DPHYSFS_SUPPORTS_ZIP=1 -DPHYSFS_PLATFORM_SDL3=1 \
+	-DSB_CONFIG_UNITY -DFAUDIO_SDL3_PLATFORM
 HOST_INCLUDES := -I$(SDL3_PREFIX)/include $(filter-out -I$(SDL3_ROOT)/include,$(POCKET_INCLUDES))
 host_object = $(HOST_DIR)/obj/$(subst ../,__parent__/,$(basename $(1))).o
 HOST_OBJS := $(foreach src,$(HOST_C_SRCS) $(HOST_CXX_SRCS),$(call host_object,$(src)))
