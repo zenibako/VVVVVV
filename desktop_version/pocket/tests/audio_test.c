@@ -339,6 +339,22 @@ static void test_wav(void)
     CHECK(len == 8 && buf[7] == 7);
     SDL_free(buf);
 
+    /* WAVE_FORMAT_EXTENSIBLE with no room for its extension is refused,
+     * not read past: here the 16-byte fmt chunk ends the file. */
+    {
+        uint8_t ext[12 + 10 + 24];
+        memcpy(ext, "RIFF", 4);
+        put_u32(ext + 4, sizeof(ext) - 8);
+        memcpy(ext + 8, "WAVEdata", 8);
+        put_u32(ext + 16, 2);
+        ext[20] = ext[21] = 0;
+        memcpy(ext + 22, "fmt ", 4);
+        put_u32(ext + 26, 16);
+        memcpy(ext + 30, wav + 20, 16);
+        put16(ext + 30, 0xFFFE);
+        CHECK(!SDL_LoadWAV_IO(SDL_IOFromConstMem(ext, sizeof(ext)), true, &spec, &buf, &len));
+    }
+
     put16(wav + 20, 3); /* float */
     CHECK(!SDL_LoadWAV_IO(SDL_IOFromConstMem(wav, sizeof(wav)), true, &spec, &buf, &len));
     CHECK(!SDL_LoadWAV_IO(SDL_IOFromConstMem("RIFF", 4), true, &spec, &buf, &len));

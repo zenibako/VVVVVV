@@ -349,6 +349,7 @@ bool SDL_LoadWAV_IO(SDL_IOStream *src, bool closeio, SDL_AudioSpec *spec, Uint8 
     }
     {
         const Uint8 *fmt = NULL;
+        Uint32 fmt_size = 0;
         const Uint8 *data = NULL;
         Uint32 data_size = 0;
         size_t at = 12;
@@ -360,6 +361,7 @@ bool SDL_LoadWAV_IO(SDL_IOStream *src, bool closeio, SDL_AudioSpec *spec, Uint8 
             if (SDL_memcmp(file + at, "fmt ", 4) == 0 && have >= 16)
             {
                 fmt = file + body;
+                fmt_size = have;
             }
             else if (SDL_memcmp(file + at, "data", 4) == 0)
             {
@@ -378,7 +380,7 @@ bool SDL_LoadWAV_IO(SDL_IOStream *src, bool closeio, SDL_AudioSpec *spec, Uint8 
         const Uint32 rate = wav_u32(fmt + 4);
         const Uint16 bits = wav_u16(fmt + 14);
         /* WAVE_FORMAT_EXTENSIBLE: the real format leads its subformat. */
-        if (tag == 0xFFFE && wav_u16(fmt + 16) >= 22)
+        if (tag == 0xFFFE && fmt_size >= 26 && wav_u16(fmt + 16) >= 22)
         {
             tag = wav_u16(fmt + 24);
         }
