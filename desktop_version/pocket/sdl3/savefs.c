@@ -342,6 +342,10 @@ bool SAVEFS_enumerate(const char *path, SDL_EnumerateDirectoryCallback callback,
 {
     char dir[SAVEFS_NAME_LEN];
     const size_t dir_len = normalize(path, dir, sizeof(dir)) ? strlen(dir) : 0;
+    /* The callback may remove files, which reorders the archive, so the
+     * children are listed first. */
+    char children[SAVEFS_MAX_FILES][SAVEFS_NAME_LEN];
+    Uint32 child_count = 0;
     Uint32 i;
 
     load();
@@ -352,7 +356,6 @@ bool SAVEFS_enumerate(const char *path, SDL_EnumerateDirectoryCallback callback,
     for (i = 0; i < file_count; i++)
     {
         const char *child = files[i].name + dir_len + 1;
-        SDL_EnumerationResult r;
         /* Only direct children; files further down are listed through
          * their own directory. */
         if (!under(files[i].name, dir) || files[i].name[dir_len] != '/' ||
@@ -360,7 +363,11 @@ bool SAVEFS_enumerate(const char *path, SDL_EnumerateDirectoryCallback callback,
         {
             continue;
         }
-        r = callback(userdata, path, child);
+        SDL_strlcpy(children[child_count++], child, SAVEFS_NAME_LEN);
+    }
+    for (i = 0; i < child_count; i++)
+    {
+        const SDL_EnumerationResult r = callback(userdata, path, children[i]);
         if (r == SDL_ENUM_FAILURE)
         {
             return false;
@@ -499,7 +506,9 @@ static bool SDLCALL stream_close(void *userdata)
     if (s->writable)
     {
         SaveFile *file = find(s->name);
-        Uint8 *old = NULL;
+        const bool added = file == NULL;
+        Uint8 *old_data = NULL;
+        Uint32 old_size = 0;
         if (file == NULL)
         {
             if (file_count == SAVEFS_MAX_FILES)
@@ -514,16 +523,31 @@ static bool SDLCALL stream_close(void *userdata)
         }
         else
         {
-            old = file->data;
+            old_data = file->data;
+            old_size = file->size;
         }
         if (file != NULL)
         {
-            /* The archive owns the buffer from here on. */
             file->data = s->data;
             file->size = (Uint32) s->size;
-            s->data = NULL;
-            SDL_free(old);
             ok = store();
+            if (ok)
+            {
+                /* The archive owns the buffer from here on. */
+                s->data = NULL;
+                SDL_free(old_data);
+            }
+            else if (added)
+            {
+                /* Not stored, so the archive stays as the save file has
+                 * it and later saves still fit. */
+                file_count--;
+            }
+            else
+            {
+                file->data = old_data;
+                file->size = old_size;
+            }
         }
     }
     SDL_free(s->data);

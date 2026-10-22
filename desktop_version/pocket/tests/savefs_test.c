@@ -78,6 +78,15 @@ static SDL_EnumerationResult SDLCALL collect(void *userdata, const char *dirname
     return SDL_ENUM_CONTINUE;
 }
 
+/* Like the game's level-save reset: removes each file as it is listed. */
+static SDL_EnumerationResult SDLCALL remove_each(void *userdata, const char *dirname, const char *fname)
+{
+    char path[SAVEFS_NAME_LEN];
+    (*(int *) userdata)++;
+    SDL_snprintf(path, sizeof(path), "%s/%s", dirname, fname);
+    return SDL_RemovePath(path) ? SDL_ENUM_CONTINUE : SDL_ENUM_FAILURE;
+}
+
 static Listing list(const char *path)
 {
     Listing listing;
@@ -143,6 +152,36 @@ int main(void)
     CHECK(get("/saves/unlock.vvv", buf, sizeof(buf)) && strcmp(buf, "newer") == 0);
     listing = list("/saves");
     CHECK(listing.count == 1);
+
+    /* Removing files while listing them still visits every one. */
+    {
+        int visited = 0;
+        CHECK(put("/levels/a.vvvvvv.vvv", "wb", "a"));
+        CHECK(put("/levels/b.vvvvvv.vvv", "wb", "b"));
+        CHECK(put("/levels/c.vvvvvv.vvv", "wb", "c"));
+        CHECK(SDL_EnumerateDirectory("/levels", remove_each, &visited));
+        CHECK(visited == 3);
+        listing = list("/levels");
+        CHECK(listing.count == 0);
+    }
+
+    /* A file too big for the save file is refused, and leaves the archive
+     * as it was, so smaller saves still work. */
+    {
+        char *big = (char *) SDL_malloc(SAVEFS_MAX_BYTES + 1);
+        SDL_memset(big, 'x', SAVEFS_MAX_BYTES);
+        big[SAVEFS_MAX_BYTES] = '\0';
+        CHECK(!put("/screenshots/big.png", "wb", big));
+        CHECK(!SDL_GetPathInfo("/screenshots/big.png", &info));
+        CHECK(!put("/saves/unlock.vvv", "wb", big));
+        CHECK(get("/saves/unlock.vvv", buf, sizeof(buf)) && strcmp(buf, "newer") == 0);
+        SDL_free(big);
+        CHECK(put("/saves/qsave.vvv", "wb", "<quick/>"));
+        reboot();
+        CHECK(get("/saves/qsave.vvv", buf, sizeof(buf)) && strcmp(buf, "<quick/>") == 0);
+        CHECK(get("/saves/unlock.vvv", buf, sizeof(buf)) && strcmp(buf, "newer") == 0);
+        CHECK(SDL_RemovePath("/saves/qsave.vvv"));
+    }
 
     /* A save file that is not an archive (a fresh, blank slot) reads as
      * empty. */
