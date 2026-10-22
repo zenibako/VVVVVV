@@ -83,6 +83,12 @@ each presented frame is converted to the framebuffer's RGB565
 (`sdl3/video.c`). `sdl3/surface.c` covers the surfaces the game uses for
 image loading, collision masks and the bad signal filter.
 
+The game redraws the whole screen several times a frame, so the renderer
+holds clears back until it needs them, copies opaque layers as plain rows
+and skips the transparent runs of layers that are drawn again unchanged.
+Build with `make SHOW_FPS=1` (after `rm -rf build/obj`) to draw the frame
+rate in the top right corner.
+
 Two host builds check it against desktop SDL3 (`SDL3_PREFIX`):
 
 - `make render-test` draws the same steps with SDL3's own software

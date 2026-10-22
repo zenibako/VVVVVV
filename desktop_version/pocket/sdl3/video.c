@@ -10,6 +10,10 @@
 #include "of_video.h"
 #include "render_internal.h"
 
+#ifdef POCKET_SHOW_FPS
+#include "of_timer.h"
+#endif
+
 struct SDL_Window
 {
     bool created;
@@ -36,6 +40,59 @@ static void start_video(void)
     of_video_set_display_mode(OF_DISPLAY_FRAMEBUFFER);
 }
 
+#ifdef POCKET_SHOW_FPS
+/* Frames presented in the last second, drawn in the top right corner of
+ * the framebuffer in white 3x5 digits at twice their size. */
+static void draw_fps(Uint8 *fb, int stride)
+{
+    static const Uint16 digits[10] = {
+        075557, 026222, 071747, 071717, 055711, 074717, 074757, 071111, 075757, 075717
+    };
+    static Uint32 second_start;
+    static int frames;
+    static int shown;
+    const Uint32 now = of_time_ms();
+    frames++;
+    if (now - second_start >= 1000)
+    {
+        shown = frames;
+        frames = 0;
+        second_start = now;
+    }
+    const int x0 = POCKET_SCREEN_W - 2 - 3 * 8;
+    for (int y = 0; y < 14; y++)
+    {
+        Uint16 *row = (Uint16 *) (fb + (size_t) y * stride) + x0;
+        for (int x = 0; x < 3 * 8; x++)
+        {
+            row[x] = 0;
+        }
+    }
+    const int value = shown > 999 ? 999 : shown;
+    const int places[3] = {value / 100, value / 10 % 10, value % 10};
+    for (int d = 0; d < 3; d++)
+    {
+        const Uint16 glyph = digits[places[d]];
+        for (int gy = 0; gy < 5; gy++)
+        {
+            for (int gx = 0; gx < 3; gx++)
+            {
+                if (!(glyph >> ((4 - gy) * 3 + (2 - gx)) & 1))
+                {
+                    continue;
+                }
+                for (int py = 0; py < 2; py++)
+                {
+                    Uint16 *row = (Uint16 *) (fb + (size_t) (2 + gy * 2 + py) * stride);
+                    row[x0 + 1 + d * 8 + gx * 2] = 0xFFFF;
+                    row[x0 + 2 + d * 8 + gx * 2] = 0xFFFF;
+                }
+            }
+        }
+    }
+}
+#endif
+
 void POCKET_PresentFrame(const Uint32 *argb)
 {
     Uint8 *fb = of_video_surface();
@@ -54,6 +111,9 @@ void POCKET_PresentFrame(const Uint32 *argb)
             row[x >> 1] = c0 | (c1 << 16);
         }
     }
+#ifdef POCKET_SHOW_FPS
+    draw_fps(fb, stride);
+#endif
     of_video_flip();
 }
 

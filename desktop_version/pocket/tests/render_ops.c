@@ -208,6 +208,88 @@ static void targets(SDL_Renderer *renderer, SDL_Texture *sprite, Capture *captur
     SDL_DestroyTexture(layer);
 }
 
+/* One game frame as Render.cpp and Graphics.cpp draw it: a cached
+ * foreground layer copied over a filled background, the gameplay layer
+ * copied onto the game layer and the game layer onto the cleared window.
+ * Run twice, so the second frame uses whatever the first one cached. */
+static void frame(SDL_Renderer *renderer, SDL_Texture *sprite, SDL_Texture *foreground,
+                  SDL_Texture *gameplay, SDL_Texture *game, int number, Capture *capture)
+{
+    SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255);
+    SDL_RenderClear(renderer);
+
+    SDL_SetRenderTarget(renderer, gameplay);
+    SDL_SetRenderDrawBlendMode(renderer, SDL_BLENDMODE_BLEND);
+    SDL_SetRenderDrawColor(renderer, 0, 40, 40, 255);
+    SDL_RenderFillRect(renderer, NULL);
+    SDL_SetRenderDrawColor(renderer, 85, 85, 85, 255);
+    const SDL_FRect star = {(float) (40 + number * 7), 50, 2, 2};
+    SDL_RenderFillRect(renderer, &star);
+    SDL_RenderTexture(renderer, foreground, NULL, NULL);
+    SDL_SetTextureAlphaMod(foreground, 128);
+    const SDL_FRect shadow = {3, 2, 320, 240};
+    SDL_RenderTexture(renderer, foreground, NULL, &shadow);
+    SDL_SetTextureAlphaMod(foreground, 255);
+    SDL_SetTextureColorMod(sprite, 255, 120, 40);
+    draw_sprite(renderer, sprite, (float) (100 + number * 3), 120, 16, 16, SDL_FLIP_NONE);
+    SDL_SetTextureColorMod(sprite, 255, 255, 255);
+
+    SDL_SetRenderTarget(renderer, game);
+    SDL_RenderTexture(renderer, gameplay, NULL, NULL);
+    const SDL_FRect bar = {0, 0, 320, 16};
+    SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255);
+    SDL_RenderFillRect(renderer, &bar);
+
+    SDL_SetRenderTarget(renderer, NULL);
+    SDL_SetRenderDrawBlendMode(renderer, SDL_BLENDMODE_NONE);
+    SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255);
+    SDL_RenderClear(renderer);
+    SDL_RenderTextureRotated(renderer, game, NULL, NULL, 0, NULL, number ? SDL_FLIP_VERTICAL : SDL_FLIP_NONE);
+    capture_target(renderer, capture, number ? "second frame" : "first frame");
+}
+
+static void frames(SDL_Renderer *renderer, SDL_Texture *sprite, Capture *capture)
+{
+    SDL_Texture *foreground = SDL_CreateTexture(renderer, SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_TARGET, 320, 240);
+    SDL_Texture *gameplay = SDL_CreateTexture(renderer, SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_TARGET, 320, 240);
+    SDL_Texture *game = SDL_CreateTexture(renderer, SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_TARGET, 320, 240);
+
+    SDL_SetRenderTarget(renderer, foreground);
+    SDL_SetRenderDrawColor(renderer, 0, 0, 0, 0);
+    SDL_RenderClear(renderer);
+    for (int i = 0; i < 12; i++)
+    {
+        draw_sprite(renderer, sprite, (float) (i * 26), (float) (i * 19), 16, 16, SDL_FLIP_NONE);
+    }
+    SDL_SetRenderDrawBlendMode(renderer, SDL_BLENDMODE_NONE);
+    SDL_SetRenderDrawColor(renderer, 200, 30, 30, 255);
+    const SDL_FRect wall = {0, 224, 320, 16};
+    SDL_RenderFillRect(renderer, &wall);
+
+    frame(renderer, sprite, foreground, gameplay, game, 0, capture);
+    frame(renderer, sprite, foreground, gameplay, game, 1, capture);
+
+    /* A held back clear, then part of it drawn over. */
+    SDL_SetRenderTarget(renderer, foreground);
+    SDL_SetRenderDrawColor(renderer, 9, 8, 7, 100);
+    SDL_RenderClear(renderer);
+    draw_sprite(renderer, sprite, 50, 50, 32, 32, SDL_FLIP_HORIZONTAL);
+    capture_target(renderer, capture, "drawn after clear");
+    SDL_SetRenderTarget(renderer, game);
+    SDL_SetRenderDrawColor(renderer, 0, 0, 0, 0);
+    SDL_RenderClear(renderer);
+    SDL_SetRenderTarget(renderer, NULL);
+    SDL_SetRenderDrawColor(renderer, 20, 30, 40, 255);
+    SDL_RenderClear(renderer);
+    SDL_RenderTexture(renderer, foreground, NULL, NULL);
+    SDL_RenderTexture(renderer, game, NULL, NULL);
+    capture_target(renderer, capture, "translucent layers");
+
+    SDL_DestroyTexture(game);
+    SDL_DestroyTexture(gameplay);
+    SDL_DestroyTexture(foreground);
+}
+
 static void surfaces(Capture *capture)
 {
     SDL_Surface *source = SDL_CreateSurface(8, 8, SDL_PIXELFORMAT_ARGB8888);
@@ -256,6 +338,7 @@ void RENDER_OPS(SDL_Renderer *renderer, Capture *capture)
     primitives(renderer, capture);
     sprites(renderer, sprite, capture);
     targets(renderer, sprite, capture);
+    frames(renderer, sprite, capture);
     surfaces(capture);
     SDL_DestroyTexture(sprite);
 }

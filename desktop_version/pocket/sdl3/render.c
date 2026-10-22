@@ -7,7 +7,14 @@
  * converts it for the framebuffer.  Coordinates are truncated to whole
  * pixels as in SDL's own software renderer, and scaling is nearest
  * neighbour.  Rotation, viewports and clip rectangles are left out: the
- * game uses none of them. */
+ * game uses none of them.
+ *
+ * The game redraws the whole screen several times a frame, so the copies
+ * that matter skip work where the result is known: a clear is held back
+ * until something needs the pixels (and dropped when an opaque copy covers
+ * it), a texture known to be opaque blends as a plain row copy, and a
+ * texture copied more than once after it last changed keeps a list of its
+ * visible runs so its transparent pixels are never visited. */
 #include <SDL3/SDL.h>
 
 #include "render_internal.h"
@@ -20,7 +27,24 @@ typedef struct
     SDL_BlendMode blend;
     Uint8 mod_r, mod_g, mod_b, mod_a;
     SDL_PropertiesID props;
+
+    bool opaque;         /* every pixel's alpha is 255 */
+    bool clear_pending;  /* every pixel is clear_color, not yet written */
+    Uint32 clear_color;
+
+    /* Runs of visible pixels: row y's are runs[row_runs[y]] up to
+     * runs[row_runs[y + 1]], each {x, length, kind}. */
+    Uint16 *runs;
+    int *row_runs;
+    bool runs_valid;
+    int copies_since_change;
 } Texture;
+
+enum
+{
+    RUN_OPAQUE,
+    RUN_TRANSLUCENT
+};
 
 struct SDL_Renderer
 {
@@ -46,6 +70,131 @@ static Texture *texture_data(SDL_Texture *texture)
 static Texture *current_target(const SDL_Renderer *renderer)
 {
     return renderer->target ? renderer->target : &back_buffer;
+}
+
+/* Write the clear that was held back. */
+static void resolve_clear(Texture *t)
+{
+    if (!t->clear_pending)
+    {
+        return;
+    }
+    t->clear_pending = false;
+    const size_t count = (size_t) t->texture.w * t->texture.h;
+    const Uint32 color = t->clear_color;
+    for (size_t i = 0; i < count; i++)
+    {
+        t->pixels[i] = color;
+    }
+}
+
+/* Before t's pixels change: covers_all says every pixel is about to be
+ * replaced without being read, so a held back clear can be dropped. */
+static void begin_change(Texture *t, bool covers_all)
+{
+    if (covers_all)
+    {
+        t->clear_pending = false;
+    }
+    else
+    {
+        resolve_clear(t);
+    }
+    t->runs_valid = false;
+    t->copies_since_change = 0;
+}
+
+static bool all_opaque(const Uint32 *pixels, int w, int h, int pitch)
+{
+    for (int y = 0; y < h; y++)
+    {
+        const Uint32 *row = pixels + (size_t) y * pitch;
+        for (int x = 0; x < w; x++)
+        {
+            if ((row[x] >> 24) != 255)
+            {
+                return false;
+            }
+        }
+    }
+    return true;
+}
+
+static void free_runs(Texture *t)
+{
+    SDL_free(t->runs);
+    SDL_free(t->row_runs);
+    t->runs = NULL;
+    t->row_runs = NULL;
+    t->runs_valid = false;
+}
+
+static int run_kind(Uint32 pixel)
+{
+    const Uint32 a = pixel >> 24;
+    return a == 0 ? -1 : a == 255 ? RUN_OPAQUE : RUN_TRANSLUCENT;
+}
+
+static bool build_runs(Texture *t)
+{
+    const int w = t->texture.w;
+    const int h = t->texture.h;
+    int count = 0;
+    for (int y = 0; y < h; y++)
+    {
+        const Uint32 *row = t->pixels + (size_t) y * w;
+        int kind = -1;
+        for (int x = 0; x < w; x++)
+        {
+            const int k = run_kind(row[x]);
+            if (k != kind && k >= 0)
+            {
+                count++;
+            }
+            kind = k;
+        }
+    }
+    Uint16 *runs = (Uint16 *) SDL_realloc(t->runs, sizeof(Uint16) * 3 * (count ? count : 1));
+    if (runs == NULL)
+    {
+        return false;
+    }
+    t->runs = runs;
+    if (t->row_runs == NULL)
+    {
+        t->row_runs = (int *) SDL_malloc(sizeof(int) * (h + 1));
+        if (t->row_runs == NULL)
+        {
+            return false;
+        }
+    }
+    int n = 0;
+    for (int y = 0; y < h; y++)
+    {
+        const Uint32 *row = t->pixels + (size_t) y * w;
+        t->row_runs[y] = n;
+        int x = 0;
+        while (x < w)
+        {
+            const int kind = run_kind(row[x]);
+            int end = x + 1;
+            while (end < w && run_kind(row[end]) == kind)
+            {
+                end++;
+            }
+            if (kind >= 0)
+            {
+                runs[n * 3] = (Uint16) x;
+                runs[n * 3 + 1] = (Uint16) (end - x);
+                runs[n * 3 + 2] = (Uint16) kind;
+                n++;
+            }
+            x = end;
+        }
+    }
+    t->row_runs[h] = n;
+    t->runs_valid = true;
+    return true;
 }
 
 static bool check_renderer(const SDL_Renderer *renderer)
@@ -214,13 +363,15 @@ SDL_Texture *SDL_CreateTextureFromSurface(SDL_Renderer *renderer, SDL_Surface *s
         return NULL;
     }
     SDL_BlendMode blend;
-    if (!POCKET_SurfaceToARGB(surface, texture_data(texture)->pixels)
+    Texture *t = texture_data(texture);
+    if (!POCKET_SurfaceToARGB(surface, t->pixels)
         || !SDL_GetSurfaceBlendMode(surface, &blend))
     {
         SDL_DestroyTexture(texture);
         return NULL;
     }
-    texture_data(texture)->blend = blend;
+    t->blend = blend;
+    t->opaque = all_opaque(t->pixels, surface->w, surface->h, surface->w);
     return texture;
 }
 
@@ -239,6 +390,7 @@ void SDL_DestroyTexture(SDL_Texture *texture)
     {
         property_owners[t->props - 1] = NULL;
     }
+    free_runs(t);
     SDL_free(t->pixels);
     SDL_free(t);
 }
@@ -382,11 +534,15 @@ bool SDL_UpdateTexture(SDL_Texture *texture, const SDL_Rect *rect, const void *p
     {
         return true;
     }
+    const bool covers_all = r.w == t->texture.w && r.h == t->texture.h;
+    begin_change(t, covers_all);
     for (int y = 0; y < r.h; y++)
     {
         SDL_memcpy(t->pixels + (size_t) (r.y + y) * t->texture.w + r.x,
                    (const Uint8 *) pixels + (size_t) y * pitch, (size_t) r.w * 4);
     }
+    const bool opaque = all_opaque(t->pixels + (size_t) r.y * t->texture.w + r.x, r.w, r.h, t->texture.w);
+    t->opaque = opaque && (covers_all || t->opaque);
     return true;
 }
 
@@ -490,6 +646,20 @@ static void fill(Texture *target, const SDL_Rect *rect, Uint8 r, Uint8 g, Uint8 
     {
         return;
     }
+    const bool covers_all = clipped.w == target->texture.w && clipped.h == target->texture.h;
+    begin_change(target, opaque && covers_all);
+    if (opaque)
+    {
+        /* Blending keeps an opaque target opaque; the rest keep its alpha. */
+        if (a == 255 && covers_all)
+        {
+            target->opaque = true;
+        }
+        else if (a != 255)
+        {
+            target->opaque = false;
+        }
+    }
     for (int y = clipped.y; y < clipped.y + clipped.h; y++)
     {
         Uint32 *row = target->pixels + (size_t) y * target->texture.w + clipped.x;
@@ -533,8 +703,10 @@ bool SDL_RenderClear(SDL_Renderer *renderer)
         return false;
     }
     Texture *target = current_target(renderer);
-    const SDL_Rect all = {0, 0, target->texture.w, target->texture.h};
-    fill(target, &all, renderer->r, renderer->g, renderer->b, renderer->a, SDL_BLENDMODE_NONE);
+    begin_change(target, true);
+    target->clear_pending = true;
+    target->clear_color = ((Uint32) renderer->a << 24) | ((Uint32) renderer->r << 16) | ((Uint32) renderer->g << 8) | renderer->b;
+    target->opaque = renderer->a == 255;
     return true;
 }
 
@@ -639,6 +811,63 @@ bool SDL_RenderPoints(SDL_Renderer *renderer, const SDL_FPoint *points, int coun
     return true;
 }
 
+/* One source pixel onto one destination pixel, with the source's colour
+ * and alpha mods and blend mode. */
+static inline void copy_pixel(Uint32 *d, Uint32 s, const Texture *src, bool modulated)
+{
+    const SDL_BlendMode blend = src->blend;
+    Uint32 a = s >> 24;
+    if (!modulated)
+    {
+        if (blend == SDL_BLENDMODE_NONE || (blend == SDL_BLENDMODE_BLEND && a == 255))
+        {
+            *d = s;
+            return;
+        }
+        if (a == 0 && (blend == SDL_BLENDMODE_BLEND || blend == SDL_BLENDMODE_ADD))
+        {
+            return;
+        }
+        *d = blend_pixel((s >> 16) & 0xFF, (s >> 8) & 0xFF, s & 0xFF, a, *d, blend);
+        return;
+    }
+    Uint32 r = (s >> 16) & 0xFF;
+    Uint32 g = (s >> 8) & 0xFF;
+    Uint32 b = s & 0xFF;
+    if (src->mod_r != 255)
+    {
+        r = POCKET_Div255(r * src->mod_r);
+    }
+    if (src->mod_g != 255)
+    {
+        g = POCKET_Div255(g * src->mod_g);
+    }
+    if (src->mod_b != 255)
+    {
+        b = POCKET_Div255(b * src->mod_b);
+    }
+    if (src->mod_a != 255)
+    {
+        a = POCKET_Div255(a * src->mod_a);
+    }
+    if (blend == SDL_BLENDMODE_NONE)
+    {
+        *d = (a << 24) | (r << 16) | (g << 8) | b;
+    }
+    else if (blend != SDL_BLENDMODE_BLEND || a != 0)
+    {
+        *d = blend_pixel(r, g, b, a, *d, blend);
+    }
+}
+
+static void copy_span(Uint32 *d, const Uint32 *s, int count, const Texture *src, bool modulated)
+{
+    for (int i = 0; i < count; i++)
+    {
+        copy_pixel(d + i, s[i], src, modulated);
+    }
+}
+
 /* Source x for each destination column of the current copy. */
 static int *column_map;
 static int column_map_size;
@@ -710,6 +939,38 @@ static bool copy_texture(SDL_Renderer *renderer, Texture *src, const SDL_FRect *
     const bool modulated = (mr & mg & mb & ma) != 255;
     const SDL_BlendMode blend = src->blend;
 
+    resolve_clear(src);
+    /* Copying an opaque texture with blending gives its pixels unchanged. */
+    const bool replaces = blend == SDL_BLENDMODE_NONE
+        || (blend == SDL_BLENDMODE_BLEND && src->opaque && ma == 255);
+    const bool covers_all = clip.w == dst->texture.w && clip.h == dst->texture.h;
+    begin_change(dst, replaces && covers_all);
+    if (replaces)
+    {
+        if (src->opaque && ma == 255)
+        {
+            dst->opaque = dst->opaque || covers_all;
+        }
+        else
+        {
+            dst->opaque = false;
+        }
+    }
+    const bool raw = !modulated && replaces && contiguous;
+
+    /* Transparent pixels change nothing when blending or adding; skip them
+     * by run once a texture is drawn more than once unchanged. */
+    const bool skips_clear = blend == SDL_BLENDMODE_BLEND || blend == SDL_BLENDMODE_ADD;
+    if (!raw && skips_clear && contiguous && !src->runs_valid && src->copies_since_change > 0)
+    {
+        build_runs(src);
+    }
+    if (src->copies_since_change < 2)
+    {
+        src->copies_since_change++;
+    }
+    const bool by_runs = !raw && skips_clear && contiguous && src->runs_valid;
+
     for (int y = clip.y; y < clip.y + clip.h; y++)
     {
         int v = y - dr.y;
@@ -720,58 +981,45 @@ static bool copy_texture(SDL_Renderer *renderer, Texture *src, const SDL_FRect *
         const int sy = sr.y + POCKET_NearestStep(v, sr.h, dr.h);
         const Uint32 *srow = src->pixels + (size_t) sy * src->texture.w;
         Uint32 *drow = dst->pixels + (size_t) y * dst->texture.w + clip.x;
-        const Uint32 *first = srow + sr.x + (clip.x - dr.x);
+        const int sx0 = sr.x + (clip.x - dr.x);
+        const Uint32 *first = srow + sx0;
 
-        if (!modulated && blend == SDL_BLENDMODE_NONE && contiguous)
+        if (raw)
         {
             SDL_memcpy(drow, first, (size_t) clip.w * 4);
             continue;
         }
+        if (by_runs)
+        {
+            const Uint16 *run = src->runs + (size_t) src->row_runs[sy] * 3;
+            const Uint16 *last = src->runs + (size_t) src->row_runs[sy + 1] * 3;
+            for (; run < last; run += 3)
+            {
+                const int from = SDL_max((int) run[0], sx0);
+                const int to = SDL_min((int) run[0] + run[1], sx0 + clip.w);
+                if (from >= to)
+                {
+                    continue;
+                }
+                if (run[2] == RUN_OPAQUE && !modulated && blend == SDL_BLENDMODE_BLEND)
+                {
+                    SDL_memcpy(drow + (from - sx0), srow + from, (size_t) (to - from) * 4);
+                }
+                else
+                {
+                    copy_span(drow + (from - sx0), srow + from, to - from, src, modulated);
+                }
+            }
+            continue;
+        }
+        if (contiguous)
+        {
+            copy_span(drow, first, clip.w, src, modulated);
+            continue;
+        }
         for (int i = 0; i < clip.w; i++)
         {
-            const Uint32 s = contiguous ? first[i] : srow[column_map[i]];
-            Uint32 a = s >> 24;
-            if (!modulated)
-            {
-                if (blend == SDL_BLENDMODE_NONE || (blend == SDL_BLENDMODE_BLEND && a == 255))
-                {
-                    drow[i] = s;
-                    continue;
-                }
-                if (a == 0 && (blend == SDL_BLENDMODE_BLEND || blend == SDL_BLENDMODE_ADD))
-                {
-                    continue;
-                }
-                drow[i] = blend_pixel((s >> 16) & 0xFF, (s >> 8) & 0xFF, s & 0xFF, a, drow[i], blend);
-                continue;
-            }
-            Uint32 r = (s >> 16) & 0xFF;
-            Uint32 g = (s >> 8) & 0xFF;
-            Uint32 b = s & 0xFF;
-            if (mr != 255)
-            {
-                r = POCKET_Div255(r * mr);
-            }
-            if (mg != 255)
-            {
-                g = POCKET_Div255(g * mg);
-            }
-            if (mb != 255)
-            {
-                b = POCKET_Div255(b * mb);
-            }
-            if (ma != 255)
-            {
-                a = POCKET_Div255(a * ma);
-            }
-            if (blend == SDL_BLENDMODE_NONE)
-            {
-                drow[i] = (a << 24) | (r << 16) | (g << 8) | b;
-            }
-            else if (blend != SDL_BLENDMODE_BLEND || a != 0)
-            {
-                drow[i] = blend_pixel(r, g, b, a, drow[i], blend);
-            }
+            copy_pixel(drow + i, srow[column_map[i]], src, modulated);
         }
     }
     return true;
@@ -806,7 +1054,8 @@ SDL_Surface *SDL_RenderReadPixels(SDL_Renderer *renderer, const SDL_Rect *rect)
     {
         return NULL;
     }
-    const Texture *target = current_target(renderer);
+    Texture *target = current_target(renderer);
+    resolve_clear(target);
     const SDL_Rect bounds = {0, 0, target->texture.w, target->texture.h};
     SDL_Rect r = bounds;
     if (rect != NULL && !POCKET_IntersectRect(rect, &bounds, &r))
@@ -833,6 +1082,7 @@ bool SDL_RenderPresent(SDL_Renderer *renderer)
     {
         return false;
     }
+    resolve_clear(&back_buffer);
     POCKET_PresentFrame(back_pixels);
     return true;
 }

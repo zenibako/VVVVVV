@@ -66,6 +66,10 @@ POCKET_DEFS := -DVVV_POCKET -D_GNU_SOURCE \
 	-DPHYSFS_SUPPORTS_DEFAULT=0 -DPHYSFS_SUPPORTS_ZIP=1 \
 	-DPHYSFS_PLATFORM_SDL3=1 \
 	-DSB_CONFIG_UNITY
+# SHOW_FPS=1 draws the presented frame rate in the top right corner.
+ifeq ($(SHOW_FPS),1)
+POCKET_DEFS += -DPOCKET_SHOW_FPS
+endif
 POCKET_INCLUDES := -I$(POCKET_ROOT)/include -I$(SDL3_ROOT)/include \
 	-I$(THIRD_PARTY)/tinyxml2 -I$(THIRD_PARTY)/physfs/src \
 	-I$(THIRD_PARTY)/physfs/extras -I$(THIRD_PARTY)/lodepng \
