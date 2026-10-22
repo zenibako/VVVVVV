@@ -142,11 +142,11 @@ bool SDL_PollEvent(SDL_Event *event)
         drained = 1;
     }
 
+    /* A NULL event only asks whether one is waiting, and leaves it. */
     if (event != NULL)
     {
-        *event = queue[queue_pos];
+        *event = queue[queue_pos++];
     }
-    queue_pos++;
     return true;
 }
 

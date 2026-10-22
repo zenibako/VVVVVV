@@ -28,6 +28,7 @@ static void reboot(void)
     file_count = 0;
     made_dir_count = 0;
     loaded = 0;
+    load_failed = false;
 }
 
 static bool put(const char *path, const char *mode, const char *text)
@@ -188,14 +189,38 @@ int main(void)
     {
         FILE *f = fopen(POCKET_SAVE_FILE, "wb");
         static const char zeros[64];
-        fwrite(zeros, 1, sizeof(zeros), f);
-        fclose(f);
+        CHECK(f != NULL);
+        if (f != NULL)
+        {
+            fwrite(zeros, 1, sizeof(zeros), f);
+            fclose(f);
+        }
     }
     reboot();
     CHECK(!get("/saves/unlock.vvv", buf, sizeof(buf)));
     CHECK(put("/saves/unlock.vvv", "wb", "again"));
     reboot();
     CHECK(get("/saves/unlock.vvv", buf, sizeof(buf)) && strcmp(buf, "again") == 0);
+
+    /* Save data that could not be read is not written over. */
+    {
+        const SaveHeader header = {SAVEFS_MAGIC, 1, 1000, 0};
+        FILE *f = fopen(POCKET_SAVE_FILE, "wb");
+        CHECK(f != NULL);
+        if (f != NULL)
+        {
+            fwrite(&header, 1, sizeof(header), f);
+            fclose(f);
+        }
+        reboot();
+        CHECK(!put("/saves/settings.vvv", "wb", "<settings/>"));
+        f = fopen(POCKET_SAVE_FILE, "rb");
+        CHECK(f != NULL && fseek(f, 0, SEEK_END) == 0 && ftell(f) == (long) sizeof(header));
+        if (f != NULL)
+        {
+            fclose(f);
+        }
+    }
 
     remove(POCKET_SAVE_FILE);
     if (failures != 0)

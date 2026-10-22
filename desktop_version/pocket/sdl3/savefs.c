@@ -53,6 +53,9 @@ static const char *const roots[] = {"saves", "levels", "screenshots"};
 static SaveFile files[SAVEFS_MAX_FILES];
 static Uint32 file_count;
 static int loaded;
+/* Set when save data was there but could not all be read: storing then
+ * would write over the saves that were left out. */
+static bool load_failed;
 
 /* Directories the game created that hold no files yet (screenshots/1x).
  * They are not stored; files imply their own directories. */
@@ -161,6 +164,7 @@ static void load(void)
         fread(archive, 1, header.total_bytes, slot) != header.total_bytes)
     {
         printf("Saves: could not read the save file\n");
+        load_failed = true;
         SDL_free(archive);
         fclose(slot);
         return;
@@ -181,6 +185,8 @@ static void load(void)
         file->data = (Uint8 *) SDL_malloc(entry->size + 1);
         if (file->data == NULL)
         {
+            printf("Saves: out of memory reading the save file\n");
+            load_failed = true;
             break;
         }
         SDL_memcpy(file->name, entry->name, SAVEFS_NAME_LEN);
@@ -204,6 +210,10 @@ static bool store(void)
     FILE *slot;
     bool ok;
 
+    if (load_failed)
+    {
+        return SDL_SetError("Saves: the save file could not be read, so it is not written over");
+    }
     for (i = 0; i < file_count; i++)
     {
         total += files[i].size;
