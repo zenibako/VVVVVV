@@ -42,4 +42,5 @@ and UBSan.
 
 `make host SDL3_PREFIX=<prefix>` builds the game for your computer with the
 same compat headers, on desktop SDL3 and FAudio. Use it to debug game logic
-off the device: run `build/host/vvvvvv -basedir <folder with data.zip>/`.
+off the device: run `build/host/vvvvvv -assets <path to data.zip>`. Saves
+go to your desktop VVVVVV folder unless you also pass `-basedir <folder>/`.
