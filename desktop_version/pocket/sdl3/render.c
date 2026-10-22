@@ -27,15 +27,17 @@
 #include "of_timer.h"
 Uint32 POCKET_render_us;
 /* Microseconds in held back clears, row copies, copies by run, pixel by
- * pixel copies, fills and building runs. */
+ * pixel copies, fills and building runs. Each timer read is a call into
+ * the OS, so a draw is timed once, around its pixel work; the render
+ * total is the sum of the parts. */
 Uint32 POCKET_render_part_us[6];
-#define PROFILE_BEGIN() const Uint32 profile_start = of_time_us()
-#define PROFILE_END() (POCKET_render_us += of_time_us() - profile_start)
 #define PART_BEGIN() const Uint32 part_start = of_time_us()
-#define PART_END(part) (POCKET_render_part_us[part] += of_time_us() - part_start)
+#define PART_END(part) do { \
+        const Uint32 part_time = of_time_us() - part_start; \
+        POCKET_render_part_us[part] += part_time; \
+        POCKET_render_us += part_time; \
+    } while (0)
 #else
-#define PROFILE_BEGIN() ((void) 0)
-#define PROFILE_END() ((void) 0)
 #define PART_BEGIN() ((void) 0)
 #define PART_END(part) ((void) 0)
 #endif
@@ -889,11 +891,9 @@ static void fill_rect(Texture *target, const SDL_Rect *rect, Uint8 r, Uint8 g, U
 
 static void fill(Texture *target, const SDL_Rect *rect, Uint8 r, Uint8 g, Uint8 b, Uint8 a, SDL_BlendMode blend)
 {
-    PROFILE_BEGIN();
     PART_BEGIN();
     fill_rect(target, rect, r, g, b, a, blend);
     PART_END(4);
-    PROFILE_END();
 }
 
 static void draw_point(SDL_Renderer *renderer, int x, int y)
@@ -1248,10 +1248,13 @@ static bool copy_rows(SDL_Renderer *renderer, Texture *src, const SDL_FRect *src
     }
 
     /* Transparent pixels change nothing when blending or adding; skip them
-     * by run once a texture is drawn more than once unchanged. */
+     * by run once a texture is drawn more than once unchanged. Building
+     * runs also keeps an RGB565 copy, which raw copies onto RGB565 use. */
     const bool skips_clear = (blend == SDL_BLENDMODE_BLEND || blend == SDL_BLENDMODE_ADD)
         && src->pixels565 == NULL;
-    if (!raw && skips_clear && contiguous && !src->runs_valid && src->copies_since_change > 0)
+    const bool wants_runs = contiguous && src->pixels565 == NULL
+        && (raw ? dst->pixels565 != NULL : skips_clear);
+    if (wants_runs && !src->runs_valid && src->copies_since_change > 0)
     {
         PART_BEGIN();
         build_runs(src);
@@ -1291,6 +1294,12 @@ static bool copy_rows(SDL_Renderer *renderer, Texture *src, const SDL_FRect *src
                 src_line[i] = POCKET_FromRGB565(row[i]);
             }
             srow = src_line;
+        }
+        else if (raw && dst->pixels565 != NULL && src->runs_valid && src->runs565 != NULL)
+        {
+            SDL_memcpy(dst->pixels565 + (size_t) y * dst->pitch565 + clip.x,
+                src->runs565 + (size_t) sy * src->texture.w + sx0, (size_t) clip.w * 2);
+            continue;
         }
         else
         {
@@ -1398,10 +1407,7 @@ static bool copy_rows(SDL_Renderer *renderer, Texture *src, const SDL_FRect *src
 
 static bool copy_texture(SDL_Renderer *renderer, Texture *src, const SDL_FRect *srcrect, const SDL_FRect *dstrect, SDL_FlipMode flip)
 {
-    PROFILE_BEGIN();
-    const bool ok = copy_rows(renderer, src, srcrect, dstrect, flip);
-    PROFILE_END();
-    return ok;
+    return copy_rows(renderer, src, srcrect, dstrect, flip);
 }
 
 bool SDL_RenderTexture(SDL_Renderer *renderer, SDL_Texture *texture, const SDL_FRect *srcrect, const SDL_FRect *dstrect)
@@ -1472,11 +1478,7 @@ bool SDL_RenderPresent(SDL_Renderer *renderer)
     {
         return false;
     }
-    {
-        PROFILE_BEGIN();
-        resolve_clear(&back_buffer);
-        PROFILE_END();
-    }
+    resolve_clear(&back_buffer);
     POCKET_PresentFrame();
     back_buffer.pixels565 = POCKET_FrameBuffer(&back_buffer.pitch565);
     return true;
