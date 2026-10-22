@@ -309,6 +309,25 @@ int FILESYSTEM_init(char *argvZero, char* baseDir, char *assetsPath, char* langD
 
     PHYSFS_File* dataZip = PHYSFS_openRead("/apk/assets/data.zip");
     if (!dataZip || !PHYSFS_mountHandle(dataZip, "data.zip", NULL, 1))
+#elif defined(VVV_POCKET)
+    /* openfpgaOS has no directories, only data slots: the fonts and lang
+     * folders come zipped as in the Android build's repo.zip. */
+    SDL_snprintf(output, sizeof(output), "%s%s", basePath, "vvvvvv-repo.zip");
+    if (PHYSFS_mount(output, NULL, 1))
+    {
+        doesLangDirExist = true;
+        doesFontsDirExist = true;
+    }
+
+    if (assetsPath)
+    {
+        SDL_strlcpy(output, assetsPath, sizeof(output));
+    }
+    else
+    {
+        SDL_snprintf(output, sizeof(output), "%s%s", basePath, "data.zip");
+    }
+    if (!PHYSFS_mount(output, NULL, 1))
 #else
     doesLangDirExist = mount_pre_datazip(mainLangDir, "lang", "lang/", langDir);
     vlog_info("Languages directory: %s", mainLangDir);

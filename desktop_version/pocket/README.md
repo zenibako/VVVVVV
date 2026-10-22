@@ -15,7 +15,8 @@ No game data is included. You need your own `data.zip`.
 | Path | What |
 |---|---|
 | `Makefile` | Device build (`build/app.elf`), the host build and tests |
-| `scripts/fetch-deps.sh` | Fetches the pinned openfpgaOS SDK and SDL3 headers into `.deps/` |
+| `scripts/fetch-deps.sh` | Fetches the pinned openfpgaOS SDK, runtime and SDL3 headers into `.deps/` |
+| `dist/`, `scripts/package.sh` | The Pocket core definition and the SD card packaging |
 | `compat/cxx/` | The small part of the C++ standard library the game uses (`string`, `vector`, `map`, `ostringstream`). The SDK has no C++ library. |
 | `sdl3/` | The SDL3 calls the game makes, implemented on openfpgaOS (input, files, the save archive, surfaces and the software renderer) |
 | `host/` | Shows the port's renderer in a desktop window for `make host-render` |
@@ -38,6 +39,13 @@ By default `make` compiles in the SDK's `openfpgaos-firmware` container, as
 the other openfpgaOS ports do. `USE_SDK_CONTAINER=0` uses a host
 `riscv64-unknown-elf-gcc` instead. On Ubuntu 24.04 the container's packages
 are `gcc-riscv64-unknown-elf` and `picolibc-riscv64-unknown-elf`.
+
+`make package` assembles the SD card tree in `build/sd`: the core
+(`dist/`), the pinned openfpgaOS runtime, the app, and the game's fonts and
+lang folders zipped as `vvvvvv-repo.zip`, laid out like the Android build's
+`repo.zip` because openfpgaOS has no directories. Copy it to the root of
+the card and add your `data.zip` as `Assets/vvvvvv/common/data.zip`. For
+now the Chinese, Japanese and Korean fonts are left out to save memory.
 
 `make test` runs the compat-header and save-archive checks on the host with
 AddressSanitizer and UBSan.

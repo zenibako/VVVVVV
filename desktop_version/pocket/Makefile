@@ -3,6 +3,7 @@
 #   make deps        fetch the pinned SDK and SDL3 headers into .deps
 #   make             build build/app.elf (in the SDK container by default;
 #                    USE_SDK_CONTAINER=0 uses a host riscv64-unknown-elf gcc)
+#   make package     assemble the SD card tree in build/sd (no game data)
 #   make test        build and run the host checks for the compat headers
 #   make host        build the game for this computer with the same compat
 #                    headers, on desktop SDL3 (SDL3_PREFIX), to debug the
@@ -97,6 +98,10 @@ all: $(BUILD_DIR)/app.elf
 
 deps:
 	bash $(POCKET_ROOT)/scripts/fetch-deps.sh
+
+# The SD card tree in build/sd, without game data.
+package: $(BUILD_DIR)/app.elf
+	bash $(POCKET_ROOT)/scripts/package.sh
 
 # The game's button fonts with Pocket glyphs added; the output is committed.
 button-fonts:
@@ -243,4 +248,4 @@ host-render: $(HOST_RENDER_BIN)
 clean: sdk-clean
 	rm -rf $(BUILD_DIR)
 
-.PHONY: all deps button-fonts test host render-test host-render clean
+.PHONY: all deps package button-fonts test host render-test host-render clean

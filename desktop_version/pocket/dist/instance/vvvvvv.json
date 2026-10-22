@@ -1,0 +1,21 @@
+{
+    "instance": {
+        "magic": "APF_VER_1",
+        "variant_select": {
+            "id": 666,
+            "select": false
+        },
+        "core_select": {
+            "id": 0,
+            "select": false
+        },
+        "data_slots": [
+            { "id": 1, "filename": "os.bin" },
+            { "id": 2, "filename": "vvvvvv.ini" },
+            { "id": 3, "filename": "vvvvvv.elf" },
+            { "id": 4, "filename": "data.zip" },
+            { "id": 5, "filename": "vvvvvv-repo.zip" },
+            { "id": 10, "filename": "vvvvvv.sav" }
+        ]
+    }
+}

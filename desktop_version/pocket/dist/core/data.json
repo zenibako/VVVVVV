@@ -1,0 +1,64 @@
+{
+    "data": {
+        "magic": "APF_VER_1",
+        "data_slots": [
+            {
+                "id": 0,
+                "name": "Game",
+                "required": true,
+                "filename": "vvvvvv.json",
+                "parameters": 275
+            },
+            {
+                "id": 1,
+                "name": "OS Binary",
+                "required": true,
+                "parameters": 0,
+                "filename": "os.bin",
+                "deferload": true
+            },
+            {
+                "id": 2,
+                "name": "OS Config",
+                "required": true,
+                "parameters": 0,
+                "filename": "vvvvvv.ini",
+                "deferload": true
+            },
+            {
+                "id": 3,
+                "name": "Application",
+                "required": true,
+                "parameters": 0,
+                "filename": "vvvvvv.elf",
+                "deferload": true
+            },
+            {
+                "id": 4,
+                "name": "Game Data",
+                "required": true,
+                "parameters": 0,
+                "filename": "data.zip",
+                "deferload": true
+            },
+            {
+                "id": 5,
+                "name": "Fonts and Languages",
+                "required": true,
+                "parameters": 0,
+                "filename": "vvvvvv-repo.zip",
+                "deferload": true
+            },
+            {
+                "id": 10,
+                "name": "Save",
+                "required": false,
+                "parameters": "0x84",
+                "nonvolatile": true,
+                "address": "0x20100000",
+                "size_maximum": "0x40000",
+                "extensions": ["sav"]
+            }
+        ]
+    }
+}

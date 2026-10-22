@@ -24,6 +24,17 @@ FORK_PATHS=(src/firmware/api)
 SDL_URL="https://github.com/libsdl-org/SDL.git"
 SDL_COMMIT="829a65d769d935c4852f8159e964312c0957260a" # release-3.4.18
 SDL_PATHS=(include LICENSE.txt)
+# The Pocket runtime published from the fork commit, as pico8pocket uses.
+# The loader, OS and bitstream must come from the same build: the bitstream
+# holds the OS's .fasttext and the bootloader as well as the FPGA logic.
+RUNTIME_DIR="$DEPS_DIR/pocket-runtime"
+RUNTIME_URL="https://github.com/zenibako/openfpgaCore/releases/download/pocket-runtime-a58aacd"
+RUNTIME_FILES=(os20.rbf_r os.bin loader.bin)
+RUNTIME_SHA256=(
+    "92c0dbbd372e5d0879fdf05b52ecab9891d2bead66fb8e2c24b63ecd23524e87"
+    "d845160d123754a01854dadac6c78dca2e180aefc2711789d3ff32cbab47fc0e"
+    "fc1f8d37eb0fb322006b4428f0b59d2801c9b74978bd3f24103f5f9bbfca3c99"
+)
 
 # Shallow, blobless, sparse checkout of a pinned revision.
 fetch_sparse() {
@@ -56,6 +67,34 @@ fetch_sparse() {
     git -C "$staging" checkout -q --detach "$commit"
     mv "$staging" "$destination"
     echo "$name: checked out $commit"
+}
+
+sha256_of() {
+    if command -v sha256sum >/dev/null; then
+        sha256sum "$1" | awk '{print $1}'
+    else
+        shasum -a 256 "$1" | awk '{print $1}'
+    fi
+}
+
+# Download each runtime file once and check it against its pin.
+fetch_runtime() {
+    local i file
+    mkdir -p "$RUNTIME_DIR"
+    for i in "${!RUNTIME_FILES[@]}"; do
+        file="${RUNTIME_FILES[$i]}"
+        if [[ -f "$RUNTIME_DIR/$file" && "$(sha256_of "$RUNTIME_DIR/$file")" == "${RUNTIME_SHA256[$i]}" ]]; then
+            continue
+        fi
+        curl -fsSL -o "$RUNTIME_DIR/$file.partial" "$RUNTIME_URL/$file"
+        if [[ "$(sha256_of "$RUNTIME_DIR/$file.partial")" != "${RUNTIME_SHA256[$i]}" ]]; then
+            echo "Pocket runtime $file does not match its pinned checksum" >&2
+            rm -f "$RUNTIME_DIR/$file.partial"
+            return 1
+        fi
+        mv "$RUNTIME_DIR/$file.partial" "$RUNTIME_DIR/$file"
+        echo "Pocket runtime: downloaded $file"
+    done
 }
 
 # Assemble the SDK the build uses.  Rebuilt from scratch whenever a pin
@@ -91,3 +130,4 @@ fetch_sparse "openfpgaOS fork API" "$FORK_URL" "$FORK_COMMIT" \
 fetch_sparse "SDL3 headers" "$SDL_URL" "$SDL_COMMIT" \
     "$SDL_DIR" "${SDL_PATHS[@]/#//}"
 stage_sdk
+fetch_runtime
