@@ -1,0 +1,4 @@
+/.deps/
+/build/
+# desktop_version/.gitignore ignores CMake-generated Makefiles; this one is source.
+!/Makefile

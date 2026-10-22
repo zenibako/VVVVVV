@@ -1,0 +1,7 @@
+/* <climits> for the Pocket build: the C header; names stay global. */
+#ifndef VVV_COMPAT_CLIMITS
+#define VVV_COMPAT_CLIMITS
+
+#include <limits.h>
+
+#endif

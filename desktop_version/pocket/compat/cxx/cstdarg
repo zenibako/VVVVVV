@@ -1,0 +1,7 @@
+/* <cstdarg> for the Pocket build: the C header; names stay global. */
+#ifndef VVV_COMPAT_CSTDARG
+#define VVV_COMPAT_CSTDARG
+
+#include <stdarg.h>
+
+#endif

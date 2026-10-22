@@ -1,0 +1,38 @@
+/* Minimal <utility> for the Pocket build (C++98 subset). */
+#ifndef VVV_COMPAT_UTILITY
+#define VVV_COMPAT_UTILITY
+
+namespace std {
+
+template<typename T>
+inline void swap(T &left, T &right)
+{
+    T tmp(left);
+    left = right;
+    right = tmp;
+}
+
+template<typename A, typename B>
+struct pair
+{
+    typedef A first_type;
+    typedef B second_type;
+
+    A first;
+    B second;
+
+    pair() : first(), second() {}
+    pair(const A &a, const B &b) : first(a), second(b) {}
+    template<typename C, typename D>
+    pair(const pair<C, D> &other) : first(other.first), second(other.second) {}
+};
+
+template<typename A, typename B>
+inline pair<A, B> make_pair(const A &a, const B &b)
+{
+    return pair<A, B>(a, b);
+}
+
+}
+
+#endif

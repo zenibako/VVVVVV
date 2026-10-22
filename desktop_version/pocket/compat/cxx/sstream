@@ -1,0 +1,42 @@
+/* Minimal std::ostringstream for the Pocket build: VVVVVV only formats an
+ * int with it (UtilityClass::String). */
+#ifndef VVV_COMPAT_SSTREAM
+#define VVV_COMPAT_SSTREAM
+
+#include <stdio.h>
+#include <string>
+
+namespace std {
+
+class ostringstream
+{
+public:
+    ostringstream &operator<<(int value)
+    {
+        char text[16];
+        snprintf(text, sizeof(text), "%d", value);
+        contents += text;
+        return *this;
+    }
+
+    ostringstream &operator<<(const char *text)
+    {
+        contents += text;
+        return *this;
+    }
+
+    ostringstream &operator<<(const string &text)
+    {
+        contents += text;
+        return *this;
+    }
+
+    string str() const { return contents; }
+
+private:
+    string contents;
+};
+
+}
+
+#endif
