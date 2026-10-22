@@ -86,8 +86,9 @@ image loading, collision masks and the bad signal filter.
 The game redraws the whole screen several times a frame, so the renderer
 holds clears back until it needs them, copies opaque layers as plain rows
 and skips the transparent runs of layers that are drawn again unchanged.
-Build with `make SHOW_FPS=1` (after `rm -rf build/obj`) to draw the frame
-rate in the top right corner.
+Build with `make SHOW_FPS=1` (after `rm -rf build/obj`) to draw, down the
+top right corner, the frame rate and the milliseconds per frame spent in
+the renderer, presenting, and everywhere else.
 
 Two host builds check it against desktop SDL3 (`SDL3_PREFIX`):
 

@@ -19,6 +19,16 @@
 
 #include "render_internal.h"
 
+#ifdef POCKET_SHOW_FPS
+#include "of_timer.h"
+Uint32 POCKET_render_us;
+#define PROFILE_BEGIN() const Uint32 profile_start = of_time_us()
+#define PROFILE_END() (POCKET_render_us += of_time_us() - profile_start)
+#else
+#define PROFILE_BEGIN() ((void) 0)
+#define PROFILE_END() ((void) 0)
+#endif
+
 typedef struct
 {
     SDL_Texture texture; /* first, so an SDL_Texture pointer is one of these */
@@ -632,7 +642,7 @@ static inline Uint32 blend_pixel(Uint32 r, Uint32 g, Uint32 b, Uint32 a, Uint32 
     return (a << 24) | (r << 16) | (g << 8) | b;
 }
 
-static void fill(Texture *target, const SDL_Rect *rect, Uint8 r, Uint8 g, Uint8 b, Uint8 a, SDL_BlendMode blend)
+static void fill_rect(Texture *target, const SDL_Rect *rect, Uint8 r, Uint8 g, Uint8 b, Uint8 a, SDL_BlendMode blend)
 {
     const SDL_Rect bounds = {0, 0, target->texture.w, target->texture.h};
     SDL_Rect clipped;
@@ -678,6 +688,13 @@ static void fill(Texture *target, const SDL_Rect *rect, Uint8 r, Uint8 g, Uint8 
             }
         }
     }
+}
+
+static void fill(Texture *target, const SDL_Rect *rect, Uint8 r, Uint8 g, Uint8 b, Uint8 a, SDL_BlendMode blend)
+{
+    PROFILE_BEGIN();
+    fill_rect(target, rect, r, g, b, a, blend);
+    PROFILE_END();
 }
 
 static void draw_point(SDL_Renderer *renderer, int x, int y)
@@ -872,7 +889,7 @@ static void copy_span(Uint32 *d, const Uint32 *s, int count, const Texture *src,
 static int *column_map;
 static int column_map_size;
 
-static bool copy_texture(SDL_Renderer *renderer, Texture *src, const SDL_FRect *srcrect, const SDL_FRect *dstrect, SDL_FlipMode flip)
+static bool copy_rows(SDL_Renderer *renderer, Texture *src, const SDL_FRect *srcrect, const SDL_FRect *dstrect, SDL_FlipMode flip)
 {
     Texture *dst = current_target(renderer);
     if (src == dst)
@@ -1025,6 +1042,14 @@ static bool copy_texture(SDL_Renderer *renderer, Texture *src, const SDL_FRect *
     return true;
 }
 
+static bool copy_texture(SDL_Renderer *renderer, Texture *src, const SDL_FRect *srcrect, const SDL_FRect *dstrect, SDL_FlipMode flip)
+{
+    PROFILE_BEGIN();
+    const bool ok = copy_rows(renderer, src, srcrect, dstrect, flip);
+    PROFILE_END();
+    return ok;
+}
+
 bool SDL_RenderTexture(SDL_Renderer *renderer, SDL_Texture *texture, const SDL_FRect *srcrect, const SDL_FRect *dstrect)
 {
     if (!check_renderer(renderer) || !check_texture(texture))
@@ -1082,7 +1107,11 @@ bool SDL_RenderPresent(SDL_Renderer *renderer)
     {
         return false;
     }
-    resolve_clear(&back_buffer);
+    {
+        PROFILE_BEGIN();
+        resolve_clear(&back_buffer);
+        PROFILE_END();
+    }
     POCKET_PresentFrame(back_pixels);
     return true;
 }

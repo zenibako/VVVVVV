@@ -41,34 +41,25 @@ static void start_video(void)
 }
 
 #ifdef POCKET_SHOW_FPS
-/* Frames presented in the last second, drawn in the top right corner of
- * the framebuffer in white 3x5 digits at twice their size. */
-static void draw_fps(Uint8 *fb, int stride)
+extern Uint32 POCKET_render_us;
+static Uint32 present_us;
+
+static void draw_number(Uint8 *fb, int stride, int line, int value)
 {
     static const Uint16 digits[10] = {
         075557, 026222, 071747, 071717, 055711, 074717, 074757, 071111, 075757, 075717
     };
-    static Uint32 second_start;
-    static int frames;
-    static int shown;
-    const Uint32 now = of_time_ms();
-    frames++;
-    if (now - second_start >= 1000)
-    {
-        shown = frames;
-        frames = 0;
-        second_start = now;
-    }
     const int x0 = POCKET_SCREEN_W - 2 - 3 * 8;
+    const int y0 = line * 14;
     for (int y = 0; y < 14; y++)
     {
-        Uint16 *row = (Uint16 *) (fb + (size_t) y * stride) + x0;
+        Uint16 *row = (Uint16 *) (fb + (size_t) (y0 + y) * stride) + x0;
         for (int x = 0; x < 3 * 8; x++)
         {
             row[x] = 0;
         }
     }
-    const int value = shown > 999 ? 999 : shown;
+    value = value < 0 ? 0 : value > 999 ? 999 : value;
     const int places[3] = {value / 100, value / 10 % 10, value % 10};
     for (int d = 0; d < 3; d++)
     {
@@ -83,7 +74,7 @@ static void draw_fps(Uint8 *fb, int stride)
                 }
                 for (int py = 0; py < 2; py++)
                 {
-                    Uint16 *row = (Uint16 *) (fb + (size_t) (2 + gy * 2 + py) * stride);
+                    Uint16 *row = (Uint16 *) (fb + (size_t) (y0 + 2 + gy * 2 + py) * stride);
                     row[x0 + 1 + d * 8 + gx * 2] = 0xFFFF;
                     row[x0 + 2 + d * 8 + gx * 2] = 0xFFFF;
                 }
@@ -91,10 +82,43 @@ static void draw_fps(Uint8 *fb, int stride)
         }
     }
 }
+
+/* Over the last second, down the top right corner: frames presented, then
+ * the milliseconds per frame spent drawing in the renderer, presenting,
+ * and everywhere else (the game's own code, input and sound). */
+static void draw_profile(Uint8 *fb, int stride)
+{
+    static Uint32 second_start, render_start, present_start;
+    static int frames;
+    static int shown[4];
+    const Uint32 now = of_time_ms();
+    frames++;
+    if (now - second_start >= 1000)
+    {
+        const Uint32 elapsed_us = (now - second_start) * 1000;
+        const Uint32 render = POCKET_render_us - render_start;
+        const Uint32 present = present_us - present_start;
+        shown[0] = frames;
+        shown[1] = (int) (render / frames / 1000);
+        shown[2] = (int) (present / frames / 1000);
+        shown[3] = (int) ((elapsed_us - SDL_min(elapsed_us, render + present)) / frames / 1000);
+        frames = 0;
+        second_start = now;
+        render_start = POCKET_render_us;
+        present_start = present_us;
+    }
+    for (int i = 0; i < 4; i++)
+    {
+        draw_number(fb, stride, i, shown[i]);
+    }
+}
 #endif
 
 void POCKET_PresentFrame(const Uint32 *argb)
 {
+#ifdef POCKET_SHOW_FPS
+    const Uint32 present_start = of_time_us();
+#endif
     Uint8 *fb = of_video_surface();
     const int stride = video_mode.stride ? video_mode.stride : POCKET_SCREEN_W * 2;
     for (int y = 0; y < POCKET_SCREEN_H; y++)
@@ -112,9 +136,12 @@ void POCKET_PresentFrame(const Uint32 *argb)
         }
     }
 #ifdef POCKET_SHOW_FPS
-    draw_fps(fb, stride);
+    draw_profile(fb, stride);
 #endif
     of_video_flip();
+#ifdef POCKET_SHOW_FPS
+    present_us += of_time_us() - present_start;
+#endif
 }
 
 SDL_Window *SDL_CreateWindow(const char *title, int w, int h, SDL_WindowFlags flags)

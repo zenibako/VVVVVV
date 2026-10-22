@@ -10,11 +10,18 @@
  * archive: a header, a table of names and sizes, then the contents. It is
  * read into memory on first use, and the whole archive is rewritten each
  * time a file is closed after writing. The layout follows Butterscotch's
- * save archive (of_save_format.h) with its own magic and longer names. */
+ * save archive (of_save_format.h) with its own magic and longer names.
+ *
+ * Closing a save file only updates the Pocket's copy in memory, which it
+ * writes to the SD card when the core is closed from its menu. Each store
+ * also asks the OS to write it to the card at once (fsync), so progress
+ * survives switching the Pocket off; runtimes without that keep the
+ * close-from-menu behaviour. */
 #include "savefs.h"
 
 #include <stdio.h>
 #include <string.h>
+#include <unistd.h>
 
 #ifndef POCKET_SAVE_FILE
 #define POCKET_SAVE_FILE "vvvvvv.sav"
@@ -234,6 +241,15 @@ static bool store(void)
 
     slot = fopen(POCKET_SAVE_FILE, "wb");
     ok = slot != NULL && fwrite(archive, 1, total, slot) == total;
+    if (ok && (fflush(slot) != 0 || fsync(fileno(slot)) != 0))
+    {
+        static bool warned;
+        if (!warned)
+        {
+            warned = true;
+            printf("Saves: could not write to the SD card now; it is written when the core is closed\n");
+        }
+    }
     if (slot != NULL && fclose(slot) != 0)
     {
         ok = false;
