@@ -1,0 +1,282 @@
+/* Minimal std::vector for the Pocket build.
+ *
+ * openfpgaOS apps have no C++ standard library (see the SDK's
+ * of_cxxabi.cpp), so this covers the C++98 subset VVVVVV uses.  Iterators
+ * are plain pointers.  Allocation failure aborts, as there are no
+ * exceptions. */
+#ifndef VVV_COMPAT_VECTOR
+#define VVV_COMPAT_VECTOR
+
+#include <stddef.h>
+#include <stdlib.h>
+#include <new>
+#include <utility>
+
+namespace std {
+
+template<typename T>
+class vector
+{
+public:
+    typedef T value_type;
+    typedef size_t size_type;
+    typedef ptrdiff_t difference_type;
+    typedef T &reference;
+    typedef const T &const_reference;
+    typedef T *pointer;
+    typedef const T *const_pointer;
+    typedef T *iterator;
+    typedef const T *const_iterator;
+
+    vector() : items(NULL), count(0), cap(0) {}
+
+    explicit vector(size_type n, const T &value = T()) : items(NULL), count(0), cap(0)
+    {
+        resize(n, value);
+    }
+
+    vector(const T *first, const T *last) : items(NULL), count(0), cap(0)
+    {
+        assign(first, last);
+    }
+
+    vector(const vector &other) : items(NULL), count(0), cap(0)
+    {
+        assign(other.begin(), other.end());
+    }
+
+    ~vector()
+    {
+        clear();
+        free(items);
+    }
+
+    vector &operator=(const vector &other)
+    {
+        if (this != &other)
+        {
+            assign(other.begin(), other.end());
+        }
+        return *this;
+    }
+
+    /* Only the iterator-range forms of assign and insert exist: with
+     * C++98 templates, a (count, value) overload would be ambiguous with
+     * them for integer element types, and the game never uses it. */
+    template<typename It>
+    void assign(It first, It last)
+    {
+        vector tmp;
+        for (; first != last; ++first)
+        {
+            tmp.push_back(*first);
+        }
+        swap(tmp);
+    }
+
+    iterator begin() { return items; }
+    const_iterator begin() const { return items; }
+    iterator end() { return items + count; }
+    const_iterator end() const { return items + count; }
+
+    size_type size() const { return count; }
+    size_type capacity() const { return cap; }
+    bool empty() const { return count == 0; }
+
+    reference operator[](size_type i) { return items[i]; }
+    const_reference operator[](size_type i) const { return items[i]; }
+    reference at(size_type i) { check(i); return items[i]; }
+    const_reference at(size_type i) const { check(i); return items[i]; }
+    reference front() { return items[0]; }
+    const_reference front() const { return items[0]; }
+    reference back() { return items[count - 1]; }
+    const_reference back() const { return items[count - 1]; }
+    T *data() { return items; }
+    const T *data() const { return items; }
+
+    void reserve(size_type n)
+    {
+        if (n <= cap)
+        {
+            return;
+        }
+        T *grown = (T *) malloc(n * sizeof(T));
+        if (grown == NULL)
+        {
+            abort();
+        }
+        for (size_type i = 0; i < count; ++i)
+        {
+            new (grown + i) T(items[i]);
+            items[i].~T();
+        }
+        free(items);
+        items = grown;
+        cap = n;
+    }
+
+    void resize(size_type n, const T &value = T())
+    {
+        if (n < count)
+        {
+            destroy(n, count);
+            count = n;
+            return;
+        }
+        const T copy(value);
+        grow_for(n);
+        for (size_type i = count; i < n; ++i)
+        {
+            new (items + i) T(copy);
+        }
+        count = n;
+    }
+
+    void push_back(const T &value)
+    {
+        /* value may live inside this vector, so copy before growing. */
+        const T copy(value);
+        grow_for(count + 1);
+        new (items + count) T(copy);
+        ++count;
+    }
+
+    void pop_back()
+    {
+        --count;
+        items[count].~T();
+    }
+
+    void clear()
+    {
+        destroy(0, count);
+        count = 0;
+    }
+
+    iterator erase(iterator pos)
+    {
+        return erase(pos, pos + 1);
+    }
+
+    iterator erase(iterator first, iterator last)
+    {
+        const size_type at_index = first - items;
+        const size_type removed = last - first;
+        if (removed == 0)
+        {
+            return first;
+        }
+        for (size_type i = at_index; i + removed < count; ++i)
+        {
+            items[i] = items[i + removed];
+        }
+        destroy(count - removed, count);
+        count -= removed;
+        return items + at_index;
+    }
+
+    iterator insert(iterator pos, const T &value)
+    {
+        const size_type at_index = pos - items;
+        const T copy(value);
+        insert_gap(at_index, 1);
+        items[at_index] = copy;
+        return items + at_index;
+    }
+
+    template<typename It>
+    void insert(iterator pos, It first, It last)
+    {
+        const size_type at_index = pos - items;
+        vector copy;
+        copy.assign(first, last);
+        insert_gap(at_index, copy.size());
+        for (size_type i = 0; i < copy.size(); ++i)
+        {
+            items[at_index + i] = copy[i];
+        }
+    }
+
+    void swap(vector &other)
+    {
+        std::swap(items, other.items);
+        std::swap(count, other.count);
+        std::swap(cap, other.cap);
+    }
+
+private:
+    T *items;
+    size_type count;
+    size_type cap;
+
+    void check(size_type i) const
+    {
+        if (i >= count)
+        {
+            abort();
+        }
+    }
+
+    void destroy(size_type from, size_type to)
+    {
+        for (size_type i = from; i < to; ++i)
+        {
+            items[i].~T();
+        }
+    }
+
+    void grow_for(size_type n)
+    {
+        if (n > cap)
+        {
+            size_type next = cap < 8 ? 8 : cap * 2;
+            reserve(next < n ? n : next);
+        }
+    }
+
+    /* Open n default-constructed slots at index, shifting the tail up. */
+    void insert_gap(size_type index, size_type n)
+    {
+        if (n == 0)
+        {
+            return;
+        }
+        grow_for(count + n);
+        for (size_type i = count; i < count + n; ++i)
+        {
+            new (items + i) T();
+        }
+        for (size_type i = count + n; i-- > index + n;)
+        {
+            items[i] = items[i - n];
+        }
+        count += n;
+    }
+};
+
+template<typename T>
+inline bool operator==(const vector<T> &left, const vector<T> &right)
+{
+    if (left.size() != right.size())
+    {
+        return false;
+    }
+    for (size_t i = 0; i < left.size(); ++i)
+    {
+        if (!(left[i] == right[i]))
+        {
+            return false;
+        }
+    }
+    return true;
+}
+
+template<typename T>
+inline bool operator!=(const vector<T> &left, const vector<T> &right)
+{
+    return !(left == right);
+}
+
+}
+
+#endif

@@ -1,0 +1,115 @@
+/* Minimal std::map for the Pocket build.
+ *
+ * A sorted array of pairs: VVVVVV's maps are small (key bindings,
+ * controllers, textbox colours, level stats), so binary search over a
+ * vector beats a tree in size and in cache behaviour.  Unlike std::map,
+ * inserting or erasing invalidates iterators, and the key in an element is
+ * not const; the game does neither while iterating. */
+#ifndef VVV_COMPAT_MAP
+#define VVV_COMPAT_MAP
+
+#include <stddef.h>
+#include <utility>
+#include <vector>
+
+namespace std {
+
+template<typename K, typename V>
+class map
+{
+public:
+    typedef K key_type;
+    typedef V mapped_type;
+    typedef pair<K, V> value_type;
+    typedef size_t size_type;
+    typedef value_type *iterator;
+    typedef const value_type *const_iterator;
+
+    iterator begin() { return items.begin(); }
+    const_iterator begin() const { return items.begin(); }
+    iterator end() { return items.end(); }
+    const_iterator end() const { return items.end(); }
+
+    size_type size() const { return items.size(); }
+    bool empty() const { return items.empty(); }
+    void clear() { items.clear(); }
+
+    iterator lower_bound(const K &key)
+    {
+        return items.begin() + lower_index(key);
+    }
+    const_iterator lower_bound(const K &key) const
+    {
+        return items.begin() + lower_index(key);
+    }
+
+    iterator find(const K &key)
+    {
+        iterator it = lower_bound(key);
+        return (it != end() && !(key < it->first)) ? it : end();
+    }
+    const_iterator find(const K &key) const
+    {
+        const_iterator it = lower_bound(key);
+        return (it != end() && !(key < it->first)) ? it : end();
+    }
+
+    size_type count(const K &key) const { return find(key) != end() ? 1 : 0; }
+
+    pair<iterator, bool> insert(const value_type &value)
+    {
+        const size_type index = lower_index(value.first);
+        if (index < items.size() && !(value.first < items[index].first))
+        {
+            return pair<iterator, bool>(items.begin() + index, false);
+        }
+        items.insert(items.begin() + index, value);
+        return pair<iterator, bool>(items.begin() + index, true);
+    }
+
+    V &operator[](const K &key)
+    {
+        return insert(value_type(key, V())).first->second;
+    }
+
+    void erase(iterator pos) { items.erase(pos); }
+
+    size_type erase(const K &key)
+    {
+        iterator it = find(key);
+        if (it == end())
+        {
+            return 0;
+        }
+        items.erase(it);
+        return 1;
+    }
+
+    void swap(map &other) { items.swap(other.items); }
+
+private:
+    vector<value_type> items;
+
+    size_type lower_index(const K &key) const
+    {
+        size_type low = 0;
+        size_type high = items.size();
+        while (low < high)
+        {
+            const size_type mid = low + (high - low) / 2;
+            if (items[mid].first < key)
+            {
+                low = mid + 1;
+            }
+            else
+            {
+                high = mid;
+            }
+        }
+        return low;
+    }
+};
+
+}
+
+#endif

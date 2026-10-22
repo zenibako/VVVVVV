@@ -1,0 +1,13 @@
+/* Minimal <new> for the Pocket build: placement new only.  The global
+ * allocation operators come from the SDK's of_cxxabi.cpp. */
+#ifndef VVV_COMPAT_NEW
+#define VVV_COMPAT_NEW
+
+#include <stddef.h>
+
+inline void *operator new(size_t, void *where) throw() { return where; }
+inline void *operator new[](size_t, void *where) throw() { return where; }
+inline void operator delete(void *, void *) throw() {}
+inline void operator delete[](void *, void *) throw() {}
+
+#endif

@@ -1,0 +1,23 @@
+/* Minimal <algorithm> for the Pocket build (C++98 subset). */
+#ifndef VVV_COMPAT_ALGORITHM
+#define VVV_COMPAT_ALGORITHM
+
+#include <utility>
+
+namespace std {
+
+template<typename T>
+inline const T &min(const T &left, const T &right)
+{
+    return right < left ? right : left;
+}
+
+template<typename T>
+inline const T &max(const T &left, const T &right)
+{
+    return left < right ? right : left;
+}
+
+}
+
+#endif

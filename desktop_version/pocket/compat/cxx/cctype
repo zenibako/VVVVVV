@@ -1,0 +1,7 @@
+/* <cctype> for the Pocket build: the C header; names stay global. */
+#ifndef VVV_COMPAT_CCTYPE
+#define VVV_COMPAT_CCTYPE
+
+#include <ctype.h>
+
+#endif
