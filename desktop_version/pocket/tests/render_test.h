@@ -28,6 +28,9 @@ void capture_number(Capture *capture, const char *name, int number);
  * RGB565 and may differ by one step of it, from blending on the coarser
  * colours. */
 void capture_window(Capture *capture, const char *name, SDL_Surface *surface);
+/* A render target: the port keeps one that is wholly opaque in RGB565 too,
+ * so such a capture is taken as the window's. */
+void capture_layer(Capture *capture, const char *name, SDL_Surface *surface);
 
 void render_ops_sdl(SDL_Renderer *renderer, Capture *capture);
 void render_ops_pocket(SDL_Renderer *renderer, Capture *capture);

@@ -15,7 +15,7 @@ static void capture_target(SDL_Renderer *renderer, Capture *capture, const char 
     }
     else
     {
-        capture_surface(capture, name, pixels);
+        capture_layer(capture, name, pixels);
     }
     SDL_DestroySurface(pixels);
 }
@@ -51,9 +51,14 @@ static void draw_sprite(SDL_Renderer *renderer, SDL_Texture *sprite, float x, fl
     SDL_RenderTextureRotated(renderer, sprite, NULL, &dst, 0, NULL, flip);
 }
 
+/* The alpha primitives and sprites clear to: just short of opaque on a
+ * target texture, so the port keeps it in ARGB8888 and must match SDL
+ * exactly. */
+static Uint8 clear_alpha = 255;
+
 static void primitives(SDL_Renderer *renderer, Capture *capture)
 {
-    SDL_SetRenderDrawColor(renderer, 10, 20, 30, 255);
+    SDL_SetRenderDrawColor(renderer, 10, 20, 30, clear_alpha);
     SDL_RenderClear(renderer);
 
     const SDL_FRect opaque = {5, 5, 40, 30};
@@ -97,7 +102,7 @@ static void primitives(SDL_Renderer *renderer, Capture *capture)
 static void sprites(SDL_Renderer *renderer, SDL_Texture *sprite, Capture *capture)
 {
     SDL_SetRenderDrawBlendMode(renderer, SDL_BLENDMODE_NONE);
-    SDL_SetRenderDrawColor(renderer, 40, 60, 80, 255);
+    SDL_SetRenderDrawColor(renderer, 40, 60, 80, clear_alpha);
     SDL_RenderClear(renderer);
 
     draw_sprite(renderer, sprite, 0, 0, 16, 16, SDL_FLIP_NONE);
@@ -370,8 +375,22 @@ void RENDER_OPS(SDL_Renderer *renderer, Capture *capture)
     /* On a target texture, exactly as SDL; then on the window. */
     SDL_Texture *canvas = SDL_CreateTexture(renderer, SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_TARGET, 320, 240);
     SDL_SetRenderTarget(renderer, canvas);
+    clear_alpha = 254;
     primitives(renderer, capture);
     sprites(renderer, sprite, capture);
+    clear_alpha = 255;
+    /* An opaque target given translucent pixels: the port widens what it
+     * kept in RGB565. */
+    SDL_SetRenderDrawColor(renderer, 10, 20, 30, 255);
+    SDL_RenderClear(renderer);
+    SDL_SetRenderDrawBlendMode(renderer, SDL_BLENDMODE_NONE);
+    SDL_SetRenderDrawColor(renderer, 90, 80, 70, 60);
+    const SDL_FRect hole = {100, 10, 20, 20};
+    SDL_RenderFillRect(renderer, &hole);
+    draw_sprite(renderer, sprite, 30, 30, 16, 16, SDL_FLIP_NONE);
+    SDL_Surface *widened = SDL_RenderReadPixels(renderer, NULL);
+    capture_window(capture, "opaque made translucent", widened);
+    SDL_DestroySurface(widened);
     SDL_SetRenderTarget(renderer, NULL);
     SDL_DestroyTexture(canvas);
     primitives(renderer, capture);

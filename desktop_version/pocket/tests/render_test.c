@@ -92,6 +92,31 @@ void capture_window(Capture *capture, const char *name, SDL_Surface *surface)
     item->tolerance = 9; /* neighbouring RGB565 levels widen 8 or 9 apart */
 }
 
+void capture_layer(Capture *capture, const char *name, SDL_Surface *surface)
+{
+    bool opaque = surface != NULL && surface->format == SDL_PIXELFORMAT_ARGB8888;
+    for (int y = 0; opaque && y < surface->h; y++)
+    {
+        const Uint32 *row = (const Uint32 *) ((const Uint8 *) surface->pixels + (size_t) y * surface->pitch);
+        for (int x = 0; x < surface->w; x++)
+        {
+            if ((row[x] >> 24) != 255)
+            {
+                opaque = false;
+                break;
+            }
+        }
+    }
+    if (opaque)
+    {
+        capture_window(capture, name, surface);
+    }
+    else
+    {
+        capture_surface(capture, name, surface);
+    }
+}
+
 void capture_number(Capture *capture, const char *name, int number)
 {
     next_item(capture, name)->number = number;
