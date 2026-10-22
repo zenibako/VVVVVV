@@ -23,8 +23,11 @@
 #include <string.h>
 #include <unistd.h>
 
+/* openfpgaOS only knows a save file by name once it exists on the SD
+ * card; before the first save it finds the slot from the <name>_<N>.sav
+ * pattern, N counting from the first save slot (id 10). */
 #ifndef POCKET_SAVE_FILE
-#define POCKET_SAVE_FILE "vvvvvv.sav"
+#define POCKET_SAVE_FILE "vvvvvv_0.sav"
 #endif
 
 #define SAVEFS_MAGIC 0x31565656u /* "VVV1" */
@@ -56,6 +59,11 @@ typedef struct
 } SaveFile;
 
 static const char *const roots[] = {"saves", "levels", "screenshots"};
+
+/* Stores that reached the save file, and stores that did not; the
+ * SHOW_FPS overlay shows them. */
+int POCKET_saves_written;
+int POCKET_saves_failed;
 
 static SaveFile files[SAVEFS_MAX_FILES];
 static Uint32 file_count;
@@ -217,6 +225,7 @@ static bool store(void)
     }
     if (total > SAVEFS_MAX_BYTES)
     {
+        POCKET_saves_failed++;
         return SDL_SetError("Saves: %u bytes will not fit in the save file", (unsigned) total);
     }
 
@@ -257,8 +266,11 @@ static bool store(void)
     SDL_free(archive);
     if (!ok)
     {
+        POCKET_saves_failed++;
+        printf("Saves: could not write %s\n", POCKET_SAVE_FILE);
         return SDL_SetError("Saves: could not write the save file");
     }
+    POCKET_saves_written++;
     return true;
 }
 

@@ -42,6 +42,8 @@ static void start_video(void)
 
 #ifdef POCKET_SHOW_FPS
 extern Uint32 POCKET_render_us;
+extern int POCKET_saves_written;
+extern int POCKET_saves_failed;
 static Uint32 present_us;
 
 static void draw_number(Uint8 *fb, int stride, int line, int value)
@@ -85,7 +87,8 @@ static void draw_number(Uint8 *fb, int stride, int line, int value)
 
 /* Over the last second, down the top right corner: frames presented, then
  * the milliseconds per frame spent drawing in the renderer, presenting,
- * and everywhere else (the game's own code, input and sound). */
+ * and everywhere else (the game's own code, input and sound); then saves
+ * written to the save file and saves that failed. */
 static void draw_profile(Uint8 *fb, int stride)
 {
     static Uint32 second_start, render_start, present_start;
@@ -111,6 +114,8 @@ static void draw_profile(Uint8 *fb, int stride)
     {
         draw_number(fb, stride, i, shown[i]);
     }
+    draw_number(fb, stride, 4, POCKET_saves_written);
+    draw_number(fb, stride, 5, POCKET_saves_failed);
 }
 #endif
 
