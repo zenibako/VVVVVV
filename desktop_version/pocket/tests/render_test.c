@@ -12,16 +12,24 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "render_internal.h"
 #include "render_test.h"
 
 #define TOLERANCE 2
 
 SDL_Renderer *PR_SDL_CreateRenderer(SDL_Window *window, const char *name);
 
-/* The renderer presents through video.c on the device. */
-void POCKET_PresentFrame(const Uint32 *argb)
+/* The window's framebuffer, video.c's on the device. */
+static Uint16 frame_buffer[POCKET_SCREEN_W * POCKET_SCREEN_H];
+
+Uint16 *POCKET_FrameBuffer(int *pitch)
 {
-    (void) argb;
+    *pitch = POCKET_SCREEN_W;
+    return frame_buffer;
+}
+
+void POCKET_PresentFrame(void)
+{
 }
 
 static CaptureItem *next_item(Capture *capture, const char *name)
@@ -34,6 +42,7 @@ static CaptureItem *next_item(Capture *capture, const char *name)
     CaptureItem *item = &capture->items[capture->count++];
     memset(item, 0, sizeof(*item));
     item->name = name;
+    item->tolerance = TOLERANCE;
     return item;
 }
 
@@ -54,6 +63,33 @@ void capture_surface(Capture *capture, const char *name, SDL_Surface *surface)
     {
         memcpy(item->bytes + row * y, (const Uint8 *) surface->pixels + (size_t) surface->pitch * y, row);
     }
+}
+
+void capture_window(Capture *capture, const char *name, SDL_Surface *surface)
+{
+    capture_surface(capture, name, surface);
+    CaptureItem *item = &capture->items[capture->count - 1];
+    if (item->bytes == NULL)
+    {
+        return;
+    }
+    const SDL_PixelFormatDetails *details = SDL_GetPixelFormatDetails(surface->format);
+    Uint32 *out = (Uint32 *) malloc((size_t) item->w * item->h * 4);
+    for (int y = 0; y < item->h; y++)
+    {
+        for (int x = 0; x < item->w; x++)
+        {
+            Uint32 pixel = 0;
+            memcpy(&pixel, item->bytes + ((size_t) y * item->w + x) * item->bytes_per_pixel, item->bytes_per_pixel);
+            Uint8 r, g, b;
+            SDL_GetRGB(pixel, details, NULL, &r, &g, &b);
+            out[(size_t) y * item->w + x] = POCKET_FromRGB565(POCKET_ToRGB565(((Uint32) r << 16) | ((Uint32) g << 8) | b));
+        }
+    }
+    free(item->bytes);
+    item->bytes = (Uint8 *) out;
+    item->bytes_per_pixel = 4;
+    item->tolerance = 9; /* neighbouring RGB565 levels widen 8 or 9 apart */
 }
 
 void capture_number(Capture *capture, const char *name, int number)
@@ -158,7 +194,7 @@ int main(void)
             {
                 worst = diff;
             }
-            if (diff > TOLERANCE)
+            if (diff > a->tolerance)
             {
                 if (over++ == 0)
                 {
@@ -171,7 +207,7 @@ int main(void)
         {
             const size_t at = ((size_t) first_y * a->w + first_x) * a->bytes_per_pixel;
             printf("FAIL %-20s %dx%d: %d channels off by more than %d (worst %d), first at %d,%d:",
-                   a->name, a->w, a->h, over, TOLERANCE, worst, first_x, first_y);
+                   a->name, a->w, a->h, over, a->tolerance, worst, first_x, first_y);
             for (int k = 0; k < a->bytes_per_pixel; k++)
             {
                 printf(" %02x/%02x", a->bytes[at + k], b->bytes[at + k]);

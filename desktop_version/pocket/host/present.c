@@ -8,7 +8,15 @@
 
 #include "render_internal.h"
 
-void POCKET_PresentFrame(const Uint32 *argb)
+static Uint16 frame_buffer[POCKET_SCREEN_W * POCKET_SCREEN_H];
+
+Uint16 *POCKET_FrameBuffer(int *pitch)
+{
+    *pitch = POCKET_SCREEN_W;
+    return frame_buffer;
+}
+
+void POCKET_PresentFrame(void)
 {
     static SDL_Renderer *renderer;
     static SDL_Texture *frame;
@@ -30,11 +38,11 @@ void POCKET_PresentFrame(const Uint32 *argb)
         }
         SDL_SetRenderLogicalPresentation(renderer, POCKET_SCREEN_W, POCKET_SCREEN_H,
                                          SDL_LOGICAL_PRESENTATION_INTEGER_SCALE);
-        frame = SDL_CreateTexture(renderer, SDL_PIXELFORMAT_XRGB8888, SDL_TEXTUREACCESS_STREAMING,
+        frame = SDL_CreateTexture(renderer, SDL_PIXELFORMAT_RGB565, SDL_TEXTUREACCESS_STREAMING,
                                   POCKET_SCREEN_W, POCKET_SCREEN_H);
         SDL_SetTextureScaleMode(frame, SDL_SCALEMODE_NEAREST);
     }
-    SDL_UpdateTexture(frame, NULL, argb, POCKET_SCREEN_W * 4);
+    SDL_UpdateTexture(frame, NULL, frame_buffer, POCKET_SCREEN_W * 2);
     SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255);
     SDL_RenderClear(renderer);
     SDL_RenderTexture(renderer, frame, NULL, NULL);

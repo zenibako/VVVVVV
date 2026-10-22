@@ -1,8 +1,8 @@
 /* The SDL3 window and display on openfpgaOS.
  *
  * There is one window, the Pocket's 320x240 screen, which is the game's
- * own resolution.  The framebuffer runs in RGB565; each presented frame is
- * converted from the renderer's ARGB8888 back buffer. */
+ * own resolution.  The framebuffer runs in RGB565, and render.c draws the
+ * window straight into it. */
 #include <SDL3/SDL.h>
 
 #include <stdio.h>
@@ -176,29 +176,41 @@ static void draw_profile(Uint8 *fb, int stride)
 }
 #endif
 
-void POCKET_PresentFrame(const Uint32 *argb)
+/* Until the first frame is shown the game draws into memory, so the boot
+ * console stays on screen while it loads. */
+static Uint16 first_frame[POCKET_SCREEN_W * POCKET_SCREEN_H];
+static bool video_started;
+
+Uint16 *POCKET_FrameBuffer(int *pitch)
 {
-#ifdef POCKET_SHOW_FPS
-    const Uint32 present_start = of_time_us();
-#endif
-    Uint8 *fb = of_video_surface();
-    const int stride = video_mode.stride ? video_mode.stride : POCKET_SCREEN_W * 2;
-    for (int y = 0; y < POCKET_SCREEN_H; y++)
+    if (!video_started)
     {
-        /* Two pixels per store: the rows are 4-byte aligned. */
-        Uint32 *row = (Uint32 *) (fb + (size_t) y * stride);
-        const Uint32 *src = argb + (size_t) y * POCKET_SCREEN_W;
-        for (int x = 0; x < POCKET_SCREEN_W; x += 2)
+        *pitch = POCKET_SCREEN_W;
+        return first_frame;
+    }
+    *pitch = (video_mode.stride ? video_mode.stride : POCKET_SCREEN_W * 2) / 2;
+    return (Uint16 *) of_video_surface();
+}
+
+void POCKET_PresentFrame(void)
+{
+    if (!video_started)
+    {
+#ifdef POCKET_SHOW_FPS
+        printf("%5u first frame\n", (unsigned) of_time_ms());
+#endif
+        video_started = true;
+        start_video();
+        Uint8 *fb = of_video_surface();
+        const int stride = video_mode.stride ? video_mode.stride : POCKET_SCREEN_W * 2;
+        for (int y = 0; y < POCKET_SCREEN_H; y++)
         {
-            const Uint32 p0 = src[x];
-            const Uint32 p1 = src[x + 1];
-            const Uint32 c0 = ((p0 >> 8) & 0xF800) | ((p0 >> 5) & 0x07E0) | ((p0 >> 3) & 0x001F);
-            const Uint32 c1 = ((p1 >> 8) & 0xF800) | ((p1 >> 5) & 0x07E0) | ((p1 >> 3) & 0x001F);
-            row[x >> 1] = c0 | (c1 << 16);
+            SDL_memcpy(fb + (size_t) y * stride, first_frame + (size_t) y * POCKET_SCREEN_W, POCKET_SCREEN_W * 2);
         }
     }
 #ifdef POCKET_SHOW_FPS
-    draw_profile(fb, stride);
+    const Uint32 present_start = of_time_us();
+    draw_profile(of_video_surface(), video_mode.stride ? video_mode.stride : POCKET_SCREEN_W * 2);
 #endif
     of_video_flip();
 #ifdef POCKET_SHOW_FPS
@@ -212,7 +224,6 @@ SDL_Window *SDL_CreateWindow(const char *title, int w, int h, SDL_WindowFlags fl
     (void) w;
     (void) h;
     (void) flags;
-    start_video();
     window.created = true;
     return &window;
 }

@@ -9,7 +9,14 @@
 static void capture_target(SDL_Renderer *renderer, Capture *capture, const char *name)
 {
     SDL_Surface *pixels = SDL_RenderReadPixels(renderer, NULL);
-    capture_surface(capture, name, pixels);
+    if (SDL_GetRenderTarget(renderer) == NULL)
+    {
+        capture_window(capture, name, pixels);
+    }
+    else
+    {
+        capture_surface(capture, name, pixels);
+    }
     SDL_DestroySurface(pixels);
 }
 
@@ -181,8 +188,14 @@ static void targets(SDL_Renderer *renderer, SDL_Texture *sprite, Capture *captur
     SDL_RenderTexture(renderer, layer, NULL, NULL);
     capture_target(renderer, capture, "layer opaque");
 
-    /* The bad signal filter's round trip through surfaces. */
+    /* The bad signal filter's round trip through surfaces, which reads
+     * the game's own layer. */
+    SDL_Texture *game = SDL_CreateTexture(renderer, SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_TARGET, 320, 240);
+    SDL_SetRenderTarget(renderer, game);
+    SDL_RenderTexture(renderer, layer, NULL, NULL);
     SDL_Surface *read = SDL_RenderReadPixels(renderer, NULL);
+    SDL_SetRenderTarget(renderer, NULL);
+    SDL_DestroyTexture(game);
     SDL_Surface *work = SDL_CreateSurface(320, 240, SDL_GetPixelFormatForMasks(32, 0, 0, 0, 0));
     SDL_BlitSurface(read, NULL, work, NULL);
     capture_surface(capture, "read into XRGB8888", work);
@@ -269,6 +282,25 @@ static void frames(SDL_Renderer *renderer, SDL_Texture *sprite, Capture *capture
     frame(renderer, sprite, foreground, gameplay, game, 0, capture);
     frame(renderer, sprite, foreground, gameplay, game, 1, capture);
 
+    /* The game layer copied whole from the gameplay layer, which is then
+     * redrawn: the game layer must keep the old picture. */
+    SDL_SetRenderTarget(renderer, game);
+    SDL_RenderTexture(renderer, gameplay, NULL, NULL);
+    SDL_SetRenderTarget(renderer, gameplay);
+    SDL_SetRenderDrawBlendMode(renderer, SDL_BLENDMODE_BLEND);
+    SDL_SetRenderDrawColor(renderer, 60, 0, 90, 255);
+    SDL_RenderFillRect(renderer, NULL);
+    draw_sprite(renderer, sprite, 30, 30, 16, 16, SDL_FLIP_NONE);
+    capture_target(renderer, capture, "redrawn gameplay");
+    SDL_SetRenderTarget(renderer, game);
+    capture_target(renderer, capture, "kept game layer");
+    SDL_RenderTexture(renderer, gameplay, NULL, NULL);
+    SDL_SetRenderTarget(renderer, gameplay);
+    const SDL_FRect corner = {0, 0, 40, 40};
+    SDL_RenderFillRect(renderer, &corner);
+    SDL_SetRenderTarget(renderer, game);
+    capture_target(renderer, capture, "game after partial");
+
     /* A held back clear, then part of it drawn over. */
     SDL_SetRenderTarget(renderer, foreground);
     SDL_SetRenderDrawColor(renderer, 9, 8, 7, 100);
@@ -335,6 +367,13 @@ void RENDER_OPS(SDL_Renderer *renderer, Capture *capture)
     /* As Screen.cpp does; SDL's default is linear. */
     SDL_SetDefaultTextureScaleMode(renderer, SDL_SCALEMODE_NEAREST);
     SDL_Texture *sprite = make_sprite(renderer);
+    /* On a target texture, exactly as SDL; then on the window. */
+    SDL_Texture *canvas = SDL_CreateTexture(renderer, SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_TARGET, 320, 240);
+    SDL_SetRenderTarget(renderer, canvas);
+    primitives(renderer, capture);
+    sprites(renderer, sprite, capture);
+    SDL_SetRenderTarget(renderer, NULL);
+    SDL_DestroyTexture(canvas);
     primitives(renderer, capture);
     sprites(renderer, sprite, capture);
     targets(renderer, sprite, capture);

@@ -44,10 +44,27 @@ void POCKET_GetRGBA(Uint32 pixel, const SDL_PixelFormatDetails *f, Uint8 *r, Uin
 /* Converts a whole surface to packed ARGB8888 at out. */
 bool POCKET_SurfaceToARGB(SDL_Surface *surface, Uint32 *out);
 
-/* Shows a finished ARGB8888 frame of POCKET_SCREEN_W by POCKET_SCREEN_H;
- * video.c on the device, the test harness on a computer. */
+/* The window is drawn straight into an RGB565 framebuffer of
+ * POCKET_SCREEN_W by POCKET_SCREEN_H: POCKET_FrameBuffer gives the one to
+ * draw the next frame into (pitch in pixels) and POCKET_PresentFrame shows
+ * it.  video.c on the device, the test harness on a computer. */
 #define POCKET_SCREEN_W 320
 #define POCKET_SCREEN_H 240
-void POCKET_PresentFrame(const Uint32 *argb);
+Uint16 *POCKET_FrameBuffer(int *pitch);
+void POCKET_PresentFrame(void);
+
+static inline Uint16 POCKET_ToRGB565(Uint32 argb)
+{
+    return (Uint16) (((argb >> 8) & 0xF800) | ((argb >> 5) & 0x07E0) | ((argb >> 3) & 0x001F));
+}
+
+/* Opaque ARGB8888, each channel widened by repeating its top bits. */
+static inline Uint32 POCKET_FromRGB565(Uint16 c)
+{
+    const Uint32 r = (c >> 11) & 0x1F;
+    const Uint32 g = (c >> 5) & 0x3F;
+    const Uint32 b = c & 0x1F;
+    return 0xFF000000u | (((r << 3) | (r >> 2)) << 16) | (((g << 2) | (g >> 4)) << 8) | ((b << 3) | (b >> 2));
+}
 
 #endif
