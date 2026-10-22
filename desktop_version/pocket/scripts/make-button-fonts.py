@@ -4,12 +4,10 @@ Analogue Pocket button glyphs at U+EB37-U+EB3E.
 
 The glyphs follow Butterscotch Pocket's positional prompts
 (src/openfpga/platform/of_buttons.c in zenibako/Butterscotch): four circles
-in a diamond with the pressed face button filled, and the shoulder pair.
-In the 8 and 10 pixel fonts the face buttons are too small for outlines,
-so the pressed one is bright and the others dim. Start and Select are the
-row of three small buttons below the screen
-(Select, the Analogue button, Start) with the pressed one bright and the
-others dim. Butterscotch draws its icons at 13 pixels; here each is redrawn
+in a diamond for the face buttons, and the shoulder pair. Start and Select
+are the row of three small buttons below the screen (Select, the Analogue
+button, Start). Face and small buttons are solid, the pressed one bright
+and the others grey; the circles are too small for Butterscotch's outlines. Butterscotch draws its icons at 13 pixels; here each is redrawn
 for the game's 8, 10 and 12 pixel fonts. They are white and take the text
 colour, as Butterscotch's do.
 
@@ -73,14 +71,8 @@ def glyph(cell, index):
     if index < 4:
         size = layout["circle"]
         for i, (ox, oy) in enumerate(layout["face"]):
-            pressed = i == index
-            # A 3-pixel circle is too small to show as an outline, so the
-            # small fonts mark the pressed button by brightness instead.
-            if size == 3:
-                shape, alpha = circle(size, True), BRIGHT if pressed else DIM
-            else:
-                shape, alpha = circle(size, pressed), BRIGHT
-            for x, y in shape:
+            alpha = BRIGHT if i == index else DIM
+            for x, y in circle(size, True):
                 pixels[(ox + x, oy + y)] = alpha
     elif index in (4, 5):
         # Select, the Analogue button, Start, left to right.
