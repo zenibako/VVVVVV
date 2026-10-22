@@ -1,8 +1,11 @@
 /* SDL3 I/O streams and filesystem calls on musl stdio.
  *
  * openfpgaOS resolves fopen() by basename against the core's data slots
- * and save files, so the base and preference paths are both "/". */
+ * and save files, so the base and preference paths are both "/". The
+ * game's writable directories are kept in one save file by savefs.c. */
 #include <SDL3/SDL.h>
+
+#include "savefs.h"
 
 #include <dirent.h>
 #include <errno.h>
@@ -192,7 +195,12 @@ SDL_IOStream *SDL_IOFromFile(const char *file, const char *mode)
 {
     SDL_IOStreamInterface iface;
     SDL_IOStream *io;
-    FILE *f = fopen(file, mode);
+    FILE *f;
+    if (SAVEFS_owns(file))
+    {
+        return SAVEFS_open(file, mode);
+    }
+    f = fopen(file, mode);
     if (f == NULL)
     {
         SDL_SetError("Couldn't open %s: %s", file, strerror(errno));
@@ -337,6 +345,16 @@ bool SDL_GetPathInfo(const char *path, SDL_PathInfo *info)
         info = &dummy;
     }
     SDL_zerop(info);
+    if (SAVEFS_owns(path))
+    {
+        return SAVEFS_stat(path, info);
+    }
+    /* The game mounts the base path "/" itself; openfpgaOS may not stat it. */
+    if (path[strspn(path, "/.")] == '\0')
+    {
+        info->type = SDL_PATHTYPE_DIRECTORY;
+        return true;
+    }
     if (stat(path, &st) == 0)
     {
         info->type = S_ISDIR(st.st_mode) ? SDL_PATHTYPE_DIRECTORY : SDL_PATHTYPE_FILE;
@@ -364,7 +382,12 @@ bool SDL_EnumerateDirectory(const char *path, SDL_EnumerateDirectoryCallback cal
 {
     struct dirent *entry;
     bool result = true;
-    DIR *dir = opendir(path);
+    DIR *dir;
+    if (SAVEFS_owns(path))
+    {
+        return SAVEFS_enumerate(path, callback, userdata);
+    }
+    dir = opendir(path);
     if (dir == NULL)
     {
         return SDL_SetError("Can't open directory %s", path);
@@ -393,6 +416,10 @@ bool SDL_EnumerateDirectory(const char *path, SDL_EnumerateDirectoryCallback cal
 
 bool SDL_CreateDirectory(const char *path)
 {
+    if (SAVEFS_owns(path))
+    {
+        return SAVEFS_mkdir(path);
+    }
     if (mkdir(path, 0770) != 0 && errno != EEXIST)
     {
         return SDL_SetError("Can't create directory %s", path);
@@ -402,6 +429,10 @@ bool SDL_CreateDirectory(const char *path)
 
 bool SDL_RemovePath(const char *path)
 {
+    if (SAVEFS_owns(path))
+    {
+        return SAVEFS_remove(path);
+    }
     if (remove(path) != 0)
     {
         return SDL_SetError("Can't remove %s", path);
