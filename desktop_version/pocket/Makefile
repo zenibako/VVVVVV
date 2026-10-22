@@ -96,8 +96,18 @@ deps:
 	bash $(POCKET_ROOT)/scripts/fetch-deps.sh
 
 TEST_BIN := $(BUILD_DIR)/host/compat_test
-test: $(TEST_BIN)
+SAVEFS_TEST_BIN := $(BUILD_DIR)/host/savefs_test
+test: $(TEST_BIN) $(SAVEFS_TEST_BIN)
 	$(TEST_BIN)
+	$(SAVEFS_TEST_BIN)
+
+# The save archive runs against the port's own SDL3 I/O layer.
+$(SAVEFS_TEST_BIN): $(POCKET_ROOT)/tests/savefs_test.c $(addprefix $(POCKET_ROOT)/sdl3/, savefs.c savefs.h io.c stdinc.c)
+	@mkdir -p $(dir $@)
+	$(HOST_CC) -std=gnu99 -Wall -Wextra -g $(HOST_SANITIZE) -D_GNU_SOURCE \
+		-DPOCKET_SAVE_FILE='"$(BUILD_DIR)/host/savefs_test.sav"' \
+		-I$(SDL3_ROOT)/include -I$(POCKET_ROOT)/sdl3 \
+		$(POCKET_ROOT)/tests/savefs_test.c $(POCKET_ROOT)/sdl3/io.c $(POCKET_ROOT)/sdl3/stdinc.c -lm -o $@
 
 $(TEST_BIN): $(POCKET_ROOT)/tests/compat_test.cpp $(POCKET_ROOT)/compat/cxx/compat.cpp $(wildcard $(POCKET_ROOT)/compat/cxx/*)
 	@mkdir -p $(dir $@)

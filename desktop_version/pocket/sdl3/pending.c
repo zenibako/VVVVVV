@@ -1,16 +1,10 @@
-/* Placeholders for the SDL3 video, surface, event and gamepad calls.
+/* Placeholders for the SDL3 video, surface and renderer calls.
  *
- * Phase 1 of the port only needs the game to link for the Pocket; the host
- * build uses desktop SDL3.  The platform layer (zenibako/VVVVVV#3) and the
- * software renderer (zenibako/VVVVVV#4) replace these.  Each one fails
- * cleanly so a call is visible in the log rather than undefined. */
+ * The game links for the Pocket before it can draw; the host build uses
+ * desktop SDL3.  The software renderer (zenibako/VVVVVV#4) replaces these.
+ * Each one fails cleanly so a call is visible in the log rather than
+ * undefined. */
 #include <SDL3/SDL.h>
-
-int SDL_AddGamepadMappingsFromFile(const char *file)
-{
-    (void) file;
-    return 0;
-}
 
 bool SDL_BlitSurface(SDL_Surface *src, const SDL_Rect *srcrect, SDL_Surface *dst, const SDL_Rect *dstrect)
 {
@@ -29,11 +23,6 @@ bool SDL_BlitSurfaceScaled(SDL_Surface *src, const SDL_Rect *srcrect, SDL_Surfac
     (void) dstrect;
     (void) scaleMode;
     return SDL_SetError("SDL_BlitSurfaceScaled is not available yet");
-}
-
-void SDL_CloseGamepad(SDL_Gamepad *gamepad)
-{
-    (void) gamepad;
 }
 
 SDL_Surface *SDL_ConvertSurface(SDL_Surface *surface, SDL_PixelFormat format)
@@ -145,44 +134,6 @@ const SDL_DisplayMode *SDL_GetDesktopDisplayMode(SDL_DisplayID displayID)
 SDL_DisplayID SDL_GetDisplayForWindow(SDL_Window *window)
 {
     (void) window;
-    return 0;
-}
-
-SDL_Joystick *SDL_GetGamepadJoystick(SDL_Gamepad *gamepad)
-{
-    (void) gamepad;
-    SDL_SetError("SDL_GetGamepadJoystick is not available yet");
-    return NULL;
-}
-
-const char *SDL_GetGamepadName(SDL_Gamepad *gamepad)
-{
-    (void) gamepad;
-    SDL_SetError("SDL_GetGamepadName is not available yet");
-    return NULL;
-}
-
-Uint16 SDL_GetGamepadProduct(SDL_Gamepad *gamepad)
-{
-    (void) gamepad;
-    return 0;
-}
-
-SDL_GamepadType SDL_GetGamepadType(SDL_Gamepad *gamepad)
-{
-    (void) gamepad;
-    return 0;
-}
-
-Uint16 SDL_GetGamepadVendor(SDL_Gamepad *gamepad)
-{
-    (void) gamepad;
-    return 0;
-}
-
-SDL_JoystickID SDL_GetJoystickID(SDL_Joystick *joystick)
-{
-    (void) joystick;
     return 0;
 }
 
@@ -325,19 +276,6 @@ bool SDL_MinimizeWindow(SDL_Window *window)
 {
     (void) window;
     return SDL_SetError("SDL_MinimizeWindow is not available yet");
-}
-
-SDL_Gamepad *SDL_OpenGamepad(SDL_JoystickID instance_id)
-{
-    (void) instance_id;
-    SDL_SetError("SDL_OpenGamepad is not available yet");
-    return NULL;
-}
-
-bool SDL_PollEvent(SDL_Event *event)
-{
-    (void) event;
-    return SDL_SetError("SDL_PollEvent is not available yet");
 }
 
 bool SDL_RenderClear(SDL_Renderer *renderer)
