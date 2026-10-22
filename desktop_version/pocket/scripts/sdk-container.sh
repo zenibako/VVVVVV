@@ -34,6 +34,9 @@ stdin_source=/dev/null
 container_name="vvvvvv-sdk-$$"
 trap 'oci_rm_force "$container_name"' EXIT INT TERM
 
+# The container runs in the background and the script waits for it, so an
+# INT or TERM reaches the trap at once and the container is removed.
+#
 # CPATH is cleared because the image points it at picolibc for firmware
 # builds, and apps link musl.  OF_SDK_IN_CONTAINER=1 tells sdk.mk it is
 # inside the toolchain so it compiles instead of re-entering this script.
@@ -46,4 +49,5 @@ oci_run --rm --name "$container_name" ${tty_args[@]+"${tty_args[@]}"} \
     -e OF_SDK_IN_CONTAINER=1 \
     -e "MAKEFLAGS=${MAKEFLAGS:-}" \
     -w "$WORKDIR" \
-    "$IMG" "$@" < "$stdin_source"
+    "$IMG" "$@" < "$stdin_source" &
+wait $!

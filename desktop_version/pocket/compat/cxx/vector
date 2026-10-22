@@ -100,6 +100,10 @@ public:
         {
             return;
         }
+        if (n > ((size_type) -1) / sizeof(T))
+        {
+            abort();
+        }
         T *grown = (T *) malloc(n * sizeof(T));
         if (grown == NULL)
         {
