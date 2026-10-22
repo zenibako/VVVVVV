@@ -22,11 +22,18 @@
 #ifdef POCKET_SHOW_FPS
 #include "of_timer.h"
 Uint32 POCKET_render_us;
+/* Microseconds in held back clears, row copies, copies by run, pixel by
+ * pixel copies, fills and building runs. */
+Uint32 POCKET_render_part_us[6];
 #define PROFILE_BEGIN() const Uint32 profile_start = of_time_us()
 #define PROFILE_END() (POCKET_render_us += of_time_us() - profile_start)
+#define PART_BEGIN() const Uint32 part_start = of_time_us()
+#define PART_END(part) (POCKET_render_part_us[part] += of_time_us() - part_start)
 #else
 #define PROFILE_BEGIN() ((void) 0)
 #define PROFILE_END() ((void) 0)
+#define PART_BEGIN() ((void) 0)
+#define PART_END(part) ((void) 0)
 #endif
 
 typedef struct
@@ -89,6 +96,7 @@ static void resolve_clear(Texture *t)
     {
         return;
     }
+    PART_BEGIN();
     t->clear_pending = false;
     const size_t count = (size_t) t->texture.w * t->texture.h;
     const Uint32 color = t->clear_color;
@@ -96,6 +104,7 @@ static void resolve_clear(Texture *t)
     {
         t->pixels[i] = color;
     }
+    PART_END(0);
 }
 
 /* Before t's pixels change: covers_all says every pixel is about to be
@@ -693,7 +702,9 @@ static void fill_rect(Texture *target, const SDL_Rect *rect, Uint8 r, Uint8 g, U
 static void fill(Texture *target, const SDL_Rect *rect, Uint8 r, Uint8 g, Uint8 b, Uint8 a, SDL_BlendMode blend)
 {
     PROFILE_BEGIN();
+    PART_BEGIN();
     fill_rect(target, rect, r, g, b, a, blend);
+    PART_END(4);
     PROFILE_END();
 }
 
@@ -980,7 +991,9 @@ static bool copy_rows(SDL_Renderer *renderer, Texture *src, const SDL_FRect *src
     const bool skips_clear = blend == SDL_BLENDMODE_BLEND || blend == SDL_BLENDMODE_ADD;
     if (!raw && skips_clear && contiguous && !src->runs_valid && src->copies_since_change > 0)
     {
+        PART_BEGIN();
         build_runs(src);
+        PART_END(5);
     }
     if (src->copies_since_change < 2)
     {
@@ -988,6 +1001,7 @@ static bool copy_rows(SDL_Renderer *renderer, Texture *src, const SDL_FRect *src
     }
     const bool by_runs = !raw && skips_clear && contiguous && src->runs_valid;
 
+    PART_BEGIN();
     for (int y = clip.y; y < clip.y + clip.h; y++)
     {
         int v = y - dr.y;
@@ -1039,6 +1053,7 @@ static bool copy_rows(SDL_Renderer *renderer, Texture *src, const SDL_FRect *src
             copy_pixel(drow + i, srow[column_map[i]], src, modulated);
         }
     }
+    PART_END(raw ? 1 : by_runs ? 2 : 3);
     return true;
 }
 

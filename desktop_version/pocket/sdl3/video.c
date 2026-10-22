@@ -42,6 +42,7 @@ static void start_video(void)
 
 #ifdef POCKET_SHOW_FPS
 extern Uint32 POCKET_render_us;
+extern Uint32 POCKET_render_part_us[6];
 extern int POCKET_saves_written;
 extern int POCKET_saves_failed;
 static Uint32 present_us;
@@ -85,6 +86,46 @@ static void draw_number(Uint8 *fb, int stride, int line, int value)
     }
 }
 
+/* Once, tenths of a millisecond for a full screen of ARGB8888: memcpy,
+ * a word fill loop, and a word copy loop. */
+static int bench[3];
+
+static void run_bench(void)
+{
+    static bool done;
+    if (done)
+    {
+        return;
+    }
+    done = true;
+    const size_t count = (size_t) POCKET_SCREEN_W * POCKET_SCREEN_H;
+    Uint32 *a = (Uint32 *) SDL_malloc(count * 4);
+    Uint32 *b = (Uint32 *) SDL_malloc(count * 4);
+    if (a == NULL || b == NULL)
+    {
+        SDL_free(a);
+        SDL_free(b);
+        return;
+    }
+    Uint32 start = of_time_us();
+    SDL_memcpy(b, a, count * 4);
+    bench[0] = (int) ((of_time_us() - start) / 100);
+    start = of_time_us();
+    for (size_t i = 0; i < count; i++)
+    {
+        ((volatile Uint32 *) a)[i] = 0xFF000000u;
+    }
+    bench[1] = (int) ((of_time_us() - start) / 100);
+    start = of_time_us();
+    for (size_t i = 0; i < count; i++)
+    {
+        ((volatile Uint32 *) b)[i] = ((volatile Uint32 *) a)[i];
+    }
+    bench[2] = (int) ((of_time_us() - start) / 100);
+    SDL_free(a);
+    SDL_free(b);
+}
+
 /* Over the last second, down the top right corner: frames presented, then
  * the milliseconds per frame spent drawing in the renderer, presenting,
  * and everywhere else (the game's own code, input and sound); then saves
@@ -94,6 +135,9 @@ static void draw_profile(Uint8 *fb, int stride)
     static Uint32 second_start, render_start, present_start;
     static int frames;
     static int shown[4];
+    static int parts[6];
+    static Uint32 parts_start[6];
+    run_bench();
     const Uint32 now = of_time_ms();
     frames++;
     if (now - second_start >= 1000)
@@ -105,6 +149,12 @@ static void draw_profile(Uint8 *fb, int stride)
         shown[1] = (int) (render / frames / 1000);
         shown[2] = (int) (present / frames / 1000);
         shown[3] = (int) ((elapsed_us - SDL_min(elapsed_us, render + present)) / frames / 1000);
+        for (int i = 0; i < 6; i++)
+        {
+            /* Tenths of a millisecond per frame. */
+            parts[i] = (int) ((POCKET_render_part_us[i] - parts_start[i]) / frames / 100);
+            parts_start[i] = POCKET_render_part_us[i];
+        }
         frames = 0;
         second_start = now;
         render_start = POCKET_render_us;
@@ -116,6 +166,13 @@ static void draw_profile(Uint8 *fb, int stride)
     }
     draw_number(fb, stride, 4, POCKET_saves_written);
     draw_number(fb, stride, 5, POCKET_saves_failed);
+    for (int i = 0; i < 6; i++)
+    {
+        draw_number(fb, stride, 7 + i, parts[i]);
+    }
+    draw_number(fb, stride, 14, bench[0]);
+    draw_number(fb, stride, 15, bench[1]);
+    draw_number(fb, stride, 16, bench[2]);
 }
 #endif
 
