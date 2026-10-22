@@ -2,15 +2,14 @@
  *
  * The Pocket has one built-in controller. It is reported as a single
  * gamepad that is added on the first poll, and its buttons and left stick
- * become SDL gamepad events. The Pocket's face buttons use the Nintendo
- * layout (A right, B bottom, X top, Y left), so the gamepad identifies as a
- * Nintendo controller and the game shows matching button glyphs. */
+ * become SDL gamepad events. The face buttons map by position (A right,
+ * B bottom, X top, Y left); the game shows Pocket button glyphs for them
+ * (ButtonGlyphs.cpp, pocket/fonts). */
 #include <SDL3/SDL.h>
 
 #include "of_input.h"
 
 #define POCKET_JOYSTICK_ID 1
-#define POCKET_VENDOR_NINTENDO 0x057e
 
 /* openfpgaOS bits to SDL's positional gamepad buttons. */
 static const struct
@@ -190,13 +189,13 @@ const char *SDL_GetGamepadName(SDL_Gamepad *gamepad)
 SDL_GamepadType SDL_GetGamepadType(SDL_Gamepad *gamepad)
 {
     (void) gamepad;
-    return SDL_GAMEPAD_TYPE_NINTENDO_SWITCH_PRO;
+    return SDL_GAMEPAD_TYPE_STANDARD;
 }
 
 Uint16 SDL_GetGamepadVendor(SDL_Gamepad *gamepad)
 {
     (void) gamepad;
-    return POCKET_VENDOR_NINTENDO;
+    return 0;
 }
 
 Uint16 SDL_GetGamepadProduct(SDL_Gamepad *gamepad)

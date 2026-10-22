@@ -95,6 +95,10 @@ all: $(BUILD_DIR)/app.elf
 deps:
 	bash $(POCKET_ROOT)/scripts/fetch-deps.sh
 
+# The game's button fonts with Pocket glyphs added; the output is committed.
+button-fonts:
+	python3 $(POCKET_ROOT)/scripts/make-button-fonts.py $(GAME_ROOT)/fonts $(POCKET_ROOT)/fonts
+
 TEST_BIN := $(BUILD_DIR)/host/compat_test
 SAVEFS_TEST_BIN := $(BUILD_DIR)/host/savefs_test
 test: $(TEST_BIN) $(SAVEFS_TEST_BIN)
@@ -171,4 +175,4 @@ host: $(HOST_BIN)
 clean: sdk-clean
 	rm -rf $(BUILD_DIR)
 
-.PHONY: all deps test host clean
+.PHONY: all deps button-fonts test host clean

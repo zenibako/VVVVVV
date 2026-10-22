@@ -71,6 +71,18 @@ typedef enum
     GLYPH_NINTENDO_GAMECUBE_R,
     GLYPH_NINTENDO_GAMECUBE_Z,
 
+#ifdef VVV_POCKET
+    /* Analogue Pocket; only in the Pocket build's fonts (pocket/fonts) */
+    GLYPH_POCKET_A,
+    GLYPH_POCKET_B,
+    GLYPH_POCKET_X,
+    GLYPH_POCKET_Y,
+    GLYPH_POCKET_START,
+    GLYPH_POCKET_SELECT,
+    GLYPH_POCKET_L,
+    GLYPH_POCKET_R,
+#endif
+
     GLYPH_TOTAL
 }
 ButtonGlyphKey;
@@ -89,6 +101,10 @@ typedef enum
 
     /* Added after 2.4 */
     LAYOUT_GAMECUBE,
+
+#ifdef VVV_POCKET
+    LAYOUT_POCKET,
+#endif
 
     LAYOUT_TOTAL
 }
@@ -152,11 +168,24 @@ static const char* glyph_layout[LAYOUT_TOTAL][SDL_GAMEPAD_BUTTON_RIGHT_SHOULDER 
         glyph[GLYPH_UNKNOWN], glyph[GLYPH_UNKNOWN], "START",
         glyph[GLYPH_UNKNOWN], glyph[GLYPH_UNKNOWN],
         glyph[GLYPH_UNKNOWN], glyph[GLYPH_NINTENDO_GAMECUBE_Z]
-    }
+    },
+#ifdef VVV_POCKET
+    { // POCKET
+        glyph[GLYPH_POCKET_B], glyph[GLYPH_POCKET_A],
+        glyph[GLYPH_POCKET_Y], glyph[GLYPH_POCKET_X],
+        glyph[GLYPH_POCKET_SELECT], glyph[GLYPH_UNKNOWN], glyph[GLYPH_POCKET_START],
+        glyph[GLYPH_UNKNOWN], glyph[GLYPH_UNKNOWN],
+        glyph[GLYPH_POCKET_L], glyph[GLYPH_POCKET_R]
+    },
+#endif
 };
 
 static bool keyboard_is_active;
+#ifdef VVV_POCKET
+static ButtonGlyphLayout layout = LAYOUT_POCKET;
+#else
 static ButtonGlyphLayout layout = LAYOUT_GENERIC;
+#endif
 
 void BUTTONGLYPHS_init(void)
 {
@@ -166,7 +195,7 @@ void BUTTONGLYPHS_init(void)
         SDL_strlcpy(glyph[i], UTF8_encode(0xEB00+i).bytes, sizeof(glyph[i]));
     }
 
-#if defined(SDL_PLATFORM_ANDROID) || TARGET_OS_IPHONE
+#if defined(SDL_PLATFORM_ANDROID) || TARGET_OS_IPHONE || defined(VVV_POCKET)
     keyboard_is_active = false;
 #else
     keyboard_is_active = !SDL_GetHintBoolean("SteamDeck", false);
@@ -184,7 +213,7 @@ bool BUTTONGLYPHS_keyboard_is_available(void)
         return true;
     }
 
-#if defined(SDL_PLATFORM_ANDROID) || TARGET_OS_IPHONE
+#if defined(SDL_PLATFORM_ANDROID) || TARGET_OS_IPHONE || defined(VVV_POCKET)
     return false;
 #else
     return !SDL_GetHintBoolean("SteamDeck", false);
@@ -205,6 +234,11 @@ void BUTTONGLYPHS_keyboard_set_active(bool active)
 
 void BUTTONGLYPHS_update_layout(SDL_Gamepad *c)
 {
+#ifdef VVV_POCKET
+    /* The only controller is the Pocket's own. */
+    (void) c;
+    layout = LAYOUT_POCKET;
+#else
     Uint16 vendor = SDL_GetGamepadVendor(c);
     Uint16 product = SDL_GetGamepadProduct(c);
 
@@ -266,6 +300,7 @@ void BUTTONGLYPHS_update_layout(SDL_Gamepad *c)
          */
         layout = LAYOUT_XBOX;
     }
+#endif
 }
 
 const char* BUTTONGLYPHS_get_wasd_text(void)

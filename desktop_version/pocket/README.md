@@ -19,6 +19,7 @@ No game data is included. You need your own `data.zip`.
 | `compat/cxx/` | The small part of the C++ standard library the game uses (`string`, `vector`, `map`, `ostringstream`). The SDK has no C++ library. |
 | `sdl3/` | The SDL3 calls the game makes, implemented on openfpgaOS (input, files, the save archive) |
 | `src/` | Pocket-only code (for now, an FAudio placeholder) |
+| `fonts/` | The game's button fonts with Pocket glyphs added (generated) |
 | `tests/` | Host checks for the compat headers and the save archive |
 
 The game sources in `../src` build with the same C++98 flags as the desktop
@@ -42,9 +43,16 @@ AddressSanitizer and UBSan.
 
 ## Controls and saves
 
-The Pocket's controller is reported to the game as one SDL gamepad with
-Nintendo button positions (A right, B bottom, X top, Y left), so the game
-shows matching button prompts.
+The Pocket's controller is reported to the game as one SDL gamepad, with
+the face buttons mapped by position (A right, B bottom, X top, Y left).
+
+Button prompts use Pocket glyphs in the style of Butterscotch Pocket's: the
+face-button diamond with the pressed button marked, the row of three small
+buttons below the screen, and the shoulder pair. They live in Pocket copies
+of the game's button fonts in `fonts/`, at U+EB37 to U+EB3E, which the
+packaged core ships in place of the originals. `make button-fonts`
+regenerates them from `../fonts` with `scripts/make-button-fonts.py`
+(Python 3 and Pillow).
 
 openfpgaOS has no writable directory, so everything the game writes under
 `saves/`, `levels/` and `screenshots/` is kept as a small archive in one
