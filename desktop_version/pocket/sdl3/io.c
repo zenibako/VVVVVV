@@ -329,9 +329,13 @@ char *SDL_GetPrefPath(const char *org, const char *app)
     return SDL_strdup("/");
 }
 
+/* PHYSFS_init needs a home folder; the card's root stands in for it. */
 const char *SDL_GetUserFolder(SDL_Folder folder)
 {
-    (void) folder;
+    if (folder == SDL_FOLDER_HOME)
+    {
+        return "/";
+    }
     SDL_SetError("No user folders");
     return NULL;
 }

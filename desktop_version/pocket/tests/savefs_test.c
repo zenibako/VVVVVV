@@ -104,6 +104,10 @@ int main(void)
 
     remove(POCKET_SAVE_FILE);
 
+    /* PHYSFS_init asks for the base, home and pref folders. */
+    CHECK(strcmp(SDL_GetBasePath(), "/") == 0);
+    CHECK(SDL_GetUserFolder(SDL_FOLDER_HOME) && strcmp(SDL_GetUserFolder(SDL_FOLDER_HOME), "/") == 0);
+
     /* Paths the archive owns, as the game and PhysFS spell them. */
     CHECK(SAVEFS_owns("/saves/unlock.vvv"));
     CHECK(SAVEFS_owns("./saves//tsave.vvv"));

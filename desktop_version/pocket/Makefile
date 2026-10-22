@@ -3,10 +3,14 @@
 #   make deps        fetch the pinned SDK and SDL3 headers into .deps
 #   make             build build/app.elf (in the SDK container by default;
 #                    USE_SDK_CONTAINER=0 uses a host riscv64-unknown-elf gcc)
+#   make package     assemble the SD card tree in build/sd (no game data)
 #   make test        build and run the host checks for the compat headers
 #   make host        build the game for this computer with the same compat
 #                    headers, on desktop SDL3 (SDL3_PREFIX), to debug the
 #                    game logic off the device
+#   make host-render the host build drawn by the port's renderer
+#   make render-test compare the port's renderer with desktop SDL3's
+#                    software renderer (SDL3_PREFIX)
 #
 # The game sources build unchanged from ../src with the C++98 flags the
 # desktop CMake build uses.  The SDK has no C++ standard library, so
@@ -62,6 +66,10 @@ POCKET_DEFS := -DVVV_POCKET -D_GNU_SOURCE \
 	-DPHYSFS_SUPPORTS_DEFAULT=0 -DPHYSFS_SUPPORTS_ZIP=1 \
 	-DPHYSFS_PLATFORM_SDL3=1 \
 	-DSB_CONFIG_UNITY
+# SHOW_FPS=1 draws the presented frame rate in the top right corner.
+ifeq ($(SHOW_FPS),1)
+POCKET_DEFS += -DPOCKET_SHOW_FPS
+endif
 POCKET_INCLUDES := -I$(POCKET_ROOT)/include -I$(SDL3_ROOT)/include \
 	-I$(THIRD_PARTY)/tinyxml2 -I$(THIRD_PARTY)/physfs/src \
 	-I$(THIRD_PARTY)/physfs/extras -I$(THIRD_PARTY)/lodepng \
@@ -94,6 +102,10 @@ all: $(BUILD_DIR)/app.elf
 
 deps:
 	bash $(POCKET_ROOT)/scripts/fetch-deps.sh
+
+# The SD card tree in build/sd, without game data.
+package: $(BUILD_DIR)/app.elf
+	bash $(POCKET_ROOT)/scripts/package.sh
 
 # The game's button fonts with Pocket glyphs added; the output is committed.
 button-fonts:
@@ -172,7 +184,72 @@ $(HOST_BIN): $(HOST_OBJS)
 
 host: $(HOST_BIN)
 
+# The renderer against desktop SDL3's software renderer (tests/render_test.c).
+# The port's renderer is built with its SDL calls given a PR_ prefix so both
+# link into one program.
+RENDER_TEST_BIN := $(HOST_DIR)/render_test
+RENDER_SRCS := $(addprefix $(POCKET_ROOT)/sdl3/, render.c surface.c)
+RENDER_RENAME := $(HOST_DIR)/render_rename.h
+RENDER_TEST_CFLAGS = -std=gnu99 -Wall -Wextra -g $(HOST_SANITIZE) \
+	-I$(SDL3_PREFIX)/include -I$(POCKET_ROOT)/tests -I$(POCKET_ROOT)/sdl3
+
+$(RENDER_RENAME): $(RENDER_SRCS)
+	@mkdir -p $(dir $@)
+	sed -nE 's/^[A-Za-z].*[ *](SDL_[A-Za-z]+)\(.*/#define \1 PR_\1/p' $^ | sort -u > $@
+
+$(RENDER_TEST_BIN): $(addprefix $(POCKET_ROOT)/tests/, render_test.c render_ops.c render_test.h) \
+		$(RENDER_SRCS) $(POCKET_ROOT)/sdl3/render_internal.h $(RENDER_RENAME)
+	@mkdir -p $(HOST_DIR)/render_test_obj
+	$(HOST_CC) $(RENDER_TEST_CFLAGS) -DRENDER_OPS=render_ops_sdl \
+		-c $(POCKET_ROOT)/tests/render_ops.c -o $(HOST_DIR)/render_test_obj/ops_sdl.o
+	$(HOST_CC) $(RENDER_TEST_CFLAGS) -DRENDER_OPS=render_ops_pocket -include $(RENDER_RENAME) \
+		-c $(POCKET_ROOT)/tests/render_ops.c -o $(HOST_DIR)/render_test_obj/ops_pocket.o
+	$(HOST_CC) $(RENDER_TEST_CFLAGS) -include $(RENDER_RENAME) \
+		-c $(POCKET_ROOT)/sdl3/render.c -o $(HOST_DIR)/render_test_obj/render.o
+	$(HOST_CC) $(RENDER_TEST_CFLAGS) -include $(RENDER_RENAME) \
+		-c $(POCKET_ROOT)/sdl3/surface.c -o $(HOST_DIR)/render_test_obj/surface.o
+	$(HOST_CC) $(RENDER_TEST_CFLAGS) -c $(POCKET_ROOT)/tests/render_test.c -o $(HOST_DIR)/render_test_obj/render_test.o
+	$(HOST_CC) $(HOST_SANITIZE) -o $@ $(addprefix $(HOST_DIR)/render_test_obj/, \
+		render_test.o ops_sdl.o ops_pocket.o render.o surface.o) $(HOST_LIBS)
+
+render-test: $(RENDER_TEST_BIN)
+	$(RENDER_TEST_BIN)
+
+# The host game drawn by the port's renderer instead of desktop SDL3's, to
+# compare whole frames with `make host`; host/present.c shows them.
+HOST_RENDER_DIR := $(HOST_DIR)/render
+HOST_RENDER_BIN := $(HOST_RENDER_DIR)/vvvvvv
+host_render_object = $(HOST_RENDER_DIR)/obj/$(subst ../,__parent__/,$(basename $(1))).o
+HOST_RENDER_C_SRCS := $(HOST_C_SRCS) $(RENDER_SRCS)
+HOST_RENDER_OBJS := $(foreach src,$(HOST_RENDER_C_SRCS) $(HOST_CXX_SRCS),$(call host_render_object,$(src))) \
+	$(HOST_RENDER_DIR)/obj/present.o
+HOST_RENDER_FLAGS = -include $(RENDER_RENAME) -I$(POCKET_ROOT)/sdl3
+
+define HOST_RENDER_C_RULE
+$(call host_render_object,$(1)): $(1) $(RENDER_RENAME) $(POCKET_ROOT)/sdl3/render_internal.h
+	@mkdir -p $$(dir $$@)
+	$$(HOST_CC) -std=gnu99 -g -O1 $$(HOST_SANITIZE) $$(HOST_DEFS) $$(HOST_RENDER_FLAGS) $$(HOST_INCLUDES) -c -o $$@ $$<
+endef
+$(foreach src,$(HOST_RENDER_C_SRCS),$(eval $(call HOST_RENDER_C_RULE,$(src))))
+
+define HOST_RENDER_CXX_RULE
+$(call host_render_object,$(1)): $(1) $(RENDER_RENAME) $(wildcard $(POCKET_ROOT)/compat/cxx/*)
+	@mkdir -p $$(dir $$@)
+	$$(HOST_CXX) -std=c++98 -nostdinc++ -I$(POCKET_ROOT)/compat/cxx -fno-exceptions -fno-rtti \
+		-g -O1 $$(HOST_SANITIZE) $$(HOST_DEFS) $$(HOST_RENDER_FLAGS) $$(HOST_INCLUDES) -c -o $$@ $$<
+endef
+$(foreach src,$(HOST_CXX_SRCS),$(eval $(call HOST_RENDER_CXX_RULE,$(src))))
+
+$(HOST_RENDER_DIR)/obj/present.o: $(POCKET_ROOT)/host/present.c $(POCKET_ROOT)/sdl3/render_internal.h
+	@mkdir -p $(dir $@)
+	$(HOST_CC) -std=gnu99 -g -O1 $(HOST_SANITIZE) -I$(SDL3_PREFIX)/include -I$(POCKET_ROOT)/sdl3 -c -o $@ $<
+
+$(HOST_RENDER_BIN): $(HOST_RENDER_OBJS)
+	$(HOST_CC) $(HOST_SANITIZE) -o $@ $^ $(HOST_LIBS)
+
+host-render: $(HOST_RENDER_BIN)
+
 clean: sdk-clean
 	rm -rf $(BUILD_DIR)
 
-.PHONY: all deps button-fonts test host clean
+.PHONY: all deps package button-fonts test host render-test host-render clean

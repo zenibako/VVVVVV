@@ -134,10 +134,3 @@ bool SDL_GetHintBoolean(const char *name, bool default_value)
     (void) name;
     return default_value;
 }
-
-Sint64 SDL_GetNumberProperty(SDL_PropertiesID props, const char *name, Sint64 default_value)
-{
-    (void) props;
-    (void) name;
-    return default_value;
-}

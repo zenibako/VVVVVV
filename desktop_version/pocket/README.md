@@ -15,12 +15,14 @@ No game data is included. You need your own `data.zip`.
 | Path | What |
 |---|---|
 | `Makefile` | Device build (`build/app.elf`), the host build and tests |
-| `scripts/fetch-deps.sh` | Fetches the pinned openfpgaOS SDK and SDL3 headers into `.deps/` |
+| `scripts/fetch-deps.sh` | Fetches the pinned openfpgaOS SDK, runtime and SDL3 headers into `.deps/` |
+| `dist/`, `scripts/package.sh` | The Pocket core definition and the SD card packaging |
 | `compat/cxx/` | The small part of the C++ standard library the game uses (`string`, `vector`, `map`, `ostringstream`). The SDK has no C++ library. |
-| `sdl3/` | The SDL3 calls the game makes, implemented on openfpgaOS (input, files, the save archive) |
+| `sdl3/` | The SDL3 calls the game makes, implemented on openfpgaOS (input, files, the save archive, surfaces and the software renderer) |
+| `host/` | Shows the port's renderer in a desktop window for `make host-render` |
 | `src/` | Pocket-only code (for now, an FAudio placeholder) |
 | `fonts/` | The game's button fonts with Pocket glyphs added (generated) |
-| `tests/` | Host checks for the compat headers and the save archive |
+| `tests/` | Host checks for the compat headers, the save archive and the renderer |
 
 The game sources in `../src` build with the same C++98 flags as the desktop
 build. The few changes they need are guarded by `VVV_POCKET`.
@@ -37,6 +39,13 @@ By default `make` compiles in the SDK's `openfpgaos-firmware` container, as
 the other openfpgaOS ports do. `USE_SDK_CONTAINER=0` uses a host
 `riscv64-unknown-elf-gcc` instead. On Ubuntu 24.04 the container's packages
 are `gcc-riscv64-unknown-elf` and `picolibc-riscv64-unknown-elf`.
+
+`make package` assembles the SD card tree in `build/sd`: the core
+(`dist/`), the pinned openfpgaOS runtime, the app, and the game's fonts and
+lang folders zipped as `vvvvvv-repo.zip`, laid out like the Android build's
+`repo.zip` because openfpgaOS has no directories. Copy it to the root of
+the card and add your `data.zip` as `Assets/vvvvvv/common/data.zip`. For
+now the Chinese, Japanese and Korean fonts are left out to save memory.
 
 `make test` runs the compat-header and save-archive checks on the host with
 AddressSanitizer and UBSan.
@@ -56,10 +65,37 @@ regenerates them from `../fonts` with `scripts/make-button-fonts.py`
 
 openfpgaOS has no writable directory, so everything the game writes under
 `saves/`, `levels/` and `screenshots/` is kept as a small archive in one
-save file, `vvvvvv.sav` by default (`POCKET_SAVE_FILE`). The archive is
+save file, `vvvvvv_0.sav` by default (`POCKET_SAVE_FILE`). The archive is
 rewritten each time the game closes a file it wrote.
 
 `make host SDL3_PREFIX=<prefix>` builds the game for your computer with the
 same compat headers, on desktop SDL3 and FAudio. Use it to debug game logic
 off the device: run `build/host/vvvvvv -assets <path to data.zip>`. Saves
 go to your desktop VVVVVV folder unless you also pass `-basedir <folder>/`.
+
+## Drawing
+
+openfpgaOS has no GPU path for the game, so `sdl3/render.c` is a small
+software renderer for the SDL3 calls the game makes: textures and render
+targets, colour and alpha mods, the SDL blend modes, flips, nearest
+scaling, rectangles, lines and points. Everything is drawn in ARGB8888 and
+each presented frame is converted to the framebuffer's RGB565
+(`sdl3/video.c`). `sdl3/surface.c` covers the surfaces the game uses for
+image loading, collision masks and the bad signal filter.
+
+The game redraws the whole screen several times a frame, so the renderer
+holds clears back until it needs them, copies opaque layers as plain rows
+and skips the transparent runs of layers that are drawn again unchanged.
+Build with `make SHOW_FPS=1` (after `rm -rf build/obj`) to draw, down the
+top right corner, the frame rate and the milliseconds per frame spent in
+the renderer, presenting, and everywhere else.
+
+Two host builds check it against desktop SDL3 (`SDL3_PREFIX`):
+
+- `make render-test` draws the same steps with SDL3's own software
+  renderer and with the port's, and compares the pixels. Set
+  `RENDER_TEST_OUT=<folder>` to also write each step as a PPM, SDL on the
+  left and the port on the right.
+- `make host-render` is the host build with the game drawn by the port's
+  renderer, shown in a window by `host/present.c`. Run it like `make host`
+  to compare whole frames.

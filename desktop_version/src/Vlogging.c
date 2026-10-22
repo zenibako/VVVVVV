@@ -9,6 +9,14 @@
 #define VLOG_USE_SDL 1
 #endif
 
+/* Pocket test builds stamp each line with milliseconds since boot. */
+#ifdef POCKET_SHOW_FPS
+#   include <SDL3/SDL_timer.h>
+#   define POCKET_STAMP(stream) fprintf(stream, "%5u ", (unsigned) SDL_GetTicks())
+#else
+#   define POCKET_STAMP(stream)
+#endif
+
 #ifdef VLOG_USE_SDL
 #   include <SDL3/SDL_log.h>
 #elif defined(_WIN32)
@@ -93,6 +101,7 @@ SDL_PRINTF_VARARG_FUNC(1) void vlog_debug(const char* text, ...)
     SDL_LogMessageV(SDL_LOG_CATEGORY_APPLICATION, SDL_LOG_PRIORITY_DEBUG, text, list);
     va_end(list);
 #else
+    POCKET_STAMP(stdout);
     printf(Color_BOLD_GRAY);
     printf("[DEBUG]");
     printf(Color_RESET);
@@ -120,6 +129,7 @@ SDL_PRINTF_VARARG_FUNC(1) void vlog_info(const char* text, ...)
     SDL_LogMessageV(SDL_LOG_CATEGORY_APPLICATION, SDL_LOG_PRIORITY_INFO, text, list);
     va_end(list);
 #else
+    POCKET_STAMP(stdout);
     printf(Color_BOLD);
     printf("[INFO]");
     printf(Color_RESET);
@@ -147,6 +157,7 @@ SDL_PRINTF_VARARG_FUNC(1) void vlog_warn(const char* text, ...)
     SDL_LogMessageV(SDL_LOG_CATEGORY_APPLICATION, SDL_LOG_PRIORITY_WARN, text, list);
     va_end(list);
 #else
+    POCKET_STAMP(stderr);
     fprintf(stderr, Color_BOLD_YELLOW);
     fprintf(stderr, "[WARN]");
     fprintf(stderr, Color_RESET);
@@ -174,6 +185,7 @@ SDL_PRINTF_VARARG_FUNC(1) void vlog_error(const char* text, ...)
     SDL_LogMessageV(SDL_LOG_CATEGORY_APPLICATION, SDL_LOG_PRIORITY_ERROR, text, list);
     va_end(list);
 #else
+    POCKET_STAMP(stderr);
     fprintf(stderr, Color_BOLD_RED);
     fprintf(stderr, "[ERROR]");
     fprintf(stderr, Color_RESET);

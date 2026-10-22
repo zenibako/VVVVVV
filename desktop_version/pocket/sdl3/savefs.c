@@ -10,14 +10,24 @@
  * archive: a header, a table of names and sizes, then the contents. It is
  * read into memory on first use, and the whole archive is rewritten each
  * time a file is closed after writing. The layout follows Butterscotch's
- * save archive (of_save_format.h) with its own magic and longer names. */
+ * save archive (of_save_format.h) with its own magic and longer names.
+ *
+ * Closing a save file only updates the Pocket's copy in memory, which it
+ * writes to the SD card when the core is closed from its menu. Each store
+ * also asks the OS to write it to the card at once (fsync), so progress
+ * survives switching the Pocket off; runtimes without that keep the
+ * close-from-menu behaviour. */
 #include "savefs.h"
 
 #include <stdio.h>
 #include <string.h>
+#include <unistd.h>
 
+/* openfpgaOS only knows a save file by name once it exists on the SD
+ * card; before the first save it finds the slot from the <name>_<N>.sav
+ * pattern, N counting from the first save slot (id 10). */
 #ifndef POCKET_SAVE_FILE
-#define POCKET_SAVE_FILE "vvvvvv.sav"
+#define POCKET_SAVE_FILE "vvvvvv_0.sav"
 #endif
 
 #define SAVEFS_MAGIC 0x31565656u /* "VVV1" */
@@ -49,6 +59,11 @@ typedef struct
 } SaveFile;
 
 static const char *const roots[] = {"saves", "levels", "screenshots"};
+
+/* Stores that reached the save file, and stores that did not; the
+ * SHOW_FPS overlay shows them. */
+int POCKET_saves_written;
+int POCKET_saves_failed;
 
 static SaveFile files[SAVEFS_MAX_FILES];
 static Uint32 file_count;
@@ -220,6 +235,7 @@ static bool store(void)
     }
     if (total > SAVEFS_MAX_BYTES)
     {
+        POCKET_saves_failed++;
         return SDL_SetError("Saves: %u bytes will not fit in the save file", (unsigned) total);
     }
 
@@ -244,6 +260,15 @@ static bool store(void)
 
     slot = fopen(POCKET_SAVE_FILE, "wb");
     ok = slot != NULL && fwrite(archive, 1, total, slot) == total;
+    if (ok && (fflush(slot) != 0 || fsync(fileno(slot)) != 0))
+    {
+        static bool warned;
+        if (!warned)
+        {
+            warned = true;
+            printf("Saves: could not write to the SD card now; it is written when the core is closed\n");
+        }
+    }
     if (slot != NULL && fclose(slot) != 0)
     {
         ok = false;
@@ -251,8 +276,11 @@ static bool store(void)
     SDL_free(archive);
     if (!ok)
     {
+        POCKET_saves_failed++;
+        printf("Saves: could not write %s\n", POCKET_SAVE_FILE);
         return SDL_SetError("Saves: could not write the save file");
     }
+    POCKET_saves_written++;
     return true;
 }
 
