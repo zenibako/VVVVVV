@@ -2667,6 +2667,32 @@ void Graphics::drawbackground( int t )
             warpfcol = getRGB(0xFF, 0xFF, 0xFF);
         }
 
+#ifdef VVV_POCKET
+        /* The Pocket fills every pixel of a rectangle on the CPU, so each
+         * square is drawn as just the ring the next one in leaves showing:
+         * one screen of fill instead of about five. */
+        for (int i = 10; i >= 0; i--)
+        {
+            const int temp = (i * 16) + backoffset;
+            const SDL_Color col = i % 2 == warpskip ? warpbcol : warpfcol;
+            if (i == 0)
+            {
+                const SDL_FRect centre = {160.0f - temp, 120.0f - temp, temp * 2.0f, temp * 2.0f};
+                fill_rect(&centre, col);
+                continue;
+            }
+            const SDL_FRect ring[4] = {
+                {160.0f - temp, 120.0f - temp, temp * 2.0f, 16.0f},
+                {160.0f - temp, 120.0f + temp - 16, temp * 2.0f, 16.0f},
+                {160.0f - temp, 120.0f - temp + 16, 16.0f, temp * 2.0f - 32},
+                {160.0f + temp - 16, 120.0f - temp + 16, 16.0f, temp * 2.0f - 32}
+            };
+            for (int k = 0; k < 4; k++)
+            {
+                fill_rect(&ring[k], col);
+            }
+        }
+#else
         for (int i = 10; i >= 0; i--)
         {
             const int temp = (i * 16) + backoffset;
@@ -2685,6 +2711,7 @@ void Graphics::drawbackground( int t )
                 fill_rect(&warprect, warpfcol);
             }
         }
+#endif
         break;
     }
     case 6:
