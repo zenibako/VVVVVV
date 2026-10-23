@@ -6,6 +6,10 @@
 
 #include "render_test.h"
 
+#ifdef SDL_RenderClear
+bool POCKET_ScrollTextureRows(SDL_Texture *texture, int dy);
+#endif
+
 static void capture_target(SDL_Renderer *renderer, Capture *capture, const char *name)
 {
     SDL_Surface *pixels = SDL_RenderReadPixels(renderer, NULL);
@@ -226,6 +230,81 @@ static void targets(SDL_Renderer *renderer, SDL_Texture *sprite, Capture *captur
     SDL_DestroyTexture(layer);
 }
 
+/* Graphics::scroll_texture moving an opaque layer up or down: SDL clears
+ * a second texture, copies the layer onto it at an offset and copies it
+ * back; the port only changes which row it shows first. */
+static void scroll_rows(SDL_Renderer *renderer, SDL_Texture *texture, SDL_Texture *temp, int dy)
+{
+#ifdef SDL_RenderClear
+    (void) renderer;
+    (void) temp;
+    POCKET_ScrollTextureRows(texture, dy);
+#else
+    SDL_Texture *target = SDL_GetRenderTarget(renderer);
+    const SDL_FRect src = {0, 0, 96, 64};
+    const SDL_FRect dst = {0, (float) dy, 96, 64};
+    SDL_SetRenderTarget(renderer, temp);
+    SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255);
+    SDL_RenderClear(renderer);
+    SDL_RenderTexture(renderer, texture, &src, &dst);
+    SDL_SetRenderTarget(renderer, target);
+    SDL_RenderTexture(renderer, temp, &src, &src);
+#endif
+}
+
+static void scrolling(SDL_Renderer *renderer, SDL_Texture *sprite, Capture *capture)
+{
+    SDL_Texture *tower = SDL_CreateTexture(renderer, SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_TARGET, 96, 64);
+    SDL_Texture *temp = SDL_CreateTexture(renderer, SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_TARGET, 96, 64);
+    SDL_Texture *shared = SDL_CreateTexture(renderer, SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_TARGET, 96, 64);
+
+    SDL_SetRenderTarget(renderer, tower);
+    SDL_SetRenderDrawColor(renderer, 40, 90, 140, 255);
+    SDL_RenderClear(renderer);
+    SDL_SetRenderDrawBlendMode(renderer, SDL_BLENDMODE_NONE);
+    for (int i = 0; i < 8; i++)
+    {
+        SDL_SetRenderDrawColor(renderer, (Uint8) (i * 30), 200, (Uint8) (255 - i * 20), 255);
+        const SDL_FRect band = {(float) (i * 5), (float) (i * 8), 50, 4};
+        SDL_RenderFillRect(renderer, &band);
+    }
+    scroll_rows(renderer, tower, temp, 5);
+    draw_sprite(renderer, sprite, 4, 0, 16, 16, SDL_FLIP_NONE);
+    capture_target(renderer, capture, "scrolled down");
+
+    scroll_rows(renderer, tower, temp, -13);
+    SDL_SetRenderDrawColor(renderer, 250, 250, 0, 255);
+    const SDL_FRect edge = {60, 50, 30, 14};
+    SDL_RenderFillRect(renderer, &edge);
+    capture_target(renderer, capture, "scrolled up");
+
+    /* Shared whole, then scrolled: the copy keeps the rows it was given. */
+    SDL_SetRenderTarget(renderer, shared);
+    SDL_RenderTexture(renderer, tower, NULL, NULL);
+    SDL_SetRenderTarget(renderer, tower);
+    for (int i = 0; i < 9; i++)
+    {
+        scroll_rows(renderer, tower, temp, -3);
+    }
+    capture_target(renderer, capture, "scrolled past the wrap");
+    SDL_SetRenderTarget(renderer, shared);
+    capture_target(renderer, capture, "shared before scrolling");
+
+    /* Copied out in parts, as drawtowerbackground does. */
+    SDL_SetRenderTarget(renderer, NULL);
+    SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255);
+    SDL_RenderClear(renderer);
+    const SDL_FRect part = {10, 7, 70, 50};
+    const SDL_FRect placed = {100, 20, 70, 50};
+    SDL_RenderTexture(renderer, tower, &part, &placed);
+    SDL_RenderTexture(renderer, shared, NULL, NULL);
+    capture_target(renderer, capture, "scrolled copied out");
+
+    SDL_DestroyTexture(shared);
+    SDL_DestroyTexture(temp);
+    SDL_DestroyTexture(tower);
+}
+
 /* One game frame as Render.cpp and Graphics.cpp draw it: a cached
  * foreground layer copied over a filled background, the gameplay layer
  * copied onto the game layer and the game layer onto the cleared window.
@@ -396,6 +475,7 @@ void RENDER_OPS(SDL_Renderer *renderer, Capture *capture)
     primitives(renderer, capture);
     sprites(renderer, sprite, capture);
     targets(renderer, sprite, capture);
+    scrolling(renderer, sprite, capture);
     frames(renderer, sprite, capture);
     surfaces(capture);
     SDL_DestroyTexture(sprite);

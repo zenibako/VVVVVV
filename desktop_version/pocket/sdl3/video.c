@@ -44,6 +44,7 @@ static void start_video(void)
 #ifdef POCKET_SHOW_FPS
 extern Uint32 POCKET_render_us;
 extern Uint32 POCKET_render_part_us[6];
+extern Uint32 POCKET_render_calls;
 extern int POCKET_saves_written;
 extern int POCKET_saves_failed;
 static Uint32 present_us;
@@ -130,7 +131,8 @@ static void run_bench(void)
 /* Over the last second, down the top right corner: frames presented, then
  * the milliseconds per frame spent drawing in the renderer, presenting,
  * and everywhere else (the game's own code, input and sound); then saves
- * written to the save file and saves that failed. */
+ * written to the save file and saves that failed; then tens of copies and
+ * fills per frame. */
 static void draw_profile(Uint8 *fb, int stride)
 {
     static Uint32 second_start, render_start, present_start;
@@ -138,6 +140,8 @@ static void draw_profile(Uint8 *fb, int stride)
     static int shown[4];
     static int parts[6];
     static Uint32 parts_start[6];
+    static int calls;
+    static Uint32 calls_start;
     run_bench();
     const Uint32 now = of_time_ms();
     frames++;
@@ -156,6 +160,8 @@ static void draw_profile(Uint8 *fb, int stride)
             parts[i] = (int) ((POCKET_render_part_us[i] - parts_start[i]) / frames / 100);
             parts_start[i] = POCKET_render_part_us[i];
         }
+        calls = (int) ((POCKET_render_calls - calls_start) / frames / 10);
+        calls_start = POCKET_render_calls;
         frames = 0;
         second_start = now;
         render_start = POCKET_render_us;
@@ -167,6 +173,7 @@ static void draw_profile(Uint8 *fb, int stride)
     }
     draw_number(fb, stride, 4, POCKET_saves_written);
     draw_number(fb, stride, 5, POCKET_saves_failed);
+    draw_number(fb, stride, 6, calls);
     for (int i = 0; i < 6; i++)
     {
         draw_number(fb, stride, 7 + i, parts[i]);

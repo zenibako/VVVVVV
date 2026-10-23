@@ -786,8 +786,20 @@ void Graphics::draw_flipsprite(const int x, const int y, const int t, const SDL_
     draw_grid_tile(grphx.im_flipsprites, t, x, y, sprites_rect.w, sprites_rect.h, color);
 }
 
+#ifdef VVV_POCKET
+extern "C" bool POCKET_ScrollTextureRows(SDL_Texture* texture, int dy);
+#endif
+
 void Graphics::scroll_texture(SDL_Texture* texture, SDL_Texture* temp, const int x, const int y)
 {
+#ifdef VVV_POCKET
+    /* Copying the texture there and back costs the Pocket about 20 ms, so
+     * an up or down scroll only changes which row is shown first. */
+    if (x == 0 && POCKET_ScrollTextureRows(texture, y))
+    {
+        return;
+    }
+#endif
     SDL_Texture* target = SDL_GetRenderTarget(gameScreen.m_renderer);
     SDL_Rect texture_rect = {0, 0, 0, 0};
     query_texture(texture, NULL, NULL, &texture_rect.w, &texture_rect.h);
@@ -2370,6 +2382,44 @@ void Graphics::drawentity(const int i, const int yoff)
 
 void Graphics::drawbackground( int t )
 {
+#ifdef VVV_POCKET
+    /* The Pocket draws each tile on the CPU, so a tower hallway's 1200
+     * unscrolling tiles are drawn once into a texture and copied from it
+     * after that. */
+    static SDL_Texture* hallway = NULL;
+    static int hallway_background = -1;
+    static SDL_Texture* hallway_tiles = NULL;
+    static bool filling_hallway = false;
+    if (t >= 7 && t <= 9 && !filling_hallway)
+    {
+        if (hallway == NULL)
+        {
+            hallway = SDL_CreateTexture(
+                gameScreen.m_renderer,
+                SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_TARGET,
+                SCREEN_WIDTH_PIXELS, SCREEN_HEIGHT_PIXELS
+            );
+        }
+        if (hallway != NULL)
+        {
+            if (hallway_background != t || hallway_tiles != grphx.im_tiles3)
+            {
+                SDL_Texture* target = SDL_GetRenderTarget(gameScreen.m_renderer);
+                set_render_target(hallway);
+                clear();
+                filling_hallway = true;
+                drawbackground(t);
+                filling_hallway = false;
+                set_render_target(target);
+                hallway_background = t;
+                hallway_tiles = grphx.im_tiles3;
+            }
+            copy_texture(hallway, NULL, NULL);
+            return;
+        }
+    }
+#endif
+
     switch(t)
     {
     case 1:

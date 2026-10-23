@@ -31,6 +31,9 @@ Uint32 POCKET_render_us;
  * the OS, so a draw is timed once, around its pixel work; the render
  * total is the sum of the parts. */
 Uint32 POCKET_render_part_us[6];
+/* Copies and fills asked for, drawn or not. */
+Uint32 POCKET_render_calls;
+#define COUNT_CALL() (POCKET_render_calls++)
 #define PART_BEGIN() const Uint32 part_start = of_time_us()
 #define PART_END(part) do { \
         const Uint32 part_time = of_time_us() - part_start; \
@@ -38,6 +41,7 @@ Uint32 POCKET_render_part_us[6];
         POCKET_render_us += part_time; \
     } while (0)
 #else
+#define COUNT_CALL() ((void) 0)
 #define PART_BEGIN() ((void) 0)
 #define PART_END(part) ((void) 0)
 #endif
@@ -59,6 +63,10 @@ typedef struct Texture
     SDL_BlendMode blend;
     Uint8 mod_r, mod_g, mod_b, mod_a;
     SDL_PropertiesID props;
+
+    /* Row y is kept at row (y + row0) % h, so that scrolling a texture up
+     * or down moves no pixels (POCKET_ScrollTextureRows). */
+    int row0;
 
     bool opaque;         /* every pixel's alpha is 255 */
     bool clear_pending;  /* every pixel is clear_color, not yet written */
@@ -145,6 +153,7 @@ static void resolve_clear(Texture *t)
 static void copy_whole(Texture *to, const Texture *from)
 {
     const size_t count = (size_t) to->texture.w * to->texture.h;
+    to->row0 = from->row0;
     if (to->pixels565 != NULL)
     {
         SDL_memcpy(to->pixels565, from->pixels565, count * 2);
@@ -163,6 +172,9 @@ static void swap_buffers(Texture *a, Texture *b)
     Uint16 *buffer565 = a->buffer565;
     a->buffer565 = b->buffer565;
     b->buffer565 = buffer565;
+    const int row0 = a->row0;
+    a->row0 = b->row0;
+    b->row0 = row0;
     if (a->pixels565 != NULL)
     {
         a->pixels565 = a->buffer565;
@@ -221,6 +233,19 @@ static const Uint32 *texels(const Texture *t)
 static const Uint16 *texels565(const Texture *t)
 {
     return t->alias_of != NULL ? t->alias_of->pixels565 : t->pixels565;
+}
+
+/* Where row y of t is kept in its own pixels, and in the pixels it shows
+ * (another texture's while it shares them). */
+static inline size_t kept_row(const Texture *t, int y)
+{
+    const int row = y + t->row0;
+    return (size_t) (row >= t->texture.h ? row - t->texture.h : row);
+}
+
+static inline size_t shown_row(const Texture *t, int y)
+{
+    return kept_row(t->alias_of != NULL ? t->alias_of : t, y);
 }
 
 /* After begin_change: t is about to be wholly replaced with opaque
@@ -310,7 +335,7 @@ static bool build_runs(Texture *t)
     int count = 0;
     for (int y = 0; y < h; y++)
     {
-        const Uint32 *row = texels(t) + (size_t) y * w;
+        const Uint32 *row = texels(t) + shown_row(t, y) * w;
         int kind = -1;
         for (int x = 0; x < w; x++)
         {
@@ -339,7 +364,7 @@ static bool build_runs(Texture *t)
     int n = 0;
     for (int y = 0; y < h; y++)
     {
-        const Uint32 *row = texels(t) + (size_t) y * w;
+        const Uint32 *row = texels(t) + shown_row(t, y) * w;
         t->row_runs[y] = n;
         int x = 0;
         while (x < w)
@@ -367,10 +392,14 @@ static bool build_runs(Texture *t)
     }
     if (t->runs565 != NULL)
     {
-        const Uint32 *pixels = texels(t);
-        for (int i = 0; i < w * h; i++)
+        for (int y = 0; y < h; y++)
         {
-            t->runs565[i] = POCKET_ToRGB565(pixels[i]);
+            const Uint32 *row = texels(t) + shown_row(t, y) * w;
+            Uint16 *out = t->runs565 + (size_t) y * w;
+            for (int x = 0; x < w; x++)
+            {
+                out[x] = POCKET_ToRGB565(row[x]);
+            }
         }
     }
     t->runs_valid = true;
@@ -731,12 +760,13 @@ bool SDL_UpdateTexture(SDL_Texture *texture, const SDL_Rect *rect, const void *p
     const bool covers_all = r.w == t->texture.w && r.h == t->texture.h;
     begin_change(t, covers_all);
     keep_argb(t, !covers_all);
+    bool opaque = true;
     for (int y = 0; y < r.h; y++)
     {
-        SDL_memcpy(t->pixels + (size_t) (r.y + y) * t->texture.w + r.x,
-                   (const Uint8 *) pixels + (size_t) y * pitch, (size_t) r.w * 4);
+        Uint32 *row = t->pixels + kept_row(t, r.y + y) * t->texture.w + r.x;
+        SDL_memcpy(row, (const Uint8 *) pixels + (size_t) y * pitch, (size_t) r.w * 4);
+        opaque = opaque && all_opaque(row, r.w, 1, r.w);
     }
-    const bool opaque = all_opaque(t->pixels + (size_t) r.y * t->texture.w + r.x, r.w, r.h, t->texture.w);
     t->opaque = opaque && (covers_all || t->opaque);
     return true;
 }
@@ -861,7 +891,7 @@ static void fill_rect(Texture *target, const SDL_Rect *rect, Uint8 r, Uint8 g, U
         const Uint16 packed565 = POCKET_ToRGB565(packed);
         for (int y = clipped.y; y < clipped.y + clipped.h; y++)
         {
-            Uint16 *row = target->pixels565 + (size_t) y * target->pitch565 + clipped.x;
+            Uint16 *row = target->pixels565 + kept_row(target, y) * target->pitch565 + clipped.x;
             for (int x = 0; x < clipped.w; x++)
             {
                 row[x] = opaque ? packed565 : POCKET_ToRGB565(blend_pixel(r, g, b, a, POCKET_FromRGB565(row[x]), blend));
@@ -871,7 +901,7 @@ static void fill_rect(Texture *target, const SDL_Rect *rect, Uint8 r, Uint8 g, U
     }
     for (int y = clipped.y; y < clipped.y + clipped.h; y++)
     {
-        Uint32 *row = target->pixels + (size_t) y * target->texture.w + clipped.x;
+        Uint32 *row = target->pixels + kept_row(target, y) * target->texture.w + clipped.x;
         if (opaque)
         {
             for (int x = 0; x < clipped.w; x++)
@@ -891,6 +921,7 @@ static void fill_rect(Texture *target, const SDL_Rect *rect, Uint8 r, Uint8 g, U
 
 static void fill(Texture *target, const SDL_Rect *rect, Uint8 r, Uint8 g, Uint8 b, Uint8 a, SDL_BlendMode blend)
 {
+    COUNT_CALL();
     PART_BEGIN();
     fill_rect(target, rect, r, g, b, a, blend);
     PART_END(4);
@@ -1131,6 +1162,7 @@ static int src_line_size;
 
 static bool copy_rows(SDL_Renderer *renderer, Texture *src, const SDL_FRect *srcrect, const SDL_FRect *dstrect, SDL_FlipMode flip)
 {
+    COUNT_CALL();
     Texture *dst = current_target(renderer);
     if (src == dst)
     {
@@ -1281,10 +1313,10 @@ static bool copy_rows(SDL_Renderer *renderer, Texture *src, const SDL_FRect *src
         {
             /* An RGB565 source: copied as it is onto RGB565, otherwise
              * widened first. */
-            const Uint16 *row = texels565(src) + (size_t) sy * src->pitch565;
+            const Uint16 *row = texels565(src) + shown_row(src, sy) * src->pitch565;
             if (raw && dst->pixels565 != NULL)
             {
-                SDL_memcpy(dst->pixels565 + (size_t) y * dst->pitch565 + clip.x, row + sx0, (size_t) clip.w * 2);
+                SDL_memcpy(dst->pixels565 + kept_row(dst, y) * dst->pitch565 + clip.x, row + sx0, (size_t) clip.w * 2);
                 continue;
             }
             const int from = contiguous ? sx0 : 0;
@@ -1297,19 +1329,19 @@ static bool copy_rows(SDL_Renderer *renderer, Texture *src, const SDL_FRect *src
         }
         else if (raw && dst->pixels565 != NULL && src->runs_valid && src->runs565 != NULL)
         {
-            SDL_memcpy(dst->pixels565 + (size_t) y * dst->pitch565 + clip.x,
+            SDL_memcpy(dst->pixels565 + kept_row(dst, y) * dst->pitch565 + clip.x,
                 src->runs565 + (size_t) sy * src->texture.w + sx0, (size_t) clip.w * 2);
             continue;
         }
         else
         {
-            srow = texels(src) + (size_t) sy * src->texture.w;
+            srow = texels(src) + shown_row(src, sy) * src->texture.w;
         }
         const Uint32 *first = srow + sx0;
         if (dst->pixels565 != NULL)
         {
             /* Converted straight in; only blended pixels are widened. */
-            Uint16 *row565 = dst->pixels565 + (size_t) y * dst->pitch565 + clip.x;
+            Uint16 *row565 = dst->pixels565 + kept_row(dst, y) * dst->pitch565 + clip.x;
             if (raw)
             {
                 for (int i = 0; i < clip.w; i++)
@@ -1361,7 +1393,7 @@ static bool copy_rows(SDL_Renderer *renderer, Texture *src, const SDL_FRect *src
             }
             continue;
         }
-        Uint32 *drow = dst->pixels + (size_t) y * dst->texture.w + clip.x;
+        Uint32 *drow = dst->pixels + kept_row(dst, y) * dst->texture.w + clip.x;
         if (raw)
         {
             SDL_memcpy(drow, first, (size_t) clip.w * 4);
@@ -1408,6 +1440,49 @@ static bool copy_rows(SDL_Renderer *renderer, Texture *src, const SDL_FRect *src
 static bool copy_texture(SDL_Renderer *renderer, Texture *src, const SDL_FRect *srcrect, const SDL_FRect *dstrect, SDL_FlipMode flip)
 {
     return copy_rows(renderer, src, srcrect, dstrect, flip);
+}
+
+/* Scrolls an opaque, unmodulated texture down by dy rows (up when dy is
+ * negative), filling the rows it exposes with opaque black: what clearing
+ * a second texture, copying this one onto it at (0, dy) and copying that
+ * back would do, but by moving where rows are kept instead of the rows.
+ * Returns false, changing nothing, when the copy would differ. */
+bool POCKET_ScrollTextureRows(SDL_Texture *texture, int dy)
+{
+    if (!check_texture(texture))
+    {
+        return false;
+    }
+    Texture *t = texture_data(texture);
+    const int h = t->texture.h;
+    if (!t->opaque || t->mod_r != 255 || t->mod_g != 255 || t->mod_b != 255 || t->mod_a != 255)
+    {
+        return false;
+    }
+    if (dy == 0)
+    {
+        return true;
+    }
+    begin_change(t, false);
+    const int exposed = dy > 0 ? (dy < h ? dy : h) : (-dy < h ? -dy : h);
+    t->row0 = ((t->row0 - dy) % h + h) % h;
+    const int first = dy > 0 ? 0 : h - exposed;
+    for (int y = first; y < first + exposed; y++)
+    {
+        if (t->pixels565 != NULL)
+        {
+            SDL_memset(t->pixels565 + kept_row(t, y) * t->pitch565, 0, sizeof(Uint16) * t->texture.w);
+        }
+        else
+        {
+            Uint32 *row = t->pixels + kept_row(t, y) * t->texture.w;
+            for (int x = 0; x < t->texture.w; x++)
+            {
+                row[x] = 0xFF000000;
+            }
+        }
+    }
+    return true;
 }
 
 bool SDL_RenderTexture(SDL_Renderer *renderer, SDL_Texture *texture, const SDL_FRect *srcrect, const SDL_FRect *dstrect)
@@ -1458,7 +1533,7 @@ SDL_Surface *SDL_RenderReadPixels(SDL_Renderer *renderer, const SDL_Rect *rect)
         Uint32 *out = (Uint32 *) ((Uint8 *) surface->pixels + (size_t) y * surface->pitch);
         if (target->pixels565 != NULL)
         {
-            const Uint16 *row = texels565(target) + (size_t) (r.y + y) * target->pitch565 + r.x;
+            const Uint16 *row = texels565(target) + shown_row(target, r.y + y) * target->pitch565 + r.x;
             for (int x = 0; x < r.w; x++)
             {
                 out[x] = POCKET_FromRGB565(row[x]);
@@ -1466,7 +1541,7 @@ SDL_Surface *SDL_RenderReadPixels(SDL_Renderer *renderer, const SDL_Rect *rect)
         }
         else
         {
-            SDL_memcpy(out, texels(target) + (size_t) (r.y + y) * target->texture.w + r.x, (size_t) r.w * 4);
+            SDL_memcpy(out, texels(target) + shown_row(target, r.y + y) * target->texture.w + r.x, (size_t) r.w * 4);
         }
     }
     return surface;
