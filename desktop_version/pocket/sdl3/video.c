@@ -9,6 +9,7 @@
 
 #include "of_video.h"
 #include "render_internal.h"
+#include "pocket_audio.h"
 
 #ifdef POCKET_SHOW_FPS
 #include "of_timer.h"
@@ -216,6 +217,7 @@ void POCKET_PresentFrame(void)
 #ifdef POCKET_SHOW_FPS
     present_us += of_time_us() - present_start;
 #endif
+    pocket_audio_update();
 }
 
 SDL_Window *SDL_CreateWindow(const char *title, int w, int h, SDL_WindowFlags flags)

@@ -2,7 +2,11 @@
 #include "Music.h"
 
 #include <SDL3/SDL.h>
+#ifdef VVV_POCKET
+#include "pocket_audio.h"
+#else
 #include <FAudio.h>
+#endif
 
 #include "Alloc.h"
 #include "BinaryBlob.h"
@@ -17,6 +21,7 @@
 
 #include <vector>
 
+#ifndef VVV_POCKET
 /* stb_vorbis */
 
 #define malloc SDL_malloc
@@ -77,6 +82,7 @@
 #include <stb_vorbis.h>
 
 /* End stb_vorbis include */
+#endif
 
 #define VVV_MAX_VOLUME 128
 #define VVV_MAX_CHANNELS 8
@@ -86,6 +92,165 @@ class MusicTrack;
 static std::vector<SoundTrack> soundTracks;
 static std::vector<MusicTrack> musicTracks;
 
+#ifdef VVV_POCKET
+/* openfpgaOS: pocket/src/pocket_audio.c plays the converted music pack and
+ * the sound effects in place of FAudio and stb_vorbis. */
+class SoundTrack
+{
+public:
+    SoundTrack(const char* fileName, const char* _id, bool _extra)
+    {
+        unsigned char* mem;
+        size_t length;
+
+        SDL_zerop(this);
+        sound = -1;
+        extra = _extra;
+        id = SDL_strdup(_id);
+
+        FILESYSTEM_loadAssetToMemory(fileName, &mem, &length);
+        if (mem == NULL)
+        {
+            vlog_error("Unable to load sound file %s", fileName);
+            return;
+        }
+        SDL_AudioSpec spec;
+        Uint8* pcm;
+        Uint32 pcm_length;
+        if (!SDL_LoadWAV_IO(SDL_IOFromConstMem(mem, length), true, &spec, &pcm, &pcm_length))
+        {
+            vlog_error("Unable to load WAV file %s: %s", fileName, SDL_GetError());
+            VVV_free(mem);
+            return;
+        }
+        sound = pocket_sound_load(pcm, pcm_length, spec.freq, spec.channels, SDL_AUDIO_BITSIZE(spec.format));
+        valid = sound >= 0;
+        SDL_free(pcm);
+        VVV_free(mem);
+    }
+
+    void Dispose(void)
+    {
+        pocket_sound_free(sound);
+        VVV_free(id);
+    }
+
+    void Play(void)
+    {
+        if (valid)
+        {
+            pocket_sound_play(sound);
+        }
+    }
+
+    static void Init(int audio_rate)
+    {
+        UNUSED(audio_rate);
+    }
+
+    static void Pause(void)
+    {
+        pocket_sound_pause_all();
+    }
+
+    static void Resume(void)
+    {
+        pocket_sound_resume_all();
+    }
+
+    static void Destroy(void)
+    {
+    }
+
+    static void SetVolume(int soundVolume)
+    {
+        pocket_sound_set_volume(soundVolume);
+    }
+
+    int sound;
+    bool valid;
+    char* id;
+    bool extra;
+};
+
+class MusicTrack
+{
+public:
+    /* A track of the music pack. */
+    MusicTrack(int _track, const char* _id)
+    {
+        SDL_zerop(this);
+        track = _track;
+        id = SDL_strdup(_id);
+        valid = pocket_music_valid(track);
+    }
+
+    /* Loose music files would need decoding on the device. */
+    MusicTrack(SDL_IOStream *rw, const char* _id, bool _loose_extra)
+    {
+        SDL_zerop(this);
+        track = -1;
+        id = SDL_strdup(_id);
+        loose_extra = _loose_extra;
+        vlog_warn("Music %s needs converting to play on the Pocket", _id);
+        SDL_CloseIO(rw);
+    }
+
+    void Dispose(void)
+    {
+        VVV_free(id);
+    }
+
+    bool Play(bool loop)
+    {
+        if (!valid || !pocket_music_play(track, loop))
+        {
+            return false;
+        }
+        /* As a new FAudio voice, it starts at full volume. */
+        pocket_music_set_volume(VVV_MAX_VOLUME);
+        return true;
+    }
+
+    static void Halt(void)
+    {
+        pocket_music_halt();
+    }
+
+    static bool IsHalted(void)
+    {
+        return pocket_music_halted();
+    }
+
+    static void Pause(void)
+    {
+        pocket_music_pause();
+    }
+
+    static bool IsPaused(void)
+    {
+        return pocket_music_paused();
+    }
+
+    static void Resume(void)
+    {
+        pocket_music_resume();
+    }
+
+    static void SetVolume(int controlVolume)
+    {
+        if (!IsHalted())
+        {
+            pocket_music_set_volume(controlVolume);
+        }
+    }
+
+    int track;
+    char* id;
+    bool loose_extra;
+    bool valid;
+};
+#else
 static FAudio* faudioctx = NULL;
 static FAudioMasteringVoice* masteringvoice = NULL;
 
@@ -729,6 +894,7 @@ end:
 };
 bool MusicTrack::paused = false;
 FAudioSourceVoice* MusicTrack::musicVoice = NULL;
+#endif
 
 musicclass::musicclass(void)
 {
@@ -792,6 +958,7 @@ static void add_builtin_sound(const char* id)
     soundTracks.push_back(SoundTrack(asset_filename, id, false));
 }
 
+#ifndef VVV_POCKET
 static void add_builtin_track(SDL_IOStream* rw, const char* track_name)
 {
     // Make an ID from the track name
@@ -813,9 +980,13 @@ static void add_builtin_track(SDL_IOStream* rw, const char* track_name)
 
     musicTracks.push_back(MusicTrack(rw, id, false));
 }
+#endif
 
 void musicclass::init(void)
 {
+#ifdef VVV_POCKET
+    pocket_audio_init();
+#else
     if (FAudioCreate(&faudioctx, FAUDIO_1024_QUANTUM, FAUDIO_DEFAULT_PROCESSOR))
     {
         vlog_error("Unable to initialize FAudio");
@@ -826,6 +997,7 @@ void musicclass::init(void)
         vlog_error("Unable to create mastering voice");
         return;
     }
+#endif
 
     SoundTrack::Init(44100);
 
@@ -892,6 +1064,30 @@ void musicclass::init(void)
     num_mmmmmm_tracks = 0;
     num_pppppp_tracks = 0;
 
+#ifdef VVV_POCKET
+    /* The pack holds MMMMMM's tracks, if converted, then PPPPPP's. */
+    for (int i = 0; i < pocket_music_count(); i++)
+    {
+        const char* name = pocket_music_name(i);
+        const bool is_mmmmmm = SDL_strncmp(name, "mmmmmm/", 7) == 0;
+        const char* slash = SDL_strchr(name, '/');
+        musicTracks.push_back(MusicTrack(i, slash != NULL ? slash + 1 : name));
+        if (is_mmmmmm)
+        {
+            num_mmmmmm_tracks++;
+        }
+        else
+        {
+            num_pppppp_tracks++;
+        }
+    }
+    mmmmmm = num_mmmmmm_tracks > 0;
+    if (!mmmmmm)
+    {
+        usingmmmmmm = false;
+    }
+    SDL_IOStream* rw;
+#else
     if (!mmmmmm_blob.unPackBinary("mmmmmm.vvv"))
     {
         // If mmmmmm.vvv is invalid, or doesn't exist...
@@ -1007,6 +1203,7 @@ void musicclass::init(void)
         num_pppppp_tracks++;
         index_++;
     }
+#endif
 
     EnumHandle music_handle = {};
     const char* music_item;
@@ -1068,8 +1265,12 @@ void musicclass::destroy(void)
 
     pppppp_blob.clear();
     mmmmmm_blob.clear();
+#ifdef VVV_POCKET
+    pocket_audio_shutdown();
+#else
     VVV_freefunc(FAudioVoice_DestroyVoice, masteringvoice);
     VVV_freefunc(FAudio_Release, faudioctx);
+#endif
 }
 
 void musicclass::set_music_volume(int volume)

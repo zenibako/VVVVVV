@@ -5,6 +5,7 @@
 #include <unistd.h>
 
 #include "of_timer.h"
+#include "pocket_audio.h"
 
 bool SDL_Init(SDL_InitFlags flags)
 {
@@ -30,6 +31,9 @@ Uint64 SDL_GetTicks(void)
 
 void SDL_Delay(Uint32 ms)
 {
+    /* The main loop waits here for its next step: top up the sound
+     * first, since nothing else will meanwhile. */
+    pocket_audio_update();
     usleep((useconds_t) ms * 1000);
 }
 
