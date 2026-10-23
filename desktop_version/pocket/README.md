@@ -44,7 +44,11 @@ are `gcc-riscv64-unknown-elf` and `picolibc-riscv64-unknown-elf`.
 (`dist/`), the pinned openfpgaOS runtime, the app, and the game's fonts and
 lang folders zipped as `vvvvvv-repo.zip`, laid out like the Android build's
 `repo.zip` because openfpgaOS has no directories. Copy it to the root of
-the card and add your `data.zip` as `Assets/vvvvvv/common/data.zip`. For
+the card and add your `data.zip` as `Assets/vvvvvv/common/data.zip`. On
+the Pocket, open the core and pick VVVVVV from its one-item list. The
+Pocket files the save under `Saves/vvvvvv/` by the game you pick, so a
+core that starts without one writes its save loose in `Saves/` under a
+broken name. For
 now the Chinese, Japanese and Korean fonts are left out to save memory.
 
 `make test` runs the compat-header and save-archive checks on the host with

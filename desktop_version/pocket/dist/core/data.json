@@ -6,8 +6,8 @@
                 "id": 0,
                 "name": "Game",
                 "required": true,
-                "filename": "vvvvvv.json",
-                "parameters": 275
+                "parameters": 275,
+                "extensions": ["json"]
             },
             {
                 "id": 1,
