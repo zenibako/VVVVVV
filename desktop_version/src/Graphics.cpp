@@ -3020,9 +3020,108 @@ void Graphics::drawfinalmap(void)
     copy_texture(foregroundTexture, NULL, NULL);
 }
 
+#ifdef VVV_POCKET
+extern "C" bool POCKET_ShiftTextureRows(SDL_Texture* texture, int dy);
+
+/* The Pocket draws each tile on the CPU, and a tower shows about 1200 of
+ * them. They are kept in a texture 31 tile rows tall, with the row
+ * yoff / 8 at the top: as the tower scrolls the texture is shifted and
+ * only the rows coming into view are drawn. Tiles are copied in without
+ * blending, and the texture is blended over the background as each tile
+ * would have been. */
+static bool drawtowermap_cached(Graphics& g, const int yoff)
+{
+    static SDL_Texture* cache = NULL;
+    static bool valid = false;
+    static int cached_top, cached_colstate, cached_roomx, cached_roomy;
+    static bool cached_minitower;
+    static SDL_Texture* cached_tiles = NULL;
+    const int rows = 31;
+
+    if (yoff < 0)
+    {
+        return false;
+    }
+    if (cache == NULL)
+    {
+        cache = SDL_CreateTexture(gameScreen.m_renderer, SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_TARGET, SCREEN_WIDTH_PIXELS, rows * 8);
+        if (cache == NULL)
+        {
+            return false;
+        }
+        g.set_blendmode(cache, SDL_BLENDMODE_BLEND);
+    }
+
+    const int top = yoff / 8;
+    int first = 0;
+    int count = rows;
+    if (valid
+    && cached_colstate == g.towerbg.colstate
+    && cached_tiles == g.grphx.im_tiles3
+    && cached_minitower == map.tower.minitowermode
+    && cached_roomx == game.roomx
+    && cached_roomy == game.roomy
+    && SDL_abs(top - cached_top) < rows)
+    {
+        const int moved = top - cached_top;
+        POCKET_ShiftTextureRows(cache, -moved * 8);
+        first = moved > 0 ? rows - moved : 0;
+        count = SDL_abs(moved);
+    }
+
+    if (count > 0)
+    {
+        SDL_Texture* target = SDL_GetRenderTarget(gameScreen.m_renderer);
+        g.set_render_target(cache);
+        if (count == rows)
+        {
+            g.clear(0, 0, 0, 0);
+        }
+        g.set_blendmode(g.grphx.im_tiles3, SDL_BLENDMODE_NONE);
+        for (int j = first; j < first + count; j++)
+        {
+            for (int i = 0; i < 40; i++)
+            {
+                const int temp = map.tower.at(i, j, top * 8);
+                if (temp > 0)
+                {
+                    g.drawtile3(i * 8, j * 8, temp, g.towerbg.colstate);
+                }
+            }
+        }
+        g.set_blendmode(g.grphx.im_tiles3, SDL_BLENDMODE_BLEND);
+        g.set_render_target(target);
+        g.set_color(0, 0, 0, 255);
+    }
+
+    valid = true;
+    cached_top = top;
+    cached_colstate = g.towerbg.colstate;
+    cached_tiles = g.grphx.im_tiles3;
+    cached_minitower = map.tower.minitowermode;
+    cached_roomx = game.roomx;
+    cached_roomy = game.roomy;
+
+    const SDL_FRect src = {
+        0.0f,
+        static_cast<float>(yoff - top * 8),
+        static_cast<float>(SCREEN_WIDTH_PIXELS),
+        static_cast<float>(SCREEN_HEIGHT_PIXELS)
+    };
+    g.copy_texture(cache, &src, NULL);
+    return true;
+}
+#endif
+
 void Graphics::drawtowermap(void)
 {
     const int yoff = lerp(map.oldypos, map.ypos);
+#ifdef VVV_POCKET
+    if (drawtowermap_cached(*this, yoff))
+    {
+        return;
+    }
+#endif
     for (int j = 0; j < 31; j++)
     {
         for (int i = 0; i < 40; i++)

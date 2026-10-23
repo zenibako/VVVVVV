@@ -88,8 +88,8 @@ static void draw_number(Uint8 *fb, int stride, int line, int value)
     }
 }
 
-/* Once, tenths of a millisecond for a full screen of ARGB8888: memcpy,
- * a word fill loop, and a word copy loop. */
+/* Once, tenths of a millisecond for a full screen of ARGB8888 by memcpy
+ * and by a word fill loop, then for 1000 timer reads. */
 static int bench[3];
 
 static void run_bench(void)
@@ -118,10 +118,11 @@ static void run_bench(void)
         ((volatile Uint32 *) a)[i] = 0xFF000000u;
     }
     bench[1] = (int) ((of_time_us() - start) / 100);
+    /* 1000 timer reads, so the profile's own cost per draw is known. */
     start = of_time_us();
-    for (size_t i = 0; i < count; i++)
+    for (int i = 0; i < 1000; i++)
     {
-        ((volatile Uint32 *) b)[i] = ((volatile Uint32 *) a)[i];
+        (void) of_time_us();
     }
     bench[2] = (int) ((of_time_us() - start) / 100);
     SDL_free(a);

@@ -8,6 +8,7 @@
 
 #ifdef SDL_RenderClear
 bool POCKET_ScrollTextureRows(SDL_Texture *texture, int dy);
+bool POCKET_ShiftTextureRows(SDL_Texture *texture, int dy);
 #endif
 
 static void capture_target(SDL_Renderer *renderer, Capture *capture, const char *name)
@@ -252,6 +253,72 @@ static void scroll_rows(SDL_Renderer *renderer, SDL_Texture *texture, SDL_Textur
 #endif
 }
 
+/* The tower foreground cache: rows shifted with what they expose made
+ * transparent; SDL does the same through a cleared texture, unblended. */
+static void shift_rows(SDL_Renderer *renderer, SDL_Texture *texture, SDL_Texture *temp, int dy)
+{
+#ifdef SDL_RenderClear
+    (void) renderer;
+    (void) temp;
+    POCKET_ShiftTextureRows(texture, dy);
+#else
+    SDL_Texture *target = SDL_GetRenderTarget(renderer);
+    const SDL_FRect src = {0, 0, 96, 64};
+    const SDL_FRect dst = {0, (float) dy, 96, 64};
+    SDL_SetTextureBlendMode(texture, SDL_BLENDMODE_NONE);
+    SDL_SetTextureBlendMode(temp, SDL_BLENDMODE_NONE);
+    SDL_SetRenderTarget(renderer, temp);
+    SDL_SetRenderDrawColor(renderer, 0, 0, 0, 0);
+    SDL_RenderClear(renderer);
+    SDL_RenderTexture(renderer, texture, &src, &dst);
+    SDL_SetRenderTarget(renderer, texture);
+    SDL_RenderTexture(renderer, temp, &src, &src);
+    SDL_SetRenderTarget(renderer, target);
+    SDL_SetTextureBlendMode(texture, SDL_BLENDMODE_BLEND);
+    SDL_SetTextureBlendMode(temp, SDL_BLENDMODE_BLEND);
+#endif
+}
+
+static void tower_cache(SDL_Renderer *renderer, SDL_Texture *sprite, Capture *capture)
+{
+    SDL_Texture *cache = SDL_CreateTexture(renderer, SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_TARGET, 96, 64);
+    SDL_Texture *temp = SDL_CreateTexture(renderer, SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_TARGET, 96, 64);
+    SDL_Texture *screen = SDL_CreateTexture(renderer, SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_TARGET, 96, 56);
+    SDL_SetTextureBlendMode(cache, SDL_BLENDMODE_BLEND);
+
+    SDL_SetRenderTarget(renderer, cache);
+    SDL_SetRenderDrawColor(renderer, 0, 0, 0, 0);
+    SDL_RenderClear(renderer);
+    SDL_SetTextureBlendMode(sprite, SDL_BLENDMODE_NONE);
+    for (int i = 0; i < 6; i++)
+    {
+        draw_sprite(renderer, sprite, (float) (i * 16), (float) (i * 8), 16, 16, SDL_FLIP_NONE);
+    }
+    SDL_SetTextureBlendMode(sprite, SDL_BLENDMODE_BLEND);
+    for (int step = 0; step < 3; step++)
+    {
+        shift_rows(renderer, cache, temp, step == 1 ? 16 : -8);
+        SDL_SetRenderTarget(renderer, cache);
+        SDL_SetTextureBlendMode(sprite, SDL_BLENDMODE_NONE);
+        draw_sprite(renderer, sprite, (float) (step * 24), step == 1 ? 0.0f : 48.0f, 16, 16, SDL_FLIP_NONE);
+        SDL_SetTextureBlendMode(sprite, SDL_BLENDMODE_BLEND);
+        for (int copy = 0; copy < 2; copy++)
+        {
+            SDL_SetRenderTarget(renderer, screen);
+            SDL_SetRenderDrawColor(renderer, 60, 20, 90, 255);
+            SDL_RenderClear(renderer);
+            const SDL_FRect part = {0, (float) (3 + step), 96, 56};
+            SDL_RenderTexture(renderer, cache, &part, NULL);
+            capture_target(renderer, capture, step == 0 ? "tower cache up" : step == 1 ? "tower cache down" : "tower cache up again");
+        }
+    }
+
+    SDL_SetRenderTarget(renderer, NULL);
+    SDL_DestroyTexture(screen);
+    SDL_DestroyTexture(temp);
+    SDL_DestroyTexture(cache);
+}
+
 static void scrolling(SDL_Renderer *renderer, SDL_Texture *sprite, Capture *capture)
 {
     SDL_Texture *tower = SDL_CreateTexture(renderer, SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_TARGET, 96, 64);
@@ -476,6 +543,7 @@ void RENDER_OPS(SDL_Renderer *renderer, Capture *capture)
     sprites(renderer, sprite, capture);
     targets(renderer, sprite, capture);
     scrolling(renderer, sprite, capture);
+    tower_cache(renderer, sprite, capture);
     frames(renderer, sprite, capture);
     surfaces(capture);
     SDL_DestroyTexture(sprite);

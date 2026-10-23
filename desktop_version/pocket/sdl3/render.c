@@ -406,6 +406,31 @@ static bool build_runs(Texture *t)
     return true;
 }
 
+/* The first of row y's runs that ends after column x, found by halves
+ * since a row's runs are in order: a tile copied from a wide sheet then
+ * looks at its own few runs, not the whole row's. */
+static const Uint16 *runs_from(const Texture *t, int y, int x, const Uint16 **last)
+{
+    const Uint16 *run = t->runs + (size_t) t->row_runs[y] * 3;
+    int n = t->row_runs[y + 1] - t->row_runs[y];
+    *last = run + (size_t) n * 3;
+    while (n > 0)
+    {
+        const int half = n / 2;
+        const Uint16 *mid = run + (size_t) half * 3;
+        if (mid[0] + mid[1] <= x)
+        {
+            run = mid + 3;
+            n -= half + 1;
+        }
+        else
+        {
+            n = half;
+        }
+    }
+    return run;
+}
+
 static bool check_renderer(const SDL_Renderer *renderer)
 {
     if (renderer == NULL || renderer != &renderer_state || !renderer_created)
@@ -1351,9 +1376,9 @@ static bool copy_rows(SDL_Renderer *renderer, Texture *src, const SDL_FRect *src
             }
             else if (by_runs)
             {
-                const Uint16 *run = src->runs + (size_t) src->row_runs[sy] * 3;
-                const Uint16 *last = src->runs + (size_t) src->row_runs[sy + 1] * 3;
-                for (; run < last; run += 3)
+                const Uint16 *last;
+                const Uint16 *run = runs_from(src, sy, sx0, &last);
+                for (; run < last && run[0] < sx0 + clip.w; run += 3)
                 {
                     const int from = SDL_max((int) run[0], sx0);
                     const int to = SDL_min((int) run[0] + run[1], sx0 + clip.w);
@@ -1401,9 +1426,9 @@ static bool copy_rows(SDL_Renderer *renderer, Texture *src, const SDL_FRect *src
         }
         if (by_runs)
         {
-            const Uint16 *run = src->runs + (size_t) src->row_runs[sy] * 3;
-            const Uint16 *last = src->runs + (size_t) src->row_runs[sy + 1] * 3;
-            for (; run < last; run += 3)
+            const Uint16 *last;
+            const Uint16 *run = runs_from(src, sy, sx0, &last);
+            for (; run < last && run[0] < sx0 + clip.w; run += 3)
             {
                 const int from = SDL_max((int) run[0], sx0);
                 const int to = SDL_min((int) run[0] + run[1], sx0 + clip.w);
@@ -1442,6 +1467,42 @@ static bool copy_texture(SDL_Renderer *renderer, Texture *src, const SDL_FRect *
     return copy_rows(renderer, src, srcrect, dstrect, flip);
 }
 
+/* Moves t's rows down by dy (up when dy is negative) by changing which
+ * row is kept first, and sets the rows that exposes to fill. */
+static void shift_rows(Texture *t, int dy, Uint32 fill)
+{
+    const int h = t->texture.h;
+    begin_change(t, false);
+    if (fill >> 24 != 255)
+    {
+        keep_argb(t, true);
+        t->opaque = false;
+    }
+    const int exposed = SDL_min(dy > 0 ? dy : -dy, h);
+    t->row0 = ((t->row0 - dy) % h + h) % h;
+    const int first = dy > 0 ? 0 : h - exposed;
+    for (int y = first; y < first + exposed; y++)
+    {
+        if (t->pixels565 != NULL)
+        {
+            const Uint16 color = POCKET_ToRGB565(fill);
+            Uint16 *row = t->pixels565 + kept_row(t, y) * t->pitch565;
+            for (int x = 0; x < t->texture.w; x++)
+            {
+                row[x] = color;
+            }
+        }
+        else
+        {
+            Uint32 *row = t->pixels + kept_row(t, y) * t->texture.w;
+            for (int x = 0; x < t->texture.w; x++)
+            {
+                row[x] = fill;
+            }
+        }
+    }
+}
+
 /* Scrolls an opaque, unmodulated texture down by dy rows (up when dy is
  * negative), filling the rows it exposes with opaque black: what clearing
  * a second texture, copying this one onto it at (0, dy) and copying that
@@ -1454,33 +1515,28 @@ bool POCKET_ScrollTextureRows(SDL_Texture *texture, int dy)
         return false;
     }
     Texture *t = texture_data(texture);
-    const int h = t->texture.h;
     if (!t->opaque || t->mod_r != 255 || t->mod_g != 255 || t->mod_b != 255 || t->mod_a != 255)
     {
         return false;
     }
-    if (dy == 0)
+    if (dy != 0)
     {
-        return true;
+        shift_rows(t, dy, 0xFF000000);
     }
-    begin_change(t, false);
-    const int exposed = dy > 0 ? (dy < h ? dy : h) : (-dy < h ? -dy : h);
-    t->row0 = ((t->row0 - dy) % h + h) % h;
-    const int first = dy > 0 ? 0 : h - exposed;
-    for (int y = first; y < first + exposed; y++)
+    return true;
+}
+
+/* The same for any texture, filling the rows it exposes with transparent
+ * pixels, for a texture kept as a scrolling cache. */
+bool POCKET_ShiftTextureRows(SDL_Texture *texture, int dy)
+{
+    if (!check_texture(texture))
     {
-        if (t->pixels565 != NULL)
-        {
-            SDL_memset(t->pixels565 + kept_row(t, y) * t->pitch565, 0, sizeof(Uint16) * t->texture.w);
-        }
-        else
-        {
-            Uint32 *row = t->pixels + kept_row(t, y) * t->texture.w;
-            for (int x = 0; x < t->texture.w; x++)
-            {
-                row[x] = 0xFF000000;
-            }
-        }
+        return false;
+    }
+    if (dy != 0)
+    {
+        shift_rows(texture_data(texture), dy, 0);
     }
     return true;
 }
