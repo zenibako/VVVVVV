@@ -17,7 +17,7 @@ DIABLO_URL="https://github.com/openfpgaOS/Diablo.git"
 DIABLO_COMMIT="8cb3198d50618696e07f5b49ad086a369dc57706"
 DIABLO_PATHS=(src/sdk tools)
 FORK_URL="https://github.com/zenibako/openfpgaCore.git"
-FORK_COMMIT="a58aacd940c1b433c030b97f8207d2c7e03307c8"
+FORK_COMMIT="902a8adc11309c50c8954af2864ddf893c8b1b0c"
 FORK_PATHS=(src/firmware/api)
 # SDL3 headers only (zlib license): the port implements the subset of the
 # API the game calls on top of openfpgaOS.  Same version as the Android CI.
@@ -25,14 +25,15 @@ SDL_URL="https://github.com/libsdl-org/SDL.git"
 SDL_COMMIT="829a65d769d935c4852f8159e964312c0957260a" # release-3.4.18
 SDL_PATHS=(include LICENSE.txt)
 # The Pocket runtime published from the fork commit, as pico8pocket uses.
+# 902a8ad adds save-slot fsync, so saves reach the SD card right away.
 # The loader, OS and bitstream must come from the same build: the bitstream
 # holds the OS's .fasttext and the bootloader as well as the FPGA logic.
 RUNTIME_DIR="$DEPS_DIR/pocket-runtime"
-RUNTIME_URL="https://github.com/zenibako/openfpgaCore/releases/download/pocket-runtime-a58aacd"
+RUNTIME_URL="https://github.com/zenibako/openfpgaCore/releases/download/pocket-runtime-902a8ad"
 RUNTIME_FILES=(os20.rbf_r os.bin loader.bin)
 RUNTIME_SHA256=(
-    "92c0dbbd372e5d0879fdf05b52ecab9891d2bead66fb8e2c24b63ecd23524e87"
-    "d845160d123754a01854dadac6c78dca2e180aefc2711789d3ff32cbab47fc0e"
+    "e2d5300df191ec73a72ae1255008d9f43d36815fb49e4c732403abf36c742327"
+    "cc299efffc0f8fcafaaa265e329439806e061bd4cceb0ab6a96f16f8b2b7fe27"
     "fc1f8d37eb0fb322006b4428f0b59d2801c9b74978bd3f24103f5f9bbfca3c99"
 )
 
