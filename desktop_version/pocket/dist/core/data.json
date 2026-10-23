@@ -57,6 +57,7 @@
                 "nonvolatile": true,
                 "address": "0x20100000",
                 "size_maximum": "0x40000",
+                "filename": "vvvvvv_0.sav",
                 "extensions": ["sav"]
             }
         ]

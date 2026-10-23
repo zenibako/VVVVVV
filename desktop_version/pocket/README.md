@@ -66,7 +66,11 @@ regenerates them from `../fonts` with `scripts/make-button-fonts.py`
 openfpgaOS has no writable directory, so everything the game writes under
 `saves/`, `levels/` and `screenshots/` is kept as a small archive in one
 save file, `vvvvvv_0.sav` by default (`POCKET_SAVE_FILE`). The archive is
-rewritten each time the game closes a file it wrote.
+rewritten each time the game closes a file it wrote. The core's data.json
+gives the save slot the same filename, so the Pocket keeps it at
+`Saves/vvvvvv/common/vvvvvv_0.sav` even though the core starts without a
+game being picked; without it the save landed loose in `Saves/` under a
+broken name.
 
 `make host SDL3_PREFIX=<prefix>` builds the game for your computer with the
 same compat headers, on desktop SDL3 and FAudio. Use it to debug game logic
