@@ -44,11 +44,7 @@ are `gcc-riscv64-unknown-elf` and `picolibc-riscv64-unknown-elf`.
 (`dist/`), the pinned openfpgaOS runtime, the app, and the game's fonts and
 lang folders zipped as `vvvvvv-repo.zip`, laid out like the Android build's
 `repo.zip` because openfpgaOS has no directories. Copy it to the root of
-the card and add your `data.zip` as `Assets/vvvvvv/common/data.zip`. On
-the Pocket, open the core and pick VVVVVV from its one-item list. The
-Pocket files the save under `Saves/vvvvvv/` by the game you pick, so a
-core that starts without one writes its save loose in `Saves/` under a
-broken name. For
+the card and add your `data.zip` as `Assets/vvvvvv/common/data.zip`. For
 now the Chinese, Japanese and Korean fonts are left out to save memory.
 
 `make test` runs the compat-header and save-archive checks on the host with
@@ -70,7 +66,11 @@ regenerates them from `../fonts` with `scripts/make-button-fonts.py`
 openfpgaOS has no writable directory, so everything the game writes under
 `saves/`, `levels/` and `screenshots/` is kept as a small archive in one
 save file, `vvvvvv_0.sav` by default (`POCKET_SAVE_FILE`). The archive is
-rewritten each time the game closes a file it wrote.
+rewritten each time the game closes a file it wrote. The core's data.json
+gives the save slot the same filename, so the Pocket keeps it at
+`Saves/vvvvvv/common/vvvvvv_0.sav` even though the core starts without a
+game being picked; without it the save landed loose in `Saves/` under a
+broken name.
 
 `make host SDL3_PREFIX=<prefix>` builds the game for your computer with the
 same compat headers, on desktop SDL3 and FAudio. Use it to debug game logic

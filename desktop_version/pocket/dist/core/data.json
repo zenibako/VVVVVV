@@ -6,8 +6,8 @@
                 "id": 0,
                 "name": "Game",
                 "required": true,
-                "parameters": 275,
-                "extensions": ["json"]
+                "filename": "vvvvvv.json",
+                "parameters": 275
             },
             {
                 "id": 1,
@@ -57,6 +57,7 @@
                 "nonvolatile": true,
                 "address": "0x20100000",
                 "size_maximum": "0x40000",
+                "filename": "vvvvvv_0.sav",
                 "extensions": ["sav"]
             }
         ]
