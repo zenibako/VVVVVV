@@ -9,6 +9,14 @@
 #ifdef SDL_RenderClear
 bool POCKET_ScrollTextureRows(SDL_Texture *texture, int dy);
 bool POCKET_ShiftTextureRows(SDL_Texture *texture, int dy);
+typedef struct POCKET_TileLayer POCKET_TileLayer;
+POCKET_TileLayer *POCKET_CreateTileLayer(int w, int h);
+void POCKET_DestroyTileLayer(POCKET_TileLayer *layer);
+bool POCKET_TileSheetIsKeyed(SDL_Texture *sheet);
+void POCKET_ShiftTileLayer(POCKET_TileLayer *layer, int dy);
+void POCKET_ClearTileLayer(POCKET_TileLayer *layer);
+void POCKET_PutTile(POCKET_TileLayer *layer, SDL_Texture *sheet, int sx, int sy, int x, int y, int w, int h);
+bool POCKET_DrawTileLayer(SDL_Renderer *renderer, POCKET_TileLayer *layer, int src_y);
 #endif
 
 static void capture_target(SDL_Renderer *renderer, Capture *capture, const char *name)
@@ -325,6 +333,68 @@ static void tower_cache(SDL_Renderer *renderer, SDL_Texture *sprite, Capture *ca
     SDL_DestroyTexture(cache);
 }
 
+/* The tower's tile layer: tiles put in, the layer shifted up by a tile row
+ * and another tile put in, then blended onto an opaque target from row 3; SDL blends the same tiles straight onto the target where they end up.
+ * The tile at the top leaves, and its rows come back as the clear new row.
+ * The tiles come from a sheet whose pixels are wholly opaque or clear. */
+static void tile_layer(SDL_Renderer *renderer, Capture *capture)
+{
+    static Uint32 argb[16 * 16];
+    for (int y = 0; y < 16; y++)
+    {
+        for (int x = 0; x < 16; x++)
+        {
+            argb[y * 16 + x] = (x * 3 + y) % 4 == 0 ? 0x00123456 : 0xFF000000 | (Uint32) (x * 0x0F0300 + y * 0x00000F + 0x200010);
+        }
+    }
+    SDL_Surface *surface = SDL_CreateSurfaceFrom(16, 16, SDL_PIXELFORMAT_ARGB8888, argb, 16 * 4);
+    SDL_SetSurfaceBlendMode(surface, SDL_BLENDMODE_BLEND);
+    SDL_Texture *sheet = SDL_CreateTextureFromSurface(renderer, surface);
+    SDL_DestroySurface(surface);
+    SDL_Texture *screen = SDL_CreateTexture(renderer, SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_TARGET, 96, 56);
+    SDL_SetRenderTarget(renderer, screen);
+    SDL_SetRenderDrawColor(renderer, 20, 70, 120, 255);
+    SDL_RenderClear(renderer);
+
+    /* {sheet x, sheet y, layer x, layer y before the shift} */
+    static const int tiles[][4] = {
+        {0, 0, 0, 8}, {8, 0, 24, 16}, {0, 8, 40, 40}, {8, 8, 88, 56}, {8, 0, 64, 24}, {8, 8, 72, 0}
+    };
+    const int count = (int) SDL_arraysize(tiles);
+#ifdef SDL_RenderClear
+    capture_number(capture, "tile sheet keyed", POCKET_TileSheetIsKeyed(sheet));
+    POCKET_TileLayer *layer = POCKET_CreateTileLayer(96, 64);
+    POCKET_ClearTileLayer(layer);
+    for (int i = 0; i < count; i++)
+    {
+        POCKET_PutTile(layer, sheet, tiles[i][0], tiles[i][1], tiles[i][2], tiles[i][3], 8, 8);
+    }
+    /* Drawn once, so the shifted rows' runs are kept and the new row's
+     * built. */
+    POCKET_DrawTileLayer(renderer, layer, 0);
+    SDL_RenderClear(renderer);
+    POCKET_ShiftTileLayer(layer, -8);
+    POCKET_PutTile(layer, sheet, 0, 0, 16, 48, 8, 8);
+    POCKET_DrawTileLayer(renderer, layer, 3);
+    POCKET_DestroyTileLayer(layer);
+#else
+    capture_number(capture, "tile sheet keyed", 1);
+    for (int i = 0; i < count; i++)
+    {
+        const SDL_FRect src = {(float) tiles[i][0], (float) tiles[i][1], 8, 8};
+        const SDL_FRect dst = {(float) tiles[i][2], (float) (tiles[i][3] - 8 - 3), 8, 8};
+        SDL_RenderTexture(renderer, sheet, &src, &dst);
+    }
+    const SDL_FRect src = {0, 0, 8, 8};
+    const SDL_FRect dst = {16, 48 - 3, 8, 8};
+    SDL_RenderTexture(renderer, sheet, &src, &dst);
+#endif
+    capture_target(renderer, capture, "tile layer");
+    SDL_SetRenderTarget(renderer, NULL);
+    SDL_DestroyTexture(screen);
+    SDL_DestroyTexture(sheet);
+}
+
 static void scrolling(SDL_Renderer *renderer, SDL_Texture *sprite, Capture *capture)
 {
     SDL_Texture *tower = SDL_CreateTexture(renderer, SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_TARGET, 96, 64);
@@ -550,6 +620,7 @@ void RENDER_OPS(SDL_Renderer *renderer, Capture *capture)
     targets(renderer, sprite, capture);
     scrolling(renderer, sprite, capture);
     tower_cache(renderer, sprite, capture);
+    tile_layer(renderer, capture);
     frames(renderer, sprite, capture);
     surfaces(capture);
     SDL_DestroyTexture(sprite);

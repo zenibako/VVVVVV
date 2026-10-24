@@ -1739,3 +1739,223 @@ bool SDL_RenderPresent(SDL_Renderer *renderer)
     back_buffer.pixels565 = POCKET_FrameBuffer(&back_buffer.pitch565);
     return true;
 }
+
+/* A layer of tiles that are wholly opaque or clear, kept as RGB565 and a
+ * mask instead of a texture: drawing tiles into it and blending it onto
+ * an RGB565 target touch half the memory an ARGB8888 texture would, and
+ * its runs are built from the mask a row at a time as rows change. Rows
+ * are kept as a ring, like a texture's, so it scrolls without moving. */
+typedef struct POCKET_TileLayer POCKET_TileLayer;
+struct POCKET_TileLayer
+{
+    int w, h, row0;
+    Uint16 *color;
+    Uint8 *mask;
+    /* Kept row k's runs of opaque pixels are runs[k * run_cap ...], as
+     * {x, length} pairs, run_count[k] of them. */
+    Uint16 *runs;
+    Uint16 *run_count;
+    int run_cap;
+    Uint8 *dirty;
+};
+
+static inline int layer_row(const POCKET_TileLayer *layer, int y)
+{
+    const int row = y + layer->row0;
+    return row >= layer->h ? row - layer->h : row;
+}
+
+void POCKET_DestroyTileLayer(POCKET_TileLayer *layer)
+{
+    if (layer == NULL)
+    {
+        return;
+    }
+    SDL_free(layer->color);
+    SDL_free(layer->mask);
+    SDL_free(layer->runs);
+    SDL_free(layer->run_count);
+    SDL_free(layer->dirty);
+    SDL_free(layer);
+}
+
+POCKET_TileLayer *POCKET_CreateTileLayer(int w, int h)
+{
+    POCKET_TileLayer *layer = (POCKET_TileLayer *) SDL_calloc(1, sizeof(*layer));
+    if (layer == NULL)
+    {
+        return NULL;
+    }
+    layer->w = w;
+    layer->h = h;
+    layer->run_cap = w / 2 + 1;
+    layer->color = (Uint16 *) SDL_calloc((size_t) w * h, sizeof(Uint16));
+    layer->mask = (Uint8 *) SDL_calloc((size_t) w * h, 1);
+    layer->runs = (Uint16 *) SDL_malloc(sizeof(Uint16) * 2 * layer->run_cap * h);
+    layer->run_count = (Uint16 *) SDL_calloc((size_t) h, sizeof(Uint16));
+    layer->dirty = (Uint8 *) SDL_calloc((size_t) h, 1);
+    if (layer->color == NULL || layer->mask == NULL || layer->runs == NULL
+        || layer->run_count == NULL || layer->dirty == NULL)
+    {
+        POCKET_DestroyTileLayer(layer);
+        return NULL;
+    }
+    return layer;
+}
+
+/* Whether every pixel of a tile sheet is wholly opaque or wholly clear,
+ * so its tiles can go into a tile layer. */
+bool POCKET_TileSheetIsKeyed(SDL_Texture *sheet)
+{
+    static const Texture *checked;
+    static bool keyed;
+    if (!check_texture(sheet))
+    {
+        return false;
+    }
+    const Texture *t = texture_data(sheet);
+    if (t->pixels565 != NULL || t->alias_of != NULL || t->pixels == NULL || t->clear_pending)
+    {
+        return false;
+    }
+    if (t != checked)
+    {
+        keyed = true;
+        const size_t count = (size_t) t->texture.w * t->texture.h;
+        for (size_t i = 0; i < count && keyed; i++)
+        {
+            const Uint32 a = t->pixels[i] >> 24;
+            keyed = a == 0 || a == 255;
+        }
+        checked = t;
+    }
+    return keyed;
+}
+
+/* Moves the layer's rows down by dy (up when negative); the rows that
+ * exposes are clear. */
+void POCKET_ShiftTileLayer(POCKET_TileLayer *layer, int dy)
+{
+    const int h = layer->h;
+    const int exposed = SDL_min(dy > 0 ? dy : -dy, h);
+    const int first = dy > 0 ? 0 : h - exposed;
+    layer->row0 = ((layer->row0 - dy) % h + h) % h;
+    for (int y = first; y < first + exposed; y++)
+    {
+        const int k = layer_row(layer, y);
+        SDL_memset(layer->mask + (size_t) k * layer->w, 0, (size_t) layer->w);
+        layer->dirty[k] = 1;
+    }
+}
+
+void POCKET_ClearTileLayer(POCKET_TileLayer *layer)
+{
+    SDL_memset(layer->mask, 0, (size_t) layer->w * layer->h);
+    SDL_memset(layer->dirty, 1, (size_t) layer->h);
+}
+
+/* Copies the w by h tile at (sx, sy) of a keyed sheet into the layer at
+ * (x, y), clear pixels included, as an unblended copy would. */
+void POCKET_PutTile(POCKET_TileLayer *layer, SDL_Texture *sheet, int sx, int sy, int x, int y, int w, int h)
+{
+    const Texture *t = texture_data(sheet);
+    const SDL_Rect wanted = {x, y, w, h};
+    const SDL_Rect bounds = {0, 0, layer->w, layer->h};
+    SDL_Rect clip;
+    if (!POCKET_IntersectRect(&wanted, &bounds, &clip)
+        || sx < 0 || sy < 0 || sx + w > t->texture.w || sy + h > t->texture.h)
+    {
+        return;
+    }
+    for (int row = clip.y; row < clip.y + clip.h; row++)
+    {
+        const Uint32 *s = t->pixels + kept_row(t, sy + row - y) * t->texture.w + sx + (clip.x - x);
+        const int k = layer_row(layer, row);
+        Uint16 *c = layer->color + (size_t) k * layer->w + clip.x;
+        Uint8 *m = layer->mask + (size_t) k * layer->w + clip.x;
+        for (int i = 0; i < clip.w; i++)
+        {
+            c[i] = POCKET_ToRGB565(s[i]);
+            m[i] = (Uint8) (s[i] >> 31);
+        }
+        layer->dirty[k] = 1;
+    }
+}
+
+/* Blends layer rows from src_y on, as many as the target is tall, onto
+ * the RGB565 target at its top left: what blending the same tiles onto it
+ * one by one would do. Returns false, drawing nothing, for a target that
+ * is not RGB565 or not as wide as the layer. */
+bool POCKET_DrawTileLayer(SDL_Renderer *renderer, POCKET_TileLayer *layer, int src_y)
+{
+    if (!check_renderer(renderer))
+    {
+        return false;
+    }
+    COUNT_CALL();
+    Texture *dst = current_target(renderer);
+    if (dst->texture.w != layer->w || src_y < 0)
+    {
+        return false;
+    }
+    resolve_clear(dst);
+    if (dst->pixels565 == NULL)
+    {
+        return false;
+    }
+    const int rows = SDL_min(dst->texture.h, layer->h - src_y);
+    begin_rows_change(dst, 0, rows);
+    if (dst->pixels565 == NULL)
+    {
+        return false;
+    }
+    PART_BEGIN();
+    for (int y = 0; y < rows; y++)
+    {
+        const int k = layer_row(layer, src_y + y);
+        Uint16 *runs = layer->runs + (size_t) k * layer->run_cap * 2;
+        const Uint16 *color = layer->color + (size_t) k * layer->w;
+        if (layer->dirty[k])
+        {
+            const Uint8 *m = layer->mask + (size_t) k * layer->w;
+            int n = 0;
+            int x = 0;
+            while (x < layer->w)
+            {
+                if (!m[x])
+                {
+                    x++;
+                    continue;
+                }
+                int end = x + 1;
+                while (end < layer->w && m[end])
+                {
+                    end++;
+                }
+                runs[n * 2] = (Uint16) x;
+                runs[n * 2 + 1] = (Uint16) (end - x);
+                n++;
+                x = end;
+            }
+            layer->run_count[k] = (Uint16) n;
+            layer->dirty[k] = 0;
+        }
+        Uint16 *row = dst->pixels565 + kept_row(dst, y) * dst->pitch565;
+        for (int i = 0; i < layer->run_count[k]; i++)
+        {
+            SDL_memcpy(row + runs[i * 2], color + runs[i * 2], (size_t) runs[i * 2 + 1] * 2);
+        }
+    }
+    PART_END(2);
+    return true;
+}
+
+/* For a caller that is about to write every pixel of a texture it has just
+ * cleared: the held back clear need not be written. */
+void POCKET_SkipPendingClear(SDL_Texture *texture)
+{
+    if (check_texture(texture))
+    {
+        texture_data(texture)->clear_pending = false;
+    }
+}

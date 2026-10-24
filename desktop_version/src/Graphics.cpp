@@ -3023,6 +3023,98 @@ void Graphics::drawfinalmap(void)
 #ifdef VVV_POCKET
 extern "C" bool POCKET_ShiftTextureRows(SDL_Texture* texture, int dy);
 extern "C" void POCKET_KeepTextureRuns(SDL_Texture* texture);
+extern "C" void POCKET_SkipPendingClear(SDL_Texture* texture);
+struct POCKET_TileLayer;
+extern "C" POCKET_TileLayer* POCKET_CreateTileLayer(int w, int h);
+extern "C" bool POCKET_TileSheetIsKeyed(SDL_Texture* sheet);
+extern "C" void POCKET_ShiftTileLayer(POCKET_TileLayer* layer, int dy);
+extern "C" void POCKET_ClearTileLayer(POCKET_TileLayer* layer);
+extern "C" void POCKET_PutTile(POCKET_TileLayer* layer, SDL_Texture* sheet, int sx, int sy, int x, int y, int w, int h);
+extern "C" bool POCKET_DrawTileLayer(SDL_Renderer* renderer, POCKET_TileLayer* layer, int src_y);
+
+static bool tower_texture_valid = false;
+
+/* The tower's tiles are wholly opaque or clear, so where the sheet allows
+ * they are kept in a tile layer (render.c) instead of a texture: half the
+ * memory to draw and blend, which a colour change, redrawing every tile,
+ * needs most. Rows are kept as in drawtowermap_cached. */
+static bool drawtowermap_layer(Graphics& g, const int yoff)
+{
+    static POCKET_TileLayer* layer = NULL;
+    static bool valid = false;
+    static int cached_top, cached_colstate, cached_roomx, cached_roomy;
+    static bool cached_minitower;
+    static SDL_Texture* cached_tiles = NULL;
+    const int rows = 31;
+    SDL_Texture* const sheet = g.grphx.im_tiles3;
+
+    if (yoff < 0 || sheet == NULL || !POCKET_TileSheetIsKeyed(sheet))
+    {
+        return false;
+    }
+    if (layer == NULL)
+    {
+        layer = POCKET_CreateTileLayer(SCREEN_WIDTH_PIXELS, rows * 8);
+        if (layer == NULL)
+        {
+            return false;
+        }
+    }
+    int width;
+    if (!g.query_texture(sheet, NULL, NULL, &width, NULL))
+    {
+        return false;
+    }
+
+    const int top = yoff / 8;
+    int first = 0;
+    int count = rows;
+    if (valid
+    && cached_colstate == g.towerbg.colstate
+    && cached_tiles == sheet
+    && cached_minitower == map.tower.minitowermode
+    && cached_roomx == game.roomx
+    && cached_roomy == game.roomy
+    && SDL_abs(top - cached_top) < rows)
+    {
+        const int moved = top - cached_top;
+        POCKET_ShiftTileLayer(layer, -moved * 8);
+        first = moved > 0 ? rows - moved : 0;
+        count = SDL_abs(moved);
+    }
+    else
+    {
+        POCKET_ClearTileLayer(layer);
+    }
+
+    for (int j = first; j < first + count; j++)
+    {
+        for (int i = 0; i < 40; i++)
+        {
+            const int temp = map.tower.at(i, j, top * 8);
+            if (temp > 0)
+            {
+                const int t = temp + g.towerbg.colstate * 30;
+                POCKET_PutTile(layer, sheet, (t % (width / 8)) * 8, (t / (width / 8)) * 8, i * 8, j * 8, 8, 8);
+            }
+        }
+    }
+
+    valid = true;
+    cached_top = top;
+    cached_colstate = g.towerbg.colstate;
+    cached_tiles = sheet;
+    cached_minitower = map.tower.minitowermode;
+    cached_roomx = game.roomx;
+    cached_roomy = game.roomy;
+
+    if (!POCKET_DrawTileLayer(gameScreen.m_renderer, layer, yoff - top * 8))
+    {
+        return false;
+    }
+    tower_texture_valid = false;
+    return true;
+}
 
 /* The Pocket draws each tile on the CPU, and a tower shows about 1200 of
  * them. They are kept in a texture 31 tile rows tall, with the row
@@ -3033,7 +3125,7 @@ extern "C" void POCKET_KeepTextureRuns(SDL_Texture* texture);
 static bool drawtowermap_cached(Graphics& g, const int yoff)
 {
     static SDL_Texture* cache = NULL;
-    static bool valid = false;
+    bool& valid = tower_texture_valid;
     static int cached_top, cached_colstate, cached_roomx, cached_roomy;
     static bool cached_minitower;
     static SDL_Texture* cached_tiles = NULL;
@@ -3121,7 +3213,7 @@ void Graphics::drawtowermap(void)
 {
     const int yoff = lerp(map.oldypos, map.ypos);
 #ifdef VVV_POCKET
-    if (drawtowermap_cached(*this, yoff))
+    if (drawtowermap_layer(*this, yoff) || drawtowermap_cached(*this, yoff))
     {
         return;
     }
@@ -3218,6 +3310,16 @@ void Graphics::updatetowerbackground(TowerBG& bg_obj)
         {
             int width;
             query_texture(sheet, NULL, NULL, &width, NULL);
+            /* The tiles cover every pixel from row -1's top to row 31's
+             * bottom, left of x = 320; only the rest needs the clear. */
+            int texture_w, texture_h;
+            query_texture(bg_obj.texture, NULL, NULL, &texture_w, &texture_h);
+            const int band_top = -8 - (bg_obj.bypos % 8) - off;
+            const int band_bottom = 32 * 8 - (bg_obj.bypos % 8) - off;
+            POCKET_SkipPendingClear(bg_obj.texture);
+            fill_rect(0, 0, texture_w, SDL_max(band_top, 0), 0, 0, 0, 255);
+            fill_rect(0, band_bottom, texture_w, texture_h - band_bottom, 0, 0, 0, 255);
+            fill_rect(40 * 8, band_top, texture_w - 40 * 8, band_bottom - band_top, 0, 0, 0, 255);
             for (int j = -1; j < 32; j++)
             {
                 for (int i = 0; i < 40; i++)
