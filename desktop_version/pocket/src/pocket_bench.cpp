@@ -24,6 +24,9 @@ extern "C" bool POCKET_saves_volatile;
 extern "C" bool POCKET_tint_runs;
 extern bool POCKET_text_cache;
 extern Uint32 POCKET_print_us, POCKET_print_calls, POCKET_text_hits, POCKET_text_kept;
+extern char POCKET_last_kept[48];
+extern Uint32 POCKET_bg_us, POCKET_bg_tiles;
+extern "C" void POCKET_CountSeeThrough(SDL_Texture* texture, int x, int y, int w, int h, int* clear, int* partial);
 
 /* Keys held down, as input.c sends them (bit order there). */
 enum
@@ -93,6 +96,8 @@ typedef struct
     Uint32 colour_total;
     int room[2]; /* where the part ended, to show it ran where it meant to */
     Uint32 text_us, prints, text_hits, text_kept; /* font::print's, summed */
+    Uint32 bg_us, bg_tiles; /* the tower background's update, summed */
+    char last_kept[48];
 }
 PartTimes;
 static PartTimes times[PART_COUNT];
@@ -104,7 +109,7 @@ typedef struct
     bool colour_change;
 }
 SlowFrame;
-#define SLOW_KEPT 3
+#define SLOW_KEPT 1
 static SlowFrame slowest[SLOW_KEPT];
 static int slow_count;
 
@@ -112,6 +117,7 @@ static FrameTimes frame_us;
 static Uint32 loop_start, step_start, draw_start;
 static int colstate_start;
 static Uint32 print_us_start, prints_start, hits_start, kept_start;
+static Uint32 bg_us_start, bg_tiles_start;
 static int steps_this_loop;
 
 static void start_part(void)
@@ -222,6 +228,8 @@ void POCKET_BenchLoopStart(void)
     prints_start = POCKET_print_calls;
     hits_start = POCKET_text_hits;
     kept_start = POCKET_text_kept;
+    bg_us_start = POCKET_bg_us;
+    bg_tiles_start = POCKET_bg_tiles;
     steps_this_loop = 0;
 }
 
@@ -258,6 +266,12 @@ void POCKET_BenchLoopEnd(void)
     t->prints += POCKET_print_calls - prints_start;
     t->text_hits += POCKET_text_hits - hits_start;
     t->text_kept += POCKET_text_kept - kept_start;
+    t->bg_us += POCKET_bg_us - bg_us_start;
+    t->bg_tiles += POCKET_bg_tiles - bg_tiles_start;
+    if (POCKET_text_kept != kept_start)
+    {
+        SDL_strlcpy(t->last_kept, POCKET_last_kept, sizeof(t->last_kept));
+    }
     if (colour_change)
     {
         t->colour_frames++;
@@ -428,14 +442,18 @@ void POCKET_BenchDraw(void)
             SDL_snprintf(lines[line_count++], 48, "%-9s%4d %s %s %s %s",
                 parts[i].name, t->frames, total, logic, draw, col);
         }
-        SDL_snprintf(lines[line_count++], 48, "max ms, room each part ended in:");
+        SDL_snprintf(lines[line_count++], 48, "a frame: tower bg update ms, tiles");
         for (int i = 0; i < PART_COUNT; i++)
         {
-            if (parts[i].name != NULL)
+            const PartTimes* t = &times[i];
+            if (parts[i].name == NULL || t->frames == 0)
             {
-                SDL_snprintf(lines[line_count++], 48, "%-9s %4u %d,%d", parts[i].name,
-                    (unsigned) (times[i].max / 1000), times[i].room[0], times[i].room[1]);
+                continue;
             }
+            char bg[8];
+            ms(bg, sizeof(bg), t->bg_us, t->frames);
+            SDL_snprintf(lines[line_count++], 48, "%-9s %s %5u", parts[i].name, bg,
+                (unsigned) (t->bg_tiles / t->frames));
         }
         SDL_snprintf(lines[line_count++], 48, "a frame: text ms, prints, cached, new");
         for (int i = 0; i < PART_COUNT; i++)
@@ -484,6 +502,27 @@ void POCKET_BenchDraw(void)
             (unsigned) bordered, (unsigned) cached_bor);
         SDL_snprintf(lines[line_count++], 48, "text cache same: %d of %d",
             cache_same, cache_cases);
+        /* Whether the tower's background tiles could be copied as they
+         * are, needing nothing under them. */
+        int tiles = 0, clear_tiles = 0, partial_tiles = 0;
+        int sheet_w, sheet_h;
+        if (graphics.query_texture(graphics.grphx.im_tiles3, NULL, NULL, &sheet_w, &sheet_h))
+        {
+            for (int y = 0; y + 8 <= sheet_h; y += 8)
+            {
+                for (int x = 0; x + 8 <= sheet_w; x += 8)
+                {
+                    int clear, partial;
+                    POCKET_CountSeeThrough(graphics.grphx.im_tiles3, x, y, 8, 8, &clear, &partial);
+                    tiles++;
+                    clear_tiles += clear > 0 && clear < 64;
+                    partial_tiles += partial > 0;
+                }
+            }
+        }
+        SDL_snprintf(lines[line_count++], 48, "tiles3 %d: %d part clear, %d see-thru",
+            tiles, clear_tiles, partial_tiles);
+        SDL_snprintf(lines[line_count++], 48, "new: %.38s", times[2].last_kept);
         SDL_snprintf(lines[line_count++], 48, "full speed is 34 ms; screenshot me");
         for (int i = 0; i < line_count; i++)
         {

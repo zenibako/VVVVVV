@@ -1343,6 +1343,7 @@ bool POCKET_text_cache = true;
  * calls, not counting the prints it makes itself, and how many strings
  * were copied from the cache, newly kept in it, or drawn glyph by glyph. */
 Uint32 POCKET_print_us, POCKET_print_calls, POCKET_text_hits, POCKET_text_kept;
+char POCKET_last_kept[48]; /* the last string newly kept */
 struct PrintTimer
 {
     static int depth;
@@ -1507,6 +1508,9 @@ static bool print_cached(
 
         entry = oldest;
         COUNT_TEXT(POCKET_text_kept);
+#ifdef POCKET_BENCH
+        SDL_snprintf(POCKET_last_kept, sizeof(POCKET_last_kept), "%08x %s", (unsigned) flags, text);
+#endif
         if (entry->image == NULL || entry->w != w || entry->h != h)
         {
             VVV_freefunc(SDL_DestroyTexture, entry->image);

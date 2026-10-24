@@ -373,6 +373,9 @@ public:
 
     void drawtowerbackground(const TowerBG& bg_obj);
     void updatetowerbackground(TowerBG& bg_obj);
+#ifdef POCKET_BENCH
+    void update_tower_background(TowerBG& bg_obj);
+#endif
 #ifdef VVV_POCKET
     SDL_Texture* tiles3_on_black(void);
 #endif

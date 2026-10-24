@@ -1313,6 +1313,34 @@ static int src_line_size;
 /* The benchmark turns the tinted-run copy off to time it against the
  * general one. */
 bool POCKET_tint_runs = true;
+
+/* Counts a texture's pixels in a rectangle that are clear (alpha 0) and
+ * that are partly see-through, for the benchmark to tell which tiles can
+ * be copied as opaque. */
+void POCKET_CountSeeThrough(SDL_Texture *texture, int x, int y, int w, int h, int *clear, int *partial)
+{
+    *clear = 0;
+    *partial = 0;
+    if (texture == NULL)
+    {
+        return;
+    }
+    const Texture *t = texture_data(texture);
+    const Uint32 *pixels = texels(t);
+    if (pixels == NULL || t->pixels565 != NULL)
+    {
+        return;
+    }
+    for (int j = y; j < y + h && j < t->texture.h; j++)
+    {
+        for (int i = x; i < x + w && i < t->texture.w; i++)
+        {
+            const Uint32 a = pixels[shown_row(t, j) * t->texture.w + i] >> 24;
+            *clear += a == 0;
+            *partial += a != 0 && a != 255;
+        }
+    }
+}
 #else
 #define POCKET_tint_runs true
 #endif

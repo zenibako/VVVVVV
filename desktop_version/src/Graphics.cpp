@@ -856,8 +856,19 @@ void Graphics::drawtile2(int x, int y, int t)
     }
 }
 
+#ifdef POCKET_BENCH
+#include "of_timer.h"
+/* For the benchmark: time spent updating the tower's background, and the
+ * tiles it and drawtile3 drew. */
+Uint32 POCKET_bg_us, POCKET_bg_tiles;
+#define COUNT_BG_TILE() (POCKET_bg_tiles++)
+#else
+#define COUNT_BG_TILE() ((void) 0)
+#endif
+
 void Graphics::drawtile3(int x, int y, int t, int off, int height_subtract /*= 0*/)
 {
+    COUNT_BG_TILE();
     t += off * 30;
 
     // Can't use drawgridtile because we want to draw a slice of the tile,
@@ -3292,6 +3303,15 @@ SDL_Texture* Graphics::tiles3_on_black(void)
 
 void Graphics::updatetowerbackground(TowerBG& bg_obj)
 {
+#ifdef POCKET_BENCH
+    const Uint32 bench_start = of_time_us();
+    update_tower_background(bg_obj);
+    POCKET_bg_us += of_time_us() - bench_start;
+}
+
+void Graphics::update_tower_background(TowerBG& bg_obj)
+{
+#endif
     if (bg_obj.bypos < 0) bg_obj.bypos += 120 * 8;
 
     SDL_Texture* target = SDL_GetRenderTarget(gameScreen.m_renderer);
@@ -3330,6 +3350,7 @@ void Graphics::updatetowerbackground(TowerBG& bg_obj)
                     const int y = (j * 8) - (bg_obj.bypos % 8) - off;
                     const int sx = (t % (width / 8)) * 8;
                     const int sy = (t / (width / 8)) * 8;
+                    COUNT_BG_TILE();
                     if (!POCKET_CopyOpaqueTile(gameScreen.m_renderer, sheet, sx, sy, x, y, 8, 8))
                     {
                         draw_texture_part(sheet, x, y, sx, sy, 8, 8, 1, 1);
