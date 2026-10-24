@@ -3022,6 +3022,7 @@ void Graphics::drawfinalmap(void)
 
 #ifdef VVV_POCKET
 extern "C" bool POCKET_ShiftTextureRows(SDL_Texture* texture, int dy);
+extern "C" void POCKET_KeepTextureRuns(SDL_Texture* texture);
 
 /* The Pocket draws each tile on the CPU, and a tower shows about 1200 of
  * them. They are kept in a texture 31 tile rows tall, with the row
@@ -3050,6 +3051,9 @@ static bool drawtowermap_cached(Graphics& g, const int yoff)
             return false;
         }
         g.set_blendmode(cache, SDL_BLENDMODE_BLEND);
+        /* Copied every frame, so worth its runs even right after it is
+         * drawn again. */
+        POCKET_KeepTextureRuns(cache);
     }
 
     const int top = yoff / 8;
@@ -3161,6 +3165,38 @@ void Graphics::drawtowerbackground(const TowerBG& bg_obj)
     copy_texture(bg_obj.texture, &srcRect, NULL);
 }
 
+#ifdef VVV_POCKET
+/* tiles3 blended onto opaque black, made again when the sheet changes. */
+SDL_Texture* Graphics::tiles3_on_black(void)
+{
+    static SDL_Texture* sheet = NULL;
+    static SDL_Texture* made_from = NULL;
+    if (made_from == grphx.im_tiles3 && sheet != NULL)
+    {
+        return sheet;
+    }
+    VVV_freefunc(SDL_DestroyTexture, sheet);
+    made_from = NULL;
+    int w, h;
+    if (grphx.im_tiles3 == NULL || !query_texture(grphx.im_tiles3, NULL, NULL, &w, &h))
+    {
+        return NULL;
+    }
+    sheet = SDL_CreateTexture(gameScreen.m_renderer, SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_TARGET, w, h);
+    if (sheet == NULL)
+    {
+        return NULL;
+    }
+    SDL_Texture* target = SDL_GetRenderTarget(gameScreen.m_renderer);
+    set_render_target(sheet);
+    clear();
+    copy_texture(grphx.im_tiles3, NULL, NULL);
+    set_render_target(target);
+    made_from = grphx.im_tiles3;
+    return sheet;
+}
+#endif
+
 void Graphics::updatetowerbackground(TowerBG& bg_obj)
 {
     if (bg_obj.bypos < 0) bg_obj.bypos += 120 * 8;
@@ -3173,6 +3209,26 @@ void Graphics::updatetowerbackground(TowerBG& bg_obj)
         int off = bg_obj.scrolldir == 0 ? 0 : bg_obj.bscroll;
         //Draw the whole thing; needed for every colour cycle!
         clear();
+#ifdef VVV_POCKET
+        /* Every tile here lands on the black just cleared, so it is copied
+         * from the tile sheet already blended onto black: a plain copy
+         * instead of the Pocket blending each pixel. */
+        SDL_Texture* sheet = tiles3_on_black();
+        if (sheet != NULL)
+        {
+            int width;
+            query_texture(sheet, NULL, NULL, &width, NULL);
+            for (int j = -1; j < 32; j++)
+            {
+                for (int i = 0; i < 40; i++)
+                {
+                    const int t = map.tower.backat(i, j, bg_obj.bypos) + bg_obj.colstate * 30;
+                    draw_texture_part(sheet, i * 8, (j * 8) - (bg_obj.bypos % 8) - off, (t % (width / 8)) * 8, (t / (width / 8)) * 8, 8, 8, 1, 1);
+                }
+            }
+        }
+        else
+#endif
         for (int j = -1; j < 32; j++)
         {
             for (int i = 0; i < 40; i++)

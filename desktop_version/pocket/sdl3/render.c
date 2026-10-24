@@ -32,6 +32,8 @@ Uint32 POCKET_render_us;
  * work, and copies and fills only one in PART_SAMPLE, counted that many
  * times; the render total is the sum of the parts. */
 Uint32 POCKET_render_part_us[6];
+/* What one timer read adds to a timed span, measured at the first frame. */
+Uint32 POCKET_timer_read_us;
 /* Copies and fills asked for, drawn or not. */
 Uint32 POCKET_render_calls;
 #define PART_SAMPLE 16
@@ -44,7 +46,9 @@ Uint32 POCKET_render_calls;
 #define PART_END(part) do { \
         if (part_weight) \
         { \
-            const Uint32 part_time = (of_time_us() - part_start) * part_weight; \
+            const Uint32 part_span = of_time_us() - part_start; \
+            const Uint32 part_time = (part_span > POCKET_timer_read_us \
+                ? part_span - POCKET_timer_read_us : 0) * part_weight; \
             POCKET_render_part_us[part] += part_time; \
             POCKET_render_us += part_time; \
         } \
@@ -95,6 +99,9 @@ typedef struct Texture
      * which a change to only some rows leaves to be built again. */
     bool runs_partial;
     Uint8 *dirty_rows;
+    /* Build runs on a texture's first copy after a change, not its
+     * second: for a texture copied every frame (POCKET_KeepTextureRuns). */
+    bool always_runs;
     int copies_since_change;
 } Texture;
 
@@ -1403,7 +1410,7 @@ static bool copy_rows(SDL_Renderer *renderer, Texture *src, const SDL_FRect *src
         && src->pixels565 == NULL;
     const bool wants_runs = contiguous && src->pixels565 == NULL
         && (raw ? dst->pixels565 != NULL : skips_clear);
-    if (wants_runs && !src->runs_valid && (src->copies_since_change > 0 || src->runs_partial))
+    if (wants_runs && !src->runs_valid && (src->copies_since_change > 0 || src->runs_partial || src->always_runs))
     {
         PART_BEGIN();
         build_runs(src);
@@ -1634,6 +1641,14 @@ bool POCKET_ScrollTextureRows(SDL_Texture *texture, int dy)
         shift_rows(t, dy, 0xFF000000);
     }
     return true;
+}
+
+void POCKET_KeepTextureRuns(SDL_Texture *texture)
+{
+    if (check_texture(texture))
+    {
+        texture_data(texture)->always_runs = true;
+    }
 }
 
 /* The same for any texture, filling the rows it exposes with transparent

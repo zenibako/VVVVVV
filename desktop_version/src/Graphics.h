@@ -373,6 +373,9 @@ public:
 
     void drawtowerbackground(const TowerBG& bg_obj);
     void updatetowerbackground(TowerBG& bg_obj);
+#ifdef VVV_POCKET
+    SDL_Texture* tiles3_on_black(void);
+#endif
 
     SDL_Color getcol(int t);
     void drawfinalmap(void);

@@ -43,6 +43,7 @@ static void start_video(void)
 
 #ifdef POCKET_SHOW_FPS
 extern Uint32 POCKET_render_us;
+extern Uint32 POCKET_timer_read_us;
 extern Uint32 POCKET_render_part_us[6];
 extern Uint32 POCKET_render_calls;
 extern int POCKET_saves_written;
@@ -125,6 +126,7 @@ static void run_bench(void)
         (void) of_time_us();
     }
     bench[2] = (int) ((of_time_us() - start) / 100);
+    POCKET_timer_read_us = (Uint32) bench[2] / 10;
     SDL_free(a);
     SDL_free(b);
 }
@@ -133,7 +135,8 @@ static void run_bench(void)
  * the milliseconds per frame spent drawing in the renderer, presenting,
  * and everywhere else (the game's own code, input and sound); then saves
  * written to the save file and saves that failed; then tens of copies and
- * fills per frame. */
+ * fills per frame; then the parts in tenths of a millisecond per frame; then
+ * the slowest frame's milliseconds. */
 static void draw_profile(Uint8 *fb, int stride)
 {
     static Uint32 second_start, render_start, present_start;
@@ -143,8 +146,11 @@ static void draw_profile(Uint8 *fb, int stride)
     static Uint32 parts_start[6];
     static int calls;
     static Uint32 calls_start;
+    static Uint32 frame_start, slowest, shown_slowest;
     run_bench();
     const Uint32 now = of_time_ms();
+    slowest = SDL_max(slowest, now - frame_start);
+    frame_start = now;
     frames++;
     if (now - second_start >= 1000)
     {
@@ -163,6 +169,8 @@ static void draw_profile(Uint8 *fb, int stride)
         }
         calls = (int) ((POCKET_render_calls - calls_start) / frames / 10);
         calls_start = POCKET_render_calls;
+        shown_slowest = slowest;
+        slowest = 0;
         frames = 0;
         second_start = now;
         render_start = POCKET_render_us;
@@ -179,6 +187,7 @@ static void draw_profile(Uint8 *fb, int stride)
     {
         draw_number(fb, stride, 7 + i, parts[i]);
     }
+    draw_number(fb, stride, 13, (int) shown_slowest);
     draw_number(fb, stride, 14, bench[0]);
     draw_number(fb, stride, 15, bench[1]);
     draw_number(fb, stride, 16, bench[2]);
