@@ -33,8 +33,7 @@ enum Start
 {
     START_NONE,
     START_TOWER,
-    START_FINAL_LEVEL,
-    GO_TO_DIVOT
+    GO_TO_TOWER
 };
 
 /* Each part of the run lasts so many steps of game logic, 30 a second.
@@ -48,11 +47,11 @@ static const struct
 parts[] = {
     {NULL, 90, START_NONE},                 /* the title screen */
     {NULL, 170, START_TOWER},               /* fade in and countdown */
-    {"tower still", 600, START_NONE},
+    /* The Tower's time trial starts in Teleporter Divot (108,109). */
+    {"divot", 300, START_NONE},
+    {"tower still", 600, GO_TO_TOWER},
     {"tower climb", 600, START_NONE},
     {"map", 480, START_NONE},
-    {NULL, 170, START_FINAL_LEVEL},
-    {"divot", 450, GO_TO_DIVOT},
 };
 #define PART_COUNT ((int) SDL_arraysize(parts))
 
@@ -71,6 +70,8 @@ typedef struct
 }
 PartTimes;
 static PartTimes times[PART_COUNT];
+/* Where each part ended, to show it ran where it meant to. */
+static int part_room[PART_COUNT][2];
 
 typedef struct
 {
@@ -99,21 +100,20 @@ static void start_part(void)
         map.invincibility = true;
         script.startgamemode(Start_TIMETRIAL_TOWER);
         break;
-    case START_FINAL_LEVEL:
-        script.startgamemode(Start_TIMETRIAL_FINALLEVEL);
-        break;
-    case GO_TO_DIVOT:
+    case GO_TO_TOWER:
     {
+        /* Into The Tower's ground floor, as walking right out of the Divot
+         * does: loading (109,109) moves the player down to the tower's
+         * bottom and puts the camera there. */
         const int player = obj.getplayer();
         if (INBOUNDS_VEC(player, obj.entities))
         {
-            obj.entities[player].xp = 152;
-            obj.entities[player].yp = 100;
-            obj.entities[player].lerpoldxp = 152;
-            obj.entities[player].lerpoldyp = 100;
+            obj.entities[player].xp = 0;
+            obj.entities[player].lerpoldxp = 0;
+            obj.entities[player].lerpoldyp = obj.entities[player].yp;
         }
         game.gravitycontrol = 0;
-        map.gotoroom(108, 109);
+        map.gotoroom(109, 109);
         break;
     }
     }
@@ -159,6 +159,8 @@ void POCKET_BenchStep(void)
     }
     else if (++step >= parts[part].steps)
     {
+        part_room[part][0] = game.roomx;
+        part_room[part][1] = game.roomy;
         if (++part == PART_COUNT)
         {
             finished = true;
@@ -242,7 +244,7 @@ void POCKET_BenchDraw(void)
     {
         return;
     }
-    static char lines[24][48];
+    static char lines[28][48];
     static int line_count;
     if (line_count == 0)
     {
@@ -261,6 +263,14 @@ void POCKET_BenchDraw(void)
                 parts[i].name, times[i].frames, avg, col, times[i].max_ms, times[i].over_50);
         }
         SDL_snprintf(lines[line_count++], 48, "col: frames the tower colour changed");
+        for (int i = 0; i < PART_COUNT; i++)
+        {
+            if (parts[i].name != NULL)
+            {
+                SDL_snprintf(lines[line_count++], 48, "%-11s ended in room %d,%d",
+                    parts[i].name, part_room[i][0], part_room[i][1]);
+            }
+        }
         SDL_snprintf(lines[line_count++], 48, "slowest: ms draw colour steps");
         for (int i = 0; i < slow_count; i++)
         {
@@ -276,7 +286,9 @@ void POCKET_BenchDraw(void)
             printf("%s\n", lines[i]);
         }
     }
-    graphics.set_render_target(graphics.gameTexture);
+    /* The frame has been copied to the window already, so the results are
+     * drawn there. */
+    graphics.set_render_target(NULL);
     graphics.fill_rect(0, 0, 0);
     for (int i = 0; i < line_count; i++)
     {
