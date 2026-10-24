@@ -85,11 +85,11 @@ defaults, which the core's controls page in the Pocket's menu also lists
 | D-pad | Move | Choose |
 | A | Flip | Confirm |
 | B | Pause menu | Back |
-| X | Map, talk | |
+| X | Map; also talk, unless the interact button is set apart | |
 | Y | Talk, when the interact button is set apart in the options | |
 | R | Restart from the checkpoint | |
 | Start | Pause menu | Back |
-| Select | Map, talk | |
+| Select | Map; also talk, unless the interact button is set apart | |
 
 The game's own controller options can rebind A, B, X, Y, L, R, Start and
 Select. Start and Select are given their defaults whenever no action has
