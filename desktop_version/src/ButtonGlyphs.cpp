@@ -170,8 +170,8 @@ static const char* glyph_layout[LAYOUT_TOTAL][SDL_GAMEPAD_BUTTON_RIGHT_SHOULDER 
         glyph[GLYPH_UNKNOWN], glyph[GLYPH_NINTENDO_GAMECUBE_Z]
     },
 #ifdef VVV_POCKET
-    { // POCKET
-        glyph[GLYPH_POCKET_B], glyph[GLYPH_POCKET_A],
+    { // POCKET: A is south and B east (pocket/sdl3/input.c)
+        glyph[GLYPH_POCKET_A], glyph[GLYPH_POCKET_B],
         glyph[GLYPH_POCKET_Y], glyph[GLYPH_POCKET_X],
         glyph[GLYPH_POCKET_SELECT], glyph[GLYPH_UNKNOWN], glyph[GLYPH_POCKET_START],
         glyph[GLYPH_UNKNOWN], glyph[GLYPH_UNKNOWN],

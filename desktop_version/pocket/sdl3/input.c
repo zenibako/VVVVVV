@@ -2,9 +2,11 @@
  *
  * The Pocket has one built-in controller. It is reported as a single
  * gamepad that is added on the first poll, and its buttons and left stick
- * become SDL gamepad events. The face buttons map by position (A right,
- * B bottom, X top, Y left); the game shows Pocket button glyphs for them
- * (ButtonGlyphs.cpp, pocket/fonts). */
+ * become SDL gamepad events. A and B follow the Pocket's convention of A
+ * to confirm and B to go back: A (right) is SDL's south button, which the
+ * game uses to confirm and flip, and B (bottom) is east, its back button.
+ * X (top) and Y (left) map by position. The game shows Pocket button glyphs
+ * for them (ButtonGlyphs.cpp, pocket/fonts). */
 #include <SDL3/SDL.h>
 
 #include "of_input.h"
@@ -17,8 +19,8 @@ static const struct
     uint32_t mask;
     SDL_GamepadButton button;
 } button_map[] = {
-    {OF_BTN_B, SDL_GAMEPAD_BUTTON_SOUTH},
-    {OF_BTN_A, SDL_GAMEPAD_BUTTON_EAST},
+    {OF_BTN_A, SDL_GAMEPAD_BUTTON_SOUTH},
+    {OF_BTN_B, SDL_GAMEPAD_BUTTON_EAST},
     {OF_BTN_Y, SDL_GAMEPAD_BUTTON_WEST},
     {OF_BTN_X, SDL_GAMEPAD_BUTTON_NORTH},
     {OF_BTN_SELECT, SDL_GAMEPAD_BUTTON_BACK},

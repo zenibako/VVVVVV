@@ -390,6 +390,27 @@ void Game::init(void)
     setdefaultcontrollerbuttons();
 }
 
+#ifdef VVV_POCKET
+static bool button_is_bound(const Game& g, const SDL_GamepadButton button)
+{
+    const std::vector<SDL_GamepadButton>* const actions[] = {
+        &g.controllerButton_flip, &g.controllerButton_map, &g.controllerButton_esc,
+        &g.controllerButton_restart, &g.controllerButton_interact
+    };
+    for (size_t a = 0; a < SDL_arraysize(actions); a++)
+    {
+        for (size_t i = 0; i < actions[a]->size(); i++)
+        {
+            if ((*actions[a])[i] == button)
+            {
+                return true;
+            }
+        }
+    }
+    return false;
+}
+#endif
+
 void Game::setdefaultcontrollerbuttons(void)
 {
     if (controllerButton_flip.size() < 1)
@@ -412,6 +433,19 @@ void Game::setdefaultcontrollerbuttons(void)
     {
         controllerButton_interact.push_back(SDL_GAMEPAD_BUTTON_WEST);
     }
+#ifdef VVV_POCKET
+    /* Start pauses and Select opens the map, as the core's controls in the
+     * Pocket's menu say, unless a save has given them to something else.
+     * Saves from before this have neither bound. */
+    if (!button_is_bound(*this, SDL_GAMEPAD_BUTTON_START))
+    {
+        controllerButton_esc.push_back(SDL_GAMEPAD_BUTTON_START);
+    }
+    if (!button_is_bound(*this, SDL_GAMEPAD_BUTTON_BACK))
+    {
+        controllerButton_map.push_back(SDL_GAMEPAD_BUTTON_BACK);
+    }
+#endif
 
     /* If one of the arrays was empty, and others weren't, we might now have conflicts...
      * A crucial one is if the ACTION button is also "ESC", because then you can't
