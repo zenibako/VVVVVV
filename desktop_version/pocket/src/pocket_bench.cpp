@@ -23,6 +23,7 @@ extern "C" Uint32 POCKET_bench_keys;
 extern "C" bool POCKET_saves_volatile;
 extern "C" bool POCKET_tint_runs;
 extern bool POCKET_text_cache;
+extern Uint32 POCKET_print_us, POCKET_print_calls, POCKET_text_hits, POCKET_text_kept;
 
 /* Keys held down, as input.c sends them (bit order there). */
 enum
@@ -91,6 +92,7 @@ typedef struct
     int colour_frames;
     Uint32 colour_total;
     int room[2]; /* where the part ended, to show it ran where it meant to */
+    Uint32 text_us, prints, text_hits, text_kept; /* font::print's, summed */
 }
 PartTimes;
 static PartTimes times[PART_COUNT];
@@ -102,13 +104,14 @@ typedef struct
     bool colour_change;
 }
 SlowFrame;
-#define SLOW_KEPT 8
+#define SLOW_KEPT 3
 static SlowFrame slowest[SLOW_KEPT];
 static int slow_count;
 
 static FrameTimes frame_us;
 static Uint32 loop_start, step_start, draw_start;
 static int colstate_start;
+static Uint32 print_us_start, prints_start, hits_start, kept_start;
 static int steps_this_loop;
 
 static void start_part(void)
@@ -215,6 +218,10 @@ void POCKET_BenchLoopStart(void)
     loop_start = of_time_us();
     SDL_zero(frame_us);
     colstate_start = graphics.towerbg.colstate;
+    print_us_start = POCKET_print_us;
+    prints_start = POCKET_print_calls;
+    hits_start = POCKET_text_hits;
+    kept_start = POCKET_text_kept;
     steps_this_loop = 0;
 }
 
@@ -247,6 +254,10 @@ void POCKET_BenchLoopEnd(void)
     t->sum.draw += frame_us.draw;
     t->sum.total += frame_us.total;
     t->max = SDL_max(t->max, frame_us.total);
+    t->text_us += POCKET_print_us - print_us_start;
+    t->prints += POCKET_print_calls - prints_start;
+    t->text_hits += POCKET_text_hits - hits_start;
+    t->text_kept += POCKET_text_kept - kept_start;
     if (colour_change)
     {
         t->colour_frames++;
@@ -315,8 +326,7 @@ static void grey_copy(void)
 
 /* Whether text copied from its cached texture is the same, pixel for
  * pixel, as text drawn glyph by glyph: each case is drawn the slow way,
- * then cached twice, the first drawing it into its texture and the second
- * copying the texture as it is once kept. */
+ * then three times with the cache on. */
 static int cache_cases, cache_same;
 
 static SDL_Surface* draw_case(uint32_t flags, int x, int y, const char* text, uint8_t r, uint8_t g, uint8_t b)
@@ -348,6 +358,7 @@ static void check_case(uint32_t flags, int x, int y, const char* text, uint8_t r
     POCKET_text_cache = false;
     SDL_Surface* slow = draw_case(flags, x, y, text, r, g, b);
     POCKET_text_cache = true;
+    /* Drawn once as it always was, then into the cache, then from it. */
     SDL_Surface* first = draw_case(flags, x, y, text, r, g, b);
     SDL_Surface* again = draw_case(flags, x, y, text, r, g, b);
     SDL_Surface* third = draw_case(flags, x, y, text, r, g, b);
@@ -417,7 +428,6 @@ void POCKET_BenchDraw(void)
             SDL_snprintf(lines[line_count++], 48, "%-9s%4d %s %s %s %s",
                 parts[i].name, t->frames, total, logic, draw, col);
         }
-        SDL_snprintf(lines[line_count++], 48, "col: frames the colour changed");
         SDL_snprintf(lines[line_count++], 48, "max ms, room each part ended in:");
         for (int i = 0; i < PART_COUNT; i++)
         {
@@ -426,6 +436,23 @@ void POCKET_BenchDraw(void)
                 SDL_snprintf(lines[line_count++], 48, "%-9s %4u %d,%d", parts[i].name,
                     (unsigned) (times[i].max / 1000), times[i].room[0], times[i].room[1]);
             }
+        }
+        SDL_snprintf(lines[line_count++], 48, "a frame: text ms, prints, cached, new");
+        for (int i = 0; i < PART_COUNT; i++)
+        {
+            const PartTimes* t = &times[i];
+            if (parts[i].name == NULL || t->frames == 0)
+            {
+                continue;
+            }
+            char text[8];
+            ms(text, sizeof(text), t->text_us, t->frames);
+            /* Counts a frame, to a tenth. */
+            const unsigned prints = t->prints * 10 / t->frames;
+            const unsigned hits = t->text_hits * 10 / t->frames;
+            const unsigned kept = t->text_kept * 10 / t->frames;
+            SDL_snprintf(lines[line_count++], 48, "%-9s %s %3u.%u %3u.%u %2u.%u", parts[i].name, text,
+                prints / 10, prints % 10, hits / 10, hits % 10, kept / 10, kept % 10);
         }
         SDL_snprintf(lines[line_count++], 48, "slowest:   frame logic draw colour");
         for (int i = 0; i < slow_count; i++)

@@ -1327,14 +1327,41 @@ struct CachedText
 };
 
 static CachedText text_cache[TEXT_CACHE_SIZE];
+
+/* Strings drawn once, by a hash of what keys them in the cache. */
+#define TEXT_SEEN_SIZE 32
+static uint32_t text_seen[TEXT_SEEN_SIZE];
+static int text_seen_next;
 static uint32_t text_cache_clock;
 static bool drawing_cached_text;
 
 } // namespace font
 #ifdef POCKET_BENCH
+#include "of_timer.h"
 bool POCKET_text_cache = true;
+/* What drawing text costs, for the benchmark: time in print and its
+ * calls, not counting the prints it makes itself, and how many strings
+ * were copied from the cache, newly kept in it, or drawn glyph by glyph. */
+Uint32 POCKET_print_us, POCKET_print_calls, POCKET_text_hits, POCKET_text_kept;
+struct PrintTimer
+{
+    static int depth;
+    Uint32 start;
+    PrintTimer() : start(depth++ == 0 ? of_time_us() : 0) {}
+    ~PrintTimer()
+    {
+        if (--depth == 0)
+        {
+            POCKET_print_us += of_time_us() - start;
+            POCKET_print_calls++;
+        }
+    }
+};
+int PrintTimer::depth;
+#define COUNT_TEXT(counter) (counter++)
 #else
 #define POCKET_text_cache true
+#define COUNT_TEXT(counter) ((void) 0)
 #endif
 namespace font
 {
@@ -1379,8 +1406,7 @@ static bool print_cached(
     const uint8_t b
 )
 {
-    if (!POCKET_text_cache || drawing_cached_text || text[0] == '\0'
-        || SDL_strlen(text) >= TEXT_CACHE_MAX_LEN)
+    if (!POCKET_text_cache || drawing_cached_text)
     {
         return false;
     }
@@ -1388,6 +1414,13 @@ static bool print_cached(
     if (graphics.notextoutline)
     {
         flags &= ~PR_BOR;
+    }
+    /* A letter or two without a border is quicker drawn than copied. */
+    const size_t length = SDL_strlen(text);
+    if (length == 0 || length >= TEXT_CACHE_MAX_LEN
+        || (length <= 2 && !(flags & (PR_BOR | PR_FULLBOR))))
+    {
+        return false;
     }
     const bool white = r == 255 && g == 255 && b == 255;
     const bool own_colour = !white
@@ -1407,6 +1440,7 @@ static bool print_cached(
             && SDL_strcmp(c->text, text) == 0)
         {
             entry = c;
+            COUNT_TEXT(POCKET_text_hits);
             break;
         }
         if (c->used < oldest->used)
@@ -1417,6 +1451,38 @@ static bool print_cached(
 
     if (entry == NULL)
     {
+        /* A string is kept only once it is drawn a second time, so one
+         * that changes every frame, like the time trial's clock, is drawn
+         * as it always was. */
+        uint32_t key = 2166136261u;
+        for (const char* c = text; *c != '\0'; c++)
+        {
+            key = (key ^ (uint8_t) *c) * 16777619u;
+        }
+        const uint32_t fields[] = {
+            flags, (uint32_t) (uintptr_t) pf.font_sel, pf.rtl, graphics.flipmode,
+            (uint32_t) kr << 16 | (uint32_t) kg << 8 | kb
+        };
+        for (size_t i = 0; i < SDL_arraysize(fields); i++)
+        {
+            key = (key ^ fields[i]) * 16777619u;
+        }
+        bool seen = false;
+        for (int i = 0; i < TEXT_SEEN_SIZE; i++)
+        {
+            if (text_seen[i] == key)
+            {
+                seen = true;
+                break;
+            }
+        }
+        if (!seen)
+        {
+            text_seen[text_seen_next] = key;
+            text_seen_next = (text_seen_next + 1) % TEXT_SEEN_SIZE;
+            return false;
+        }
+
         /* Room for the border, glyphs wider than their advance and a
          * fallback font's glyphs, which are centred on the font's. */
         const Font* fallback = fallback_for(pf.font_sel);
@@ -1440,6 +1506,7 @@ static bool print_cached(
         }
 
         entry = oldest;
+        COUNT_TEXT(POCKET_text_kept);
         if (entry->image == NULL || entry->w != w || entry->h != h)
         {
             VVV_freefunc(SDL_DestroyTexture, entry->image);
@@ -1504,6 +1571,9 @@ void print(
     const uint8_t b
 )
 {
+#ifdef POCKET_BENCH
+    const PrintTimer timer;
+#endif
     PrintFlags pf = decode_print_flags(flags);
     if (pf.font_sel == NULL)
     {
