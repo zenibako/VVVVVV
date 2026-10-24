@@ -74,8 +74,26 @@ pausing, track changes, volume settings) is unchanged.
 
 ## Controls and saves
 
-The Pocket's controller is reported to the game as one SDL gamepad, with
-the face buttons mapped by position (A right, B bottom, X top, Y left).
+The Pocket's controller is reported to the game as one SDL gamepad. A and
+B follow the Pocket's convention (A confirms, B goes back), so A is the
+gamepad's south button and B its east; X and Y map by position. The
+defaults, which the core's controls page in the Pocket's menu also lists
+(`dist/core/input.json`):
+
+| Button | In game | In menus |
+|---|---|---|
+| D-pad | Move | Choose |
+| A | Flip | Confirm |
+| B | Pause menu | Back |
+| X | Map; also talk, unless the interact button is set apart | |
+| Y | Talk, when the interact button is set apart in the options | |
+| R | Restart from the checkpoint | |
+| Start | Pause menu | Back |
+| Select | Map; also talk, unless the interact button is set apart | |
+
+The game's own controller options can rebind A, B, X, Y, L, R, Start and
+Select. Start and Select are given their defaults whenever no action has
+them, which includes saves made before they had any.
 
 Button prompts use Pocket glyphs in the style of Butterscotch Pocket's: the
 face-button diamond with the pressed button marked, the row of three small
