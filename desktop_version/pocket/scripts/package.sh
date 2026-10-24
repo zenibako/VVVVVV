@@ -5,8 +5,8 @@
 #
 # With BENCH=1 the tree holds a separate "VVVVVV Benchmark" core instead
 # (zenibako.vvvvvvbench, a build made with `make BENCH=1`). It sits beside
-# the game's core and shares its platform, data.zip, music and save, and
-# its own files, its instance json too, are named vvvvvv-bench.* so no
+# the game's core and shares its platform, data.zip and music. Its own
+# files, its instance json and save too, are named vvvvvv-bench* so no
 # file of the game's has the same name, wherever a copy puts it.
 set -euo pipefail
 
@@ -44,7 +44,7 @@ sed "s/^ELF=vvvvvv\.elf$/ELF=$APP_NAME.elf/" "$POCKET_ROOT/dist/vvvvvv.ini" > "$
 cp "$ELF" "$COMMON_DIR/$APP_NAME.elf"
 
 if [[ "$APP_NAME" != vvvvvv ]]; then
-    # The core's slots and instance name the benchmark's ini and elf, and
+    # The core's slots and instance name the benchmark's ini, elf and save, and
     # the core is named for the Pocket's core list.
     python3 - "$CORE_DIR" "$INSTANCE_DIR/$APP_NAME.json" "$APP_NAME" <<'PY'
 import json
@@ -52,7 +52,8 @@ import pathlib
 import sys
 
 core_dir, instance, app = pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2]), sys.argv[3]
-renames = {"vvvvvv.ini": app + ".ini", "vvvvvv.elf": app + ".elf"}
+renames = {"vvvvvv.ini": app + ".ini", "vvvvvv.elf": app + ".elf",
+           "vvvvvv_0.sav": app + "_0.sav"}
 
 def rename_slots(path, key):
     doc = json.loads(path.read_text())

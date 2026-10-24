@@ -27,7 +27,12 @@
  * card; before the first save it finds the slot from the <name>_<N>.sav
  * pattern, N counting from the first save slot (id 10). */
 #ifndef POCKET_SAVE_FILE
+#ifdef POCKET_BENCH
+/* The benchmark core's own slot, so it never touches the game's save. */
+#define POCKET_SAVE_FILE "vvvvvv-bench_0.sav"
+#else
 #define POCKET_SAVE_FILE "vvvvvv_0.sav"
+#endif
 #endif
 
 #define SAVEFS_MAGIC 0x31565656u /* "VVV1" */
