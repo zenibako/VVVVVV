@@ -15,6 +15,7 @@
 #include "../../src/Graphics.h"
 #include "../../src/Map.h"
 #include "../../src/Entity.h"
+#include "../../src/Screen.h"
 #include "../../src/Script.h"
 #include "../../src/UtilityClass.h"
 
@@ -271,11 +272,15 @@ static void ms(char* out, size_t size, Uint32 total_us, int count)
     SDL_snprintf(out, size, "%3u.%u", (unsigned) (value / 10), (unsigned) (value % 10));
 }
 
-/* Microseconds for one pass of draw, repeated count times into a scratch
- * texture, over each of per things drawn a pass. */
+/* Microseconds for one pass of draw, repeated count times, over each of
+ * per things drawn a pass. It draws into a scratch texture made opaque
+ * first, as the game's own screen is, and draws once untimed so a texture
+ * drawn for the first time is not timed building its caches. */
 static Uint32 text_us(void (*draw)(void), int count, int per)
 {
     graphics.set_render_target(graphics.tempShakeTexture);
+    graphics.fill_rect(0, 0, 0);
+    draw();
     const Uint32 start = of_time_us();
     for (int i = 0; i < count; i++)
     {
@@ -291,13 +296,31 @@ static void white_word(void) { font::print(0, 8, 8, "ABCDEFGHIJ", 255, 255, 255)
 static void grey_letter(void) { font::print(0, 8, 8, "A", 196, 196, 196); }
 static void bordered_word(void) { font::print(PR_BOR, 8, 8, "ABCDEFGHIJ", 196, 196, 196); }
 
+/* An 8x8 corner of a sprite, a sheet with transparency as the font's is:
+ * through the game's tile drawing, and straight to the renderer. */
+static void grey_tile(void)
+{
+    graphics.draw_grid_tile(graphics.grphx.im_sprites, 0, 8, 8, 8, 8, 196, 196, 196);
+}
+
+static void grey_copy(void)
+{
+    static const SDL_FRect part = {0, 0, 8, 8};
+    static const SDL_FRect to = {8, 8, 8, 8};
+    SDL_SetTextureColorMod(graphics.grphx.im_sprites, 196, 196, 196);
+    SDL_RenderTexture(gameScreen.m_renderer, graphics.grphx.im_sprites, &part, &to);
+    SDL_SetTextureColorMod(graphics.grphx.im_sprites, 255, 255, 255);
+}
+
+static void nothing(void) {}
+
 void POCKET_BenchDraw(void)
 {
     if (!finished)
     {
         return;
     }
-    static char lines[28][48];
+    static char lines[30][48];
     static int line_count;
     if (line_count == 0)
     {
@@ -338,18 +361,26 @@ void POCKET_BenchDraw(void)
                 f->colstate, f->colour_change ? "*" : "");
         }
         /* What text costs: drawing it is most of a frame with the trial's
-         * clock and counters up. */
+         * clock and counters up. The slow path is timed both before and
+         * after the fast one, so neither gains from going first. */
+        POCKET_tint_runs = false;
+        const Uint32 slow_before = text_us(grey_word, 100, 10);
+        POCKET_tint_runs = true;
         const Uint32 tinted = text_us(grey_word, 100, 10);
         POCKET_tint_runs = false;
-        const Uint32 slow_tinted = text_us(grey_word, 100, 10);
+        const Uint32 slow_after = text_us(grey_word, 100, 10);
         POCKET_tint_runs = true;
         const Uint32 white = text_us(white_word, 100, 10);
         const Uint32 letter = text_us(grey_letter, 1000, 1);
+        const Uint32 tile = text_us(grey_tile, 1000, 1);
+        const Uint32 copy = text_us(grey_copy, 1000, 1);
+        const Uint32 empty = text_us(nothing, 1000, 1);
         const Uint32 bordered = text_us(bordered_word, 20, 1);
-        SDL_snprintf(lines[line_count++], 48, "text us: glyph %u (was %u) white %u",
-            (unsigned) tinted, (unsigned) slow_tinted, (unsigned) white);
-        SDL_snprintf(lines[line_count++], 48, "one-letter print %u, bordered word %u",
-            (unsigned) letter, (unsigned) bordered);
+        SDL_snprintf(lines[line_count++], 48, "glyph us: %u, old way %u/%u, white %u",
+            (unsigned) tinted, (unsigned) slow_before, (unsigned) slow_after, (unsigned) white);
+        SDL_snprintf(lines[line_count++], 48, "1 letter %u tile %u copy %u none %u",
+            (unsigned) letter, (unsigned) tile, (unsigned) copy, (unsigned) empty);
+        SDL_snprintf(lines[line_count++], 48, "bordered word %u us", (unsigned) bordered);
         SDL_snprintf(lines[line_count++], 48, "full speed is 34 ms; screenshot me");
         for (int i = 0; i < line_count; i++)
         {
@@ -360,9 +391,10 @@ void POCKET_BenchDraw(void)
      * drawn there. */
     graphics.set_render_target(NULL);
     graphics.fill_rect(0, 0, 0);
+    const int spacing = line_count > 26 ? 8 : 9; /* fits the 240-pixel screen */
     for (int i = 0; i < line_count; i++)
     {
-        font::print(0, 4, 2 + i * 9, lines[i], 255, 255, 255);
+        font::print(0, 4, 2 + i * spacing, lines[i], 255, 255, 255);
     }
 }
 
