@@ -38,6 +38,10 @@
 #include "UtilityClass.h"
 #include "Vlogging.h"
 
+#ifdef POCKET_BENCH
+#include "pocket_bench.h"
+#endif
+
 scriptclass script;
 
 std::vector<CustomEntity> customentities;
@@ -875,7 +879,13 @@ int main(int argc, char *argv[])
         timePrev = time_;
         time_ = SDL_GetTicks();
 
+#ifdef POCKET_BENCH
+        POCKET_BenchLoopStart();
+#endif
         deltaloop();
+#ifdef POCKET_BENCH
+        POCKET_BenchLoopEnd();
+#endif
     }
 
     cleanup();
@@ -934,6 +944,9 @@ static void inline deltaloop(void)
         /* We are done rendering. */
         graphics.renderfixedpost();
 
+#ifdef POCKET_BENCH
+        POCKET_BenchStep();
+#endif
         fixedloop();
     }
     const float alpha = game.over30mode ? static_cast<float>(accumulator) / timesteplimit : 1.0f;
@@ -959,6 +972,9 @@ static void inline deltaloop(void)
 
             implfunc->func();
 
+#ifdef POCKET_BENCH
+            POCKET_BenchDraw();
+#endif
             gameScreen.RenderPresent();
         }
     }

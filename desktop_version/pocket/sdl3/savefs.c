@@ -64,6 +64,8 @@ static const char *const roots[] = {"saves", "levels", "screenshots"};
  * SHOW_FPS overlay shows them. */
 int POCKET_saves_written;
 int POCKET_saves_failed;
+/* Set by the benchmark (pocket_bench.cpp): saves stay in memory. */
+bool POCKET_saves_volatile;
 
 static SaveFile files[SAVEFS_MAX_FILES];
 static Uint32 file_count;
@@ -228,6 +230,10 @@ static bool store(void)
     if (load_failed)
     {
         return SDL_SetError("Saves: the save file could not be read, so it is not written over");
+    }
+    if (POCKET_saves_volatile)
+    {
+        return true;
     }
     for (i = 0; i < file_count; i++)
     {

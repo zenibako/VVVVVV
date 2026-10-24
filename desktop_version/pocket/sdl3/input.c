@@ -37,9 +37,18 @@ static const struct
 
 #define BUTTON_COUNT (sizeof(button_map) / sizeof(button_map[0]))
 
+#ifdef POCKET_BENCH
+/* Keys the benchmark holds down (pocket_bench.cpp), a bit each. */
+Uint32 POCKET_bench_keys;
+static const SDL_Keycode bench_keys[] = {SDLK_LEFT, SDLK_RIGHT, SDLK_Z, SDLK_RETURN};
+#define BENCH_KEY_COUNT (sizeof(bench_keys) / sizeof(bench_keys[0]))
+#else
+#define BENCH_KEY_COUNT 0
+#endif
+
 /* One poll yields at most every button changing, two stick axes and the
  * added event. */
-#define QUEUE_SIZE (BUTTON_COUNT + 3)
+#define QUEUE_SIZE (BUTTON_COUNT + 3 + BENCH_KEY_COUNT)
 
 struct SDL_Gamepad
 {
@@ -122,6 +131,24 @@ static void fill_queue(void)
         last_ly = _of_input_p0.joy_ly;
         push_axis(SDL_GAMEPAD_AXIS_LEFTY, last_ly);
     }
+
+#ifdef POCKET_BENCH
+    {
+        static Uint32 sent;
+        for (i = 0; i < BENCH_KEY_COUNT; i++)
+        {
+            const Uint32 bit = 1u << i;
+            if ((POCKET_bench_keys ^ sent) & bit)
+            {
+                const bool down = (POCKET_bench_keys & bit) != 0;
+                SDL_Event *event = push(down ? SDL_EVENT_KEY_DOWN : SDL_EVENT_KEY_UP);
+                event->key.key = bench_keys[i];
+                event->key.down = down;
+            }
+        }
+        sent = POCKET_bench_keys;
+    }
+#endif
 }
 
 /* The game drains the queue once per frame. The first call of a frame reads

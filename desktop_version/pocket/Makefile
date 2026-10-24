@@ -70,6 +70,11 @@ POCKET_DEFS := -DVVV_POCKET -D_GNU_SOURCE \
 ifeq ($(SHOW_FPS),1)
 POCKET_DEFS += -DPOCKET_SHOW_FPS
 endif
+# BENCH=1 builds the scripted benchmark (src/pocket_bench.h), with the
+# profile above so slow frames can say how long they spent drawing.
+ifeq ($(BENCH),1)
+POCKET_DEFS += -DPOCKET_BENCH -DPOCKET_SHOW_FPS
+endif
 POCKET_INCLUDES := -I$(POCKET_ROOT)/src -I$(SDL3_ROOT)/include \
 	-I$(THIRD_PARTY)/tinyxml2 -I$(THIRD_PARTY)/physfs/src \
 	-I$(THIRD_PARTY)/physfs/extras -I$(THIRD_PARTY)/lodepng \
