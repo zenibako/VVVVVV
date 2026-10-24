@@ -6,7 +6,8 @@
 # With BENCH=1 the tree holds a separate "VVVVVV Benchmark" core instead
 # (zenibako.vvvvvvbench, a build made with `make BENCH=1`). It sits beside
 # the game's core and shares its platform, data.zip, music and save, and
-# its own files are named vvvvvv-bench.* so the game's are left alone.
+# its own files, its instance json too, are named vvvvvv-bench.* so no
+# file of the game's has the same name, wherever a copy puts it.
 set -euo pipefail
 
 POCKET_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -37,7 +38,7 @@ cp "$POCKET_ROOT"/dist/core/*.json "$CORE_DIR/"
 cp "$RUNTIME_DIR/os20.rbf_r" "$RUNTIME_DIR/loader.bin" "$CORE_DIR/"
 cp "$GAME_ROOT/../LICENSE.md" "$CORE_DIR/LICENSE.txt"
 cp "$POCKET_ROOT/dist/platforms/$PLATFORM_ID.json" "$OUT/Platforms/"
-cp "$POCKET_ROOT/dist/instance/vvvvvv.json" "$INSTANCE_DIR/"
+cp "$POCKET_ROOT/dist/instance/vvvvvv.json" "$INSTANCE_DIR/$APP_NAME.json"
 cp "$RUNTIME_DIR/os.bin" "$COMMON_DIR/"
 sed "s/^ELF=vvvvvv\.elf$/ELF=$APP_NAME.elf/" "$POCKET_ROOT/dist/vvvvvv.ini" > "$COMMON_DIR/$APP_NAME.ini"
 cp "$ELF" "$COMMON_DIR/$APP_NAME.elf"
@@ -45,7 +46,7 @@ cp "$ELF" "$COMMON_DIR/$APP_NAME.elf"
 if [[ "$APP_NAME" != vvvvvv ]]; then
     # The core's slots and instance name the benchmark's ini and elf, and
     # the core is named for the Pocket's core list.
-    python3 - "$CORE_DIR" "$INSTANCE_DIR/vvvvvv.json" "$APP_NAME" <<'PY'
+    python3 - "$CORE_DIR" "$INSTANCE_DIR/$APP_NAME.json" "$APP_NAME" <<'PY'
 import json
 import pathlib
 import sys
