@@ -13,6 +13,10 @@
 void POCKET_BenchLoopStart(void);
 void POCKET_BenchLoopEnd(void);
 void POCKET_BenchStep(void);
+void POCKET_BenchStepEnd(void);
+/* main.cpp: around drawing a frame and showing it. */
+void POCKET_BenchDrawStart(void);
+void POCKET_BenchDrawEnd(void);
 /* main.cpp: after a frame is drawn, before it is shown; draws the results
  * over it once the run is over. */
 void POCKET_BenchDraw(void);

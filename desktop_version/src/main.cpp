@@ -948,6 +948,9 @@ static void inline deltaloop(void)
         POCKET_BenchStep();
 #endif
         fixedloop();
+#ifdef POCKET_BENCH
+        POCKET_BenchStepEnd();
+#endif
     }
     const float alpha = game.over30mode ? static_cast<float>(accumulator) / timesteplimit : 1.0f;
     graphics.alpha = alpha;
@@ -966,6 +969,9 @@ static void inline deltaloop(void)
 
         if (implfunc->type == Func_delta && implfunc->func != NULL)
         {
+#ifdef POCKET_BENCH
+            POCKET_BenchDrawStart();
+#endif
             graphics.clear();
 
             graphics.set_render_target(graphics.gameTexture);
@@ -976,6 +982,9 @@ static void inline deltaloop(void)
             POCKET_BenchDraw();
 #endif
             gameScreen.RenderPresent();
+#ifdef POCKET_BENCH
+            POCKET_BenchDrawEnd();
+#endif
         }
     }
 }
