@@ -3031,6 +3031,7 @@ extern "C" void POCKET_ShiftTileLayer(POCKET_TileLayer* layer, int dy);
 extern "C" void POCKET_ClearTileLayer(POCKET_TileLayer* layer);
 extern "C" void POCKET_PutTile(POCKET_TileLayer* layer, SDL_Texture* sheet, int sx, int sy, int x, int y, int w, int h);
 extern "C" bool POCKET_DrawTileLayer(SDL_Renderer* renderer, POCKET_TileLayer* layer, int src_y);
+extern "C" bool POCKET_CopyOpaqueTile(SDL_Renderer* renderer, SDL_Texture* sheet, int sx, int sy, int x, int y, int w, int h);
 
 static bool tower_texture_valid = false;
 
@@ -3325,7 +3326,14 @@ void Graphics::updatetowerbackground(TowerBG& bg_obj)
                 for (int i = 0; i < 40; i++)
                 {
                     const int t = map.tower.backat(i, j, bg_obj.bypos) + bg_obj.colstate * 30;
-                    draw_texture_part(sheet, i * 8, (j * 8) - (bg_obj.bypos % 8) - off, (t % (width / 8)) * 8, (t / (width / 8)) * 8, 8, 8, 1, 1);
+                    const int x = i * 8;
+                    const int y = (j * 8) - (bg_obj.bypos % 8) - off;
+                    const int sx = (t % (width / 8)) * 8;
+                    const int sy = (t / (width / 8)) * 8;
+                    if (!POCKET_CopyOpaqueTile(gameScreen.m_renderer, sheet, sx, sy, x, y, 8, 8))
+                    {
+                        draw_texture_part(sheet, x, y, sx, sy, 8, 8, 1, 1);
+                    }
                 }
             }
         }

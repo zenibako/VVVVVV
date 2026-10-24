@@ -103,6 +103,8 @@ typedef struct Texture
      * second: for a texture copied every frame (POCKET_KeepTextureRuns). */
     bool always_runs;
     int copies_since_change;
+    /* Counts changes to the pixels, for what is kept made from them. */
+    Uint32 changes;
 } Texture;
 
 enum
@@ -245,6 +247,7 @@ static void begin_change(Texture *t, bool covers_all)
     t->runs_valid = false;
     t->runs_partial = false;
     t->copies_since_change = 0;
+    t->changes++;
 }
 
 /* The pixels a texture shows, its own or the ones it shares. */
@@ -489,6 +492,7 @@ static void begin_rows_change(Texture *t, int y, int h)
     }
     t->runs_valid = false;
     t->runs_partial = true;
+    t->changes++;
 }
 
 /* The first of kept row y's runs that ends after column x, found by halves
@@ -533,6 +537,8 @@ static bool check_texture(const SDL_Texture *texture)
     }
     return true;
 }
+
+static void forget_keyed_sheet(const Texture *t);
 
 SDL_Renderer *SDL_CreateRenderer(SDL_Window *window, const char *name)
 {
@@ -722,6 +728,7 @@ void SDL_DestroyTexture(SDL_Texture *texture)
         property_owners[t->props - 1] = NULL;
     }
     begin_change(t, false);
+    forget_keyed_sheet(t);
     free_runs(t);
     SDL_free(t->buffer565);
     SDL_free(t->pixels);
@@ -1582,6 +1589,7 @@ static void shift_rows(Texture *t, int dy, Uint32 fill)
         }
         t->runs_valid = false;
         t->runs_partial = true;
+        t->changes++;
         t->row0 = ((t->row0 - dy) % h + h) % h;
         for (int y = first; y < first + exposed; y++)
         {
@@ -1808,6 +1816,7 @@ POCKET_TileLayer *POCKET_CreateTileLayer(int w, int h)
 bool POCKET_TileSheetIsKeyed(SDL_Texture *sheet)
 {
     static const Texture *checked;
+    static Uint32 checked_changes;
     static bool keyed;
     if (!check_texture(sheet))
     {
@@ -1818,7 +1827,7 @@ bool POCKET_TileSheetIsKeyed(SDL_Texture *sheet)
     {
         return false;
     }
-    if (t != checked)
+    if (t != checked || t->changes != checked_changes)
     {
         keyed = true;
         const size_t count = (size_t) t->texture.w * t->texture.h;
@@ -1828,8 +1837,63 @@ bool POCKET_TileSheetIsKeyed(SDL_Texture *sheet)
             keyed = a == 0 || a == 255;
         }
         checked = t;
+        checked_changes = t->changes;
     }
     return keyed;
+}
+
+/* A keyed sheet's pixels in RGB565, with a mask of the opaque ones, rows
+ * in order: putting a tile is then row copies, not a conversion of each
+ * pixel, which matters when a tower's colour change puts every tile. */
+static struct
+{
+    const Texture *of;
+    Uint32 changes;
+    Uint16 *color;
+    Uint8 *mask;
+} keyed_sheet;
+
+static void forget_keyed_sheet(const Texture *t)
+{
+    if (keyed_sheet.of == t)
+    {
+        SDL_free(keyed_sheet.color);
+        SDL_free(keyed_sheet.mask);
+        SDL_zero(keyed_sheet);
+    }
+}
+
+static bool keep_keyed_sheet(const Texture *t)
+{
+    if (keyed_sheet.of == t && keyed_sheet.changes == t->changes)
+    {
+        return true;
+    }
+    forget_keyed_sheet(keyed_sheet.of);
+    const size_t count = (size_t) t->texture.w * t->texture.h;
+    keyed_sheet.color = (Uint16 *) SDL_malloc(count * sizeof(Uint16));
+    keyed_sheet.mask = (Uint8 *) SDL_malloc(count);
+    if (keyed_sheet.color == NULL || keyed_sheet.mask == NULL)
+    {
+        SDL_free(keyed_sheet.color);
+        SDL_free(keyed_sheet.mask);
+        SDL_zero(keyed_sheet);
+        return false;
+    }
+    for (int y = 0; y < t->texture.h; y++)
+    {
+        const Uint32 *s = t->pixels + kept_row(t, y) * t->texture.w;
+        Uint16 *c = keyed_sheet.color + (size_t) y * t->texture.w;
+        Uint8 *m = keyed_sheet.mask + (size_t) y * t->texture.w;
+        for (int x = 0; x < t->texture.w; x++)
+        {
+            c[x] = POCKET_ToRGB565(s[x]);
+            m[x] = (Uint8) (s[x] >> 31);
+        }
+    }
+    keyed_sheet.of = t;
+    keyed_sheet.changes = t->changes;
+    return true;
 }
 
 /* Moves the layer's rows down by dy (up when negative); the rows that
@@ -1865,6 +1929,19 @@ void POCKET_PutTile(POCKET_TileLayer *layer, SDL_Texture *sheet, int sx, int sy,
     if (!POCKET_IntersectRect(&wanted, &bounds, &clip)
         || sx < 0 || sy < 0 || sx + w > t->texture.w || sy + h > t->texture.h)
     {
+        return;
+    }
+    if (keep_keyed_sheet(t))
+    {
+        for (int row = clip.y; row < clip.y + clip.h; row++)
+        {
+            const size_t from = (size_t) (sy + row - y) * t->texture.w + sx + (clip.x - x);
+            const int k = layer_row(layer, row);
+            const size_t to = (size_t) k * layer->w + clip.x;
+            SDL_memcpy(layer->color + to, keyed_sheet.color + from, (size_t) clip.w * 2);
+            SDL_memcpy(layer->mask + to, keyed_sheet.mask + from, (size_t) clip.w);
+            layer->dirty[k] = 1;
+        }
         return;
     }
     for (int row = clip.y; row < clip.y + clip.h; row++)
@@ -1947,6 +2024,56 @@ bool POCKET_DrawTileLayer(SDL_Renderer *renderer, POCKET_TileLayer *layer, int s
         }
     }
     PART_END(2);
+    return true;
+}
+
+/* Copies the w by h part at (sx, sy) of an opaque, unmodulated RGB565
+ * texture to (x, y) of the RGB565 render target, as drawing that part
+ * would, but as row copies without a draw's setup: for a caller putting
+ * many tiles, as the tower background does on each colour change. Returns
+ * false, drawing nothing, where the draw would do something else. */
+bool POCKET_CopyOpaqueTile(SDL_Renderer *renderer, SDL_Texture *sheet, int sx, int sy, int x, int y, int w, int h)
+{
+    if (!check_renderer(renderer) || !check_texture(sheet))
+    {
+        return false;
+    }
+    Texture *src = texture_data(sheet);
+    Texture *dst = current_target(renderer);
+    if (src == dst || dst->pixels565 == NULL || src->clear_pending
+        || texels565(src) == NULL || !src->opaque
+        || (src->mod_r & src->mod_g & src->mod_b & src->mod_a) != 255
+        || (src->blend != SDL_BLENDMODE_NONE && src->blend != SDL_BLENDMODE_BLEND)
+        || sx < 0 || sy < 0 || w <= 0 || h <= 0
+        || sx + w > src->texture.w || sy + h > src->texture.h)
+    {
+        return false;
+    }
+    COUNT_CALL();
+    const SDL_Rect wanted = {x, y, w, h};
+    const SDL_Rect bounds = {0, 0, dst->texture.w, dst->texture.h};
+    SDL_Rect clip;
+    if (!POCKET_IntersectRect(&wanted, &bounds, &clip))
+    {
+        return true;
+    }
+    PART_SAMPLE_BEGIN();
+    if (clip.w == dst->texture.w && clip.h == dst->texture.h)
+    {
+        begin_change(dst, true);
+    }
+    else
+    {
+        begin_rows_change(dst, clip.y, clip.h);
+    }
+    const Uint16 *pixels = texels565(src);
+    const int pitch = src->alias_of != NULL ? src->alias_of->pitch565 : src->pitch565;
+    for (int row = clip.y; row < clip.y + clip.h; row++)
+    {
+        const Uint16 *s = pixels + shown_row(src, sy + row - y) * pitch + sx + (clip.x - x);
+        SDL_memcpy(dst->pixels565 + kept_row(dst, row) * dst->pitch565 + clip.x, s, (size_t) clip.w * 2);
+    }
+    PART_END(1);
     return true;
 }
 

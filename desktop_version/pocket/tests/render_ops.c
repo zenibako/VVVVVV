@@ -17,6 +17,7 @@ void POCKET_ShiftTileLayer(POCKET_TileLayer *layer, int dy);
 void POCKET_ClearTileLayer(POCKET_TileLayer *layer);
 void POCKET_PutTile(POCKET_TileLayer *layer, SDL_Texture *sheet, int sx, int sy, int x, int y, int w, int h);
 bool POCKET_DrawTileLayer(SDL_Renderer *renderer, POCKET_TileLayer *layer, int src_y);
+bool POCKET_CopyOpaqueTile(SDL_Renderer *renderer, SDL_Texture *sheet, int sx, int sy, int x, int y, int w, int h);
 #endif
 
 static void capture_target(SDL_Renderer *renderer, Capture *capture, const char *name)
@@ -395,6 +396,85 @@ static void tile_layer(SDL_Renderer *renderer, Capture *capture)
     SDL_DestroyTexture(sheet);
 }
 
+/* The tower background's colour change: tiles from a sheet blended onto
+ * black, put onto a cleared target, some of them hanging over its edges.
+ * Then the keyed sheet changes, and a tile layer must put the new tile. */
+static void opaque_tiles(SDL_Renderer *renderer, SDL_Texture *sprite, Capture *capture)
+{
+    SDL_Texture *sheet = SDL_CreateTexture(renderer, SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_TARGET, 16, 16);
+    SDL_SetRenderTarget(renderer, sheet);
+    SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255);
+    SDL_RenderClear(renderer);
+    SDL_RenderTexture(renderer, sprite, NULL, NULL);
+
+    SDL_Texture *screen = SDL_CreateTexture(renderer, SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_TARGET, 96, 56);
+    SDL_SetRenderTarget(renderer, screen);
+    SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255);
+    SDL_RenderClear(renderer);
+    SDL_SetRenderDrawColor(renderer, 200, 30, 90, 255);
+    const SDL_FRect band = {0, 40, 96, 16};
+    SDL_RenderFillRect(renderer, &band);
+    /* {sheet x, sheet y, x, y} */
+    static const int tiles[][4] = {
+        {0, 0, 0, -5}, {8, 0, 8, 3}, {0, 8, 92, 20}, {8, 8, 40, 52}, {8, 0, -3, 30}, {0, 8, 48, 24}
+    };
+    for (int i = 0; i < (int) SDL_arraysize(tiles); i++)
+    {
+#ifdef SDL_RenderClear
+        if (!POCKET_CopyOpaqueTile(renderer, sheet, tiles[i][0], tiles[i][1], tiles[i][2], tiles[i][3], 8, 8))
+        {
+            capture_number(capture, "opaque tile refused", i);
+        }
+#else
+        const SDL_FRect src = {(float) tiles[i][0], (float) tiles[i][1], 8, 8};
+        const SDL_FRect dst = {(float) tiles[i][2], (float) tiles[i][3], 8, 8};
+        SDL_RenderTexture(renderer, sheet, &src, &dst);
+#endif
+    }
+#ifdef SDL_RenderClear
+    capture_number(capture, "keyed sprite tile refused", POCKET_CopyOpaqueTile(renderer, sprite, 0, 0, 0, 0, 8, 8));
+#else
+    capture_number(capture, "keyed sprite tile refused", 0);
+#endif
+    capture_target(renderer, capture, "opaque tiles");
+
+    static Uint32 argb[16 * 16];
+    for (int i = 0; i < 16 * 16; i++)
+    {
+        argb[i] = i % 3 == 0 ? 0 : 0xFF000000 | (Uint32) (i * 0x010203);
+    }
+    SDL_Surface *surface = SDL_CreateSurfaceFrom(16, 16, SDL_PIXELFORMAT_ARGB8888, argb, 16 * 4);
+    SDL_SetSurfaceBlendMode(surface, SDL_BLENDMODE_BLEND);
+    SDL_Texture *keyed = SDL_CreateTextureFromSurface(renderer, surface);
+    SDL_DestroySurface(surface);
+    for (int round = 0; round < 2; round++)
+    {
+        SDL_SetRenderDrawColor(renderer, 10, 60, 30, 255);
+        SDL_RenderClear(renderer);
+#ifdef SDL_RenderClear
+        POCKET_TileLayer *layer = POCKET_CreateTileLayer(96, 56);
+        POCKET_ClearTileLayer(layer);
+        POCKET_PutTile(layer, keyed, 8, 0, 4, 4, 8, 8);
+        POCKET_DrawTileLayer(renderer, layer, 0);
+        POCKET_DestroyTileLayer(layer);
+#else
+        const SDL_FRect src = {8, 0, 8, 8};
+        const SDL_FRect dst = {4, 4, 8, 8};
+        SDL_RenderTexture(renderer, keyed, &src, &dst);
+#endif
+        capture_target(renderer, capture, round == 0 ? "keyed tile" : "keyed tile changed");
+        for (int i = 0; i < 16 * 16; i++)
+        {
+            argb[i] = argb[i] == 0 ? 0 : argb[i] ^ 0x00FFFF00;
+        }
+        SDL_UpdateTexture(keyed, NULL, argb, 16 * 4);
+    }
+    SDL_SetRenderTarget(renderer, NULL);
+    SDL_DestroyTexture(keyed);
+    SDL_DestroyTexture(screen);
+    SDL_DestroyTexture(sheet);
+}
+
 static void scrolling(SDL_Renderer *renderer, SDL_Texture *sprite, Capture *capture)
 {
     SDL_Texture *tower = SDL_CreateTexture(renderer, SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_TARGET, 96, 64);
@@ -621,6 +701,7 @@ void RENDER_OPS(SDL_Renderer *renderer, Capture *capture)
     scrolling(renderer, sprite, capture);
     tower_cache(renderer, sprite, capture);
     tile_layer(renderer, capture);
+    opaque_tiles(renderer, sprite, capture);
     frames(renderer, sprite, capture);
     surfaces(capture);
     SDL_DestroyTexture(sprite);
