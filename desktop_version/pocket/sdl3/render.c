@@ -924,6 +924,31 @@ bool SDL_SetRenderDrawColor(SDL_Renderer *renderer, Uint8 r, Uint8 g, Uint8 b, U
     return true;
 }
 
+bool SDL_GetRenderDrawColor(SDL_Renderer *renderer, Uint8 *r, Uint8 *g, Uint8 *b, Uint8 *a)
+{
+    if (!check_renderer(renderer))
+    {
+        return false;
+    }
+    if (r != NULL)
+    {
+        *r = renderer->r;
+    }
+    if (g != NULL)
+    {
+        *g = renderer->g;
+    }
+    if (b != NULL)
+    {
+        *b = renderer->b;
+    }
+    if (a != NULL)
+    {
+        *a = renderer->a;
+    }
+    return true;
+}
+
 bool SDL_SetRenderDrawBlendMode(SDL_Renderer *renderer, SDL_BlendMode blendMode)
 {
     if (!check_renderer(renderer) || !supported_blend(blendMode))

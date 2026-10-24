@@ -22,6 +22,7 @@
 extern "C" Uint32 POCKET_bench_keys;
 extern "C" bool POCKET_saves_volatile;
 extern "C" bool POCKET_tint_runs;
+extern bool POCKET_text_cache;
 
 /* Keys held down, as input.c sends them (bit order there). */
 enum
@@ -292,7 +293,6 @@ static Uint32 text_us(void (*draw)(void), int count, int per)
 }
 
 static void grey_word(void) { font::print(0, 8, 8, "ABCDEFGHIJ", 196, 196, 196); }
-static void white_word(void) { font::print(0, 8, 8, "ABCDEFGHIJ", 255, 255, 255); }
 static void grey_letter(void) { font::print(0, 8, 8, "A", 196, 196, 196); }
 static void bordered_word(void) { font::print(PR_BOR, 8, 8, "ABCDEFGHIJ", 196, 196, 196); }
 
@@ -312,7 +312,83 @@ static void grey_copy(void)
     SDL_SetTextureColorMod(graphics.grphx.im_sprites, 255, 255, 255);
 }
 
-static void nothing(void) {}
+
+/* Whether text copied from its cached texture is the same, pixel for
+ * pixel, as text drawn glyph by glyph: each case is drawn the slow way,
+ * then cached twice, the first drawing it into its texture and the second
+ * copying the texture as it is once kept. */
+static int cache_cases, cache_same;
+
+static SDL_Surface* draw_case(uint32_t flags, int x, int y, const char* text, uint8_t r, uint8_t g, uint8_t b)
+{
+    graphics.fill_rect(40, 60, 90);
+    font::print(flags, x, y, text, r, g, b);
+    return SDL_RenderReadPixels(gameScreen.m_renderer, NULL);
+}
+
+static bool same_pixels(const SDL_Surface* a, const SDL_Surface* b)
+{
+    if (a == NULL || b == NULL || a->w != b->w || a->h != b->h)
+    {
+        return false;
+    }
+    for (int y = 0; y < a->h; y++)
+    {
+        if (SDL_memcmp((const Uint8*) a->pixels + (size_t) y * a->pitch,
+            (const Uint8*) b->pixels + (size_t) y * b->pitch, (size_t) a->w * 4) != 0)
+        {
+            return false;
+        }
+    }
+    return true;
+}
+
+static void check_case(uint32_t flags, int x, int y, const char* text, uint8_t r, uint8_t g, uint8_t b)
+{
+    POCKET_text_cache = false;
+    SDL_Surface* slow = draw_case(flags, x, y, text, r, g, b);
+    POCKET_text_cache = true;
+    SDL_Surface* first = draw_case(flags, x, y, text, r, g, b);
+    SDL_Surface* again = draw_case(flags, x, y, text, r, g, b);
+    SDL_Surface* third = draw_case(flags, x, y, text, r, g, b);
+    cache_cases++;
+    if (same_pixels(slow, first) && same_pixels(slow, again) && same_pixels(slow, third))
+    {
+        cache_same++;
+    }
+    else
+    {
+        printf("text cache differs: %08x \"%s\"\n", (unsigned) flags, text);
+    }
+    SDL_DestroySurface(slow);
+    SDL_DestroySurface(first);
+    SDL_DestroySurface(again);
+    SDL_DestroySurface(third);
+}
+
+static void check_text_cache(void)
+{
+    graphics.set_render_target(graphics.tempShakeTexture);
+    for (int flip = 0; flip < 2; flip++)
+    {
+        const bool flipmode = graphics.flipmode;
+        graphics.flipmode = flip != 0;
+        check_case(0, 10, 10, "Hello, Viridian", 255, 255, 255);
+        check_case(0, 10, 10, "Hello, Viridian", 120, 200, 64);
+        check_case(PR_BOR, 6, 18, "TIME: 0:12.34", 196, 196, 255);
+        check_case(PR_BOR | PR_RIGHT, 300, 30, "DEATH: 7", 255, 255, 255);
+        check_case(PR_FULLBOR, 50, 100, "The Tower", 100, 200, 50);
+        check_case(PR_2X | PR_BOR | PR_CEN, -1, 20, "SUPER GRAVITRON", 200, 200, 245);
+        check_case(PR_3X | PR_BOR | PR_CEN, -1, 200, "GO!", 220, 220, 255);
+        check_case(PR_BOR | PR_BRIGHTNESS(128), 2, 0, "Dimmed", 255, 128, 64);
+        check_case(PR_BOR, -4, 236, "Edge of the screen", 10, 20, 30);
+        graphics.flipmode = flipmode;
+    }
+    graphics.set_render_target(NULL);
+}
+
+static void cached_letter(void) { font::print(0, 8, 8, "A", 196, 196, 196); }
+static void cached_bordered(void) { font::print(PR_BOR, 8, 8, "ABCDEFGHIJ", 196, 196, 196); }
 
 void POCKET_BenchDraw(void)
 {
@@ -361,26 +437,26 @@ void POCKET_BenchDraw(void)
                 f->colstate, f->colour_change ? "*" : "");
         }
         /* What text costs: drawing it is most of a frame with the trial's
-         * clock and counters up. The slow path is timed both before and
-         * after the fast one, so neither gains from going first. */
-        POCKET_tint_runs = false;
-        const Uint32 slow_before = text_us(grey_word, 100, 10);
-        POCKET_tint_runs = true;
+         * clock and counters up. Glyph by glyph first, then cached. */
+        POCKET_text_cache = false;
         const Uint32 tinted = text_us(grey_word, 100, 10);
-        POCKET_tint_runs = false;
-        const Uint32 slow_after = text_us(grey_word, 100, 10);
-        POCKET_tint_runs = true;
-        const Uint32 white = text_us(white_word, 100, 10);
         const Uint32 letter = text_us(grey_letter, 1000, 1);
         const Uint32 tile = text_us(grey_tile, 1000, 1);
         const Uint32 copy = text_us(grey_copy, 1000, 1);
-        const Uint32 empty = text_us(nothing, 1000, 1);
         const Uint32 bordered = text_us(bordered_word, 20, 1);
-        SDL_snprintf(lines[line_count++], 48, "glyph us: %u, old way %u/%u, white %u",
-            (unsigned) tinted, (unsigned) slow_before, (unsigned) slow_after, (unsigned) white);
-        SDL_snprintf(lines[line_count++], 48, "1 letter %u tile %u copy %u none %u",
-            (unsigned) letter, (unsigned) tile, (unsigned) copy, (unsigned) empty);
-        SDL_snprintf(lines[line_count++], 48, "bordered word %u us", (unsigned) bordered);
+        POCKET_text_cache = true;
+        const Uint32 cached_word = text_us(grey_word, 100, 1);
+        const Uint32 cached_one = text_us(cached_letter, 1000, 1);
+        const Uint32 cached_bor = text_us(cached_bordered, 100, 1);
+        check_text_cache();
+        SDL_snprintf(lines[line_count++], 48, "glyph us %u, 1 letter %u tile %u copy %u",
+            (unsigned) tinted, (unsigned) letter, (unsigned) tile, (unsigned) copy);
+        SDL_snprintf(lines[line_count++], 48, "cached word %u (%u) letter %u (%u)",
+            (unsigned) cached_word, (unsigned) (tinted * 10), (unsigned) cached_one, (unsigned) letter);
+        SDL_snprintf(lines[line_count++], 48, "bordered word %u, cached %u us",
+            (unsigned) bordered, (unsigned) cached_bor);
+        SDL_snprintf(lines[line_count++], 48, "text cache same: %d of %d",
+            cache_same, cache_cases);
         SDL_snprintf(lines[line_count++], 48, "full speed is 34 ms; screenshot me");
         for (int i = 0; i < line_count; i++)
         {
