@@ -72,14 +72,19 @@ typedef struct Texture
     bool clear_pending;  /* every pixel is clear_color, not yet written */
     Uint32 clear_color;
 
-    /* Runs of visible pixels: row y's are runs[row_runs[y]] up to
-     * runs[row_runs[y + 1]], each {x, length, kind}. */
+    /* Runs of visible pixels: kept row k's are runs[row_runs[k]] up to
+     * runs[row_runs[k + 1]], each {x, length, kind}. Rows are indexed as
+     * kept, so a row shift leaves the runs of the rows it keeps good. */
     Uint16 *runs;
     /* The texture in RGB565 while its runs are valid, for copying opaque
      * runs onto RGB565 targets as they are. */
     Uint16 *runs565;
     int *row_runs;
     bool runs_valid;
+    /* Runs that are good except for the kept rows marked in dirty_rows,
+     * which a change to only some rows leaves to be built again. */
+    bool runs_partial;
+    Uint8 *dirty_rows;
     int copies_since_change;
 } Texture;
 
@@ -221,6 +226,7 @@ static void begin_change(Texture *t, bool covers_all)
         resolve_clear(t);
     }
     t->runs_valid = false;
+    t->runs_partial = false;
     t->copies_since_change = 0;
 }
 
@@ -316,10 +322,13 @@ static void free_runs(Texture *t)
     SDL_free(t->runs);
     SDL_free(t->row_runs);
     SDL_free(t->runs565);
+    SDL_free(t->dirty_rows);
     t->runs = NULL;
     t->runs565 = NULL;
     t->row_runs = NULL;
+    t->dirty_rows = NULL;
     t->runs_valid = false;
+    t->runs_partial = false;
 }
 
 static int run_kind(Uint32 pixel)
@@ -328,85 +337,144 @@ static int run_kind(Uint32 pixel)
     return a == 0 ? -1 : a == 255 ? RUN_OPAQUE : RUN_TRANSLUCENT;
 }
 
+static int count_runs(const Uint32 *row, int w)
+{
+    int count = 0;
+    int kind = -1;
+    for (int x = 0; x < w; x++)
+    {
+        const int k = run_kind(row[x]);
+        if (k != kind && k >= 0)
+        {
+            count++;
+        }
+        kind = k;
+    }
+    return count;
+}
+
+static int write_runs(const Uint32 *row, int w, Uint16 *runs)
+{
+    int n = 0;
+    int x = 0;
+    while (x < w)
+    {
+        const int kind = run_kind(row[x]);
+        int end = x + 1;
+        while (end < w && run_kind(row[end]) == kind)
+        {
+            end++;
+        }
+        if (kind >= 0)
+        {
+            runs[n * 3] = (Uint16) x;
+            runs[n * 3 + 1] = (Uint16) (end - x);
+            runs[n * 3 + 2] = (Uint16) kind;
+            n++;
+        }
+        x = end;
+    }
+    return n;
+}
+
+/* Builds the runs of every kept row, or with runs_partial only of the
+ * rows marked dirty, keeping the others' as they are. */
 static bool build_runs(Texture *t)
 {
     const int w = t->texture.w;
     const int h = t->texture.h;
-    int count = 0;
-    for (int y = 0; y < h; y++)
-    {
-        const Uint32 *row = texels(t) + shown_row(t, y) * w;
-        int kind = -1;
-        for (int x = 0; x < w; x++)
-        {
-            const int k = run_kind(row[x]);
-            if (k != kind && k >= 0)
-            {
-                count++;
-            }
-            kind = k;
-        }
-    }
-    Uint16 *runs = (Uint16 *) SDL_realloc(t->runs, sizeof(Uint16) * 3 * (count ? count : 1));
-    if (runs == NULL)
-    {
-        return false;
-    }
-    t->runs = runs;
     if (t->row_runs == NULL)
     {
-        t->row_runs = (int *) SDL_malloc(sizeof(int) * (h + 1));
-        if (t->row_runs == NULL)
-        {
-            return false;
-        }
+        t->row_runs = (int *) SDL_calloc((size_t) h + 1, sizeof(int));
     }
-    int n = 0;
-    for (int y = 0; y < h; y++)
+    if (t->dirty_rows == NULL)
     {
-        const Uint32 *row = texels(t) + shown_row(t, y) * w;
-        t->row_runs[y] = n;
-        int x = 0;
-        while (x < w)
-        {
-            const int kind = run_kind(row[x]);
-            int end = x + 1;
-            while (end < w && run_kind(row[end]) == kind)
-            {
-                end++;
-            }
-            if (kind >= 0)
-            {
-                runs[n * 3] = (Uint16) x;
-                runs[n * 3 + 1] = (Uint16) (end - x);
-                runs[n * 3 + 2] = (Uint16) kind;
-                n++;
-            }
-            x = end;
-        }
+        t->dirty_rows = (Uint8 *) SDL_malloc((size_t) h);
     }
-    t->row_runs[h] = n;
     if (t->runs565 == NULL)
     {
         t->runs565 = (Uint16 *) SDL_malloc(sizeof(Uint16) * w * h);
     }
-    if (t->runs565 != NULL)
+    if (t->row_runs == NULL || t->dirty_rows == NULL || t->runs565 == NULL)
     {
-        for (int y = 0; y < h; y++)
+        free_runs(t);
+        return false;
+    }
+    if (!t->runs_partial)
+    {
+        SDL_memset(t->dirty_rows, 1, (size_t) h);
+    }
+    const Uint32 *pixels = texels(t);
+    int count = 0;
+    for (int k = 0; k < h; k++)
+    {
+        count += t->dirty_rows[k]
+            ? count_runs(pixels + (size_t) k * w, w)
+            : t->row_runs[k + 1] - t->row_runs[k];
+    }
+    Uint16 *runs = (Uint16 *) SDL_malloc(sizeof(Uint16) * 3 * (count ? count : 1));
+    if (runs == NULL)
+    {
+        free_runs(t);
+        return false;
+    }
+    int n = 0;
+    int old_start = t->row_runs[0];
+    for (int k = 0; k < h; k++)
+    {
+        const int old_end = t->row_runs[k + 1];
+        t->row_runs[k] = n;
+        const Uint32 *row = pixels + (size_t) k * w;
+        if (t->dirty_rows[k])
         {
-            const Uint32 *row = texels(t) + shown_row(t, y) * w;
-            Uint16 *out = t->runs565 + (size_t) y * w;
+            n += write_runs(row, w, runs + (size_t) n * 3);
+            Uint16 *out = t->runs565 + (size_t) k * w;
             for (int x = 0; x < w; x++)
             {
                 out[x] = POCKET_ToRGB565(row[x]);
             }
+            t->dirty_rows[k] = 0;
         }
+        else
+        {
+            SDL_memcpy(runs + (size_t) n * 3, t->runs + (size_t) old_start * 3, sizeof(Uint16) * 3 * (old_end - old_start));
+            n += old_end - old_start;
+        }
+        old_start = old_end;
     }
+    t->row_runs[h] = n;
+    SDL_free(t->runs);
+    t->runs = runs;
     t->runs_valid = true;
+    t->runs_partial = false;
     return true;
 }
 
-/* The first of row y's runs that ends after column x, found by halves
+/* Whether a change to some of t's rows can leave the others' runs. */
+static bool keeps_runs(const Texture *t)
+{
+    return (t->runs_valid || t->runs_partial) && t->dirty_rows != NULL
+        && t->alias_of == NULL && t->aliased_by == NULL && !t->clear_pending
+        && t->pixels565 == NULL;
+}
+
+/* Before rows y to y + h - 1 of t change, and none of the others. */
+static void begin_rows_change(Texture *t, int y, int h)
+{
+    if (!keeps_runs(t))
+    {
+        begin_change(t, false);
+        return;
+    }
+    for (int i = y; i < y + h; i++)
+    {
+        t->dirty_rows[kept_row(t, i)] = 1;
+    }
+    t->runs_valid = false;
+    t->runs_partial = true;
+}
+
+/* The first of kept row y's runs that ends after column x, found by halves
  * since a row's runs are in order: a tile copied from a wide sheet then
  * looks at its own few runs, not the whole row's. */
 static const Uint16 *runs_from(const Texture *t, int y, int x, const Uint16 **last)
@@ -897,7 +965,14 @@ static void fill_rect(Texture *target, const SDL_Rect *rect, Uint8 r, Uint8 g, U
         return;
     }
     const bool covers_all = clipped.w == target->texture.w && clipped.h == target->texture.h;
-    begin_change(target, opaque && covers_all);
+    if (covers_all)
+    {
+        begin_change(target, opaque);
+    }
+    else
+    {
+        begin_rows_change(target, clipped.y, clipped.h);
+    }
     if (opaque)
     {
         /* Blending keeps an opaque target opaque; the rest keep its alpha. */
@@ -1263,7 +1338,14 @@ static bool copy_rows(SDL_Renderer *renderer, Texture *src, const SDL_FRect *src
     const bool replaces = blend == SDL_BLENDMODE_NONE
         || (blend == SDL_BLENDMODE_BLEND && src->opaque && ma == 255);
     const bool covers_all = clip.w == dst->texture.w && clip.h == dst->texture.h;
-    begin_change(dst, replaces && covers_all);
+    if (covers_all)
+    {
+        begin_change(dst, replaces);
+    }
+    else
+    {
+        begin_rows_change(dst, clip.y, clip.h);
+    }
     const bool raw = !modulated && replaces && contiguous;
 
     /* A whole texture copied unchanged onto another the same size: share
@@ -1311,7 +1393,7 @@ static bool copy_rows(SDL_Renderer *renderer, Texture *src, const SDL_FRect *src
         && src->pixels565 == NULL;
     const bool wants_runs = contiguous && src->pixels565 == NULL
         && (raw ? dst->pixels565 != NULL : skips_clear);
-    if (wants_runs && !src->runs_valid && src->copies_since_change > 0)
+    if (wants_runs && !src->runs_valid && (src->copies_since_change > 0 || src->runs_partial))
     {
         PART_BEGIN();
         build_runs(src);
@@ -1355,7 +1437,7 @@ static bool copy_rows(SDL_Renderer *renderer, Texture *src, const SDL_FRect *src
         else if (raw && dst->pixels565 != NULL && src->runs_valid && src->runs565 != NULL)
         {
             SDL_memcpy(dst->pixels565 + kept_row(dst, y) * dst->pitch565 + clip.x,
-                src->runs565 + (size_t) sy * src->texture.w + sx0, (size_t) clip.w * 2);
+                src->runs565 + shown_row(src, sy) * src->texture.w + sx0, (size_t) clip.w * 2);
             continue;
         }
         else
@@ -1377,7 +1459,7 @@ static bool copy_rows(SDL_Renderer *renderer, Texture *src, const SDL_FRect *src
             else if (by_runs)
             {
                 const Uint16 *last;
-                const Uint16 *run = runs_from(src, sy, sx0, &last);
+                const Uint16 *run = runs_from(src, (int) shown_row(src, sy), sx0, &last);
                 for (; run < last && run[0] < sx0 + clip.w; run += 3)
                 {
                     const int from = SDL_max((int) run[0], sx0);
@@ -1390,7 +1472,7 @@ static bool copy_rows(SDL_Renderer *renderer, Texture *src, const SDL_FRect *src
                     if (run[2] == RUN_OPAQUE && !modulated && blend == SDL_BLENDMODE_BLEND
                         && src->runs565 != NULL)
                     {
-                        SDL_memcpy(d, src->runs565 + (size_t) sy * src->texture.w + from, (size_t) (to - from) * 2);
+                        SDL_memcpy(d, src->runs565 + shown_row(src, sy) * src->texture.w + from, (size_t) (to - from) * 2);
                     }
                     else if (run[2] == RUN_OPAQUE && !modulated && blend == SDL_BLENDMODE_BLEND)
                     {
@@ -1427,7 +1509,7 @@ static bool copy_rows(SDL_Renderer *renderer, Texture *src, const SDL_FRect *src
         if (by_runs)
         {
             const Uint16 *last;
-            const Uint16 *run = runs_from(src, sy, sx0, &last);
+            const Uint16 *run = runs_from(src, (int) shown_row(src, sy), sx0, &last);
             for (; run < last && run[0] < sx0 + clip.w; run += 3)
             {
                 const int from = SDL_max((int) run[0], sx0);
@@ -1472,15 +1554,33 @@ static bool copy_texture(SDL_Renderer *renderer, Texture *src, const SDL_FRect *
 static void shift_rows(Texture *t, int dy, Uint32 fill)
 {
     const int h = t->texture.h;
-    begin_change(t, false);
-    if (fill >> 24 != 255)
-    {
-        keep_argb(t, true);
-        t->opaque = false;
-    }
     const int exposed = SDL_min(dy > 0 ? dy : -dy, h);
-    t->row0 = ((t->row0 - dy) % h + h) % h;
     const int first = dy > 0 ? 0 : h - exposed;
+    /* The rows kept stay where they are, and so do their runs. */
+    if (keeps_runs(t))
+    {
+        if (fill >> 24 != 255)
+        {
+            t->opaque = false;
+        }
+        t->runs_valid = false;
+        t->runs_partial = true;
+        t->row0 = ((t->row0 - dy) % h + h) % h;
+        for (int y = first; y < first + exposed; y++)
+        {
+            t->dirty_rows[kept_row(t, y)] = 1;
+        }
+    }
+    else
+    {
+        begin_change(t, false);
+        if (fill >> 24 != 255)
+        {
+            keep_argb(t, true);
+            t->opaque = false;
+        }
+        t->row0 = ((t->row0 - dy) % h + h) % h;
+    }
     for (int y = first; y < first + exposed; y++)
     {
         if (t->pixels565 != NULL)

@@ -298,6 +298,12 @@ static void tower_cache(SDL_Renderer *renderer, SDL_Texture *sprite, Capture *ca
     for (int step = 0; step < 3; step++)
     {
         shift_rows(renderer, cache, temp, step == 1 ? 16 : -8);
+        SDL_SetRenderTarget(renderer, screen);
+        SDL_SetRenderDrawColor(renderer, 0, 90, 40, 255);
+        SDL_RenderClear(renderer);
+        const SDL_FRect shifted = {0, 8, 96, 56};
+        SDL_RenderTexture(renderer, cache, &shifted, NULL);
+        capture_target(renderer, capture, "tower cache shifted");
         SDL_SetRenderTarget(renderer, cache);
         SDL_SetTextureBlendMode(sprite, SDL_BLENDMODE_NONE);
         draw_sprite(renderer, sprite, (float) (step * 24), step == 1 ? 0.0f : 48.0f, 16, 16, SDL_FLIP_NONE);
