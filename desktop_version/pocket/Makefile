@@ -109,7 +109,7 @@ deps:
 
 # The SD card tree in build/sd, without game data.
 package: $(BUILD_DIR)/app.elf
-	bash $(POCKET_ROOT)/scripts/package.sh
+	BENCH=$(BENCH) bash $(POCKET_ROOT)/scripts/package.sh
 
 # The game's button fonts with Pocket glyphs added; the output is committed.
 button-fonts:

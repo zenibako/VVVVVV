@@ -2,6 +2,11 @@
 # Assemble the Pocket SD card tree in build/sd from build/app.elf, the
 # pinned runtime and dist/.  Copy its contents to the root of the card,
 # then add your own data.zip as Assets/vvvvvv/common/data.zip.
+#
+# With BENCH=1 the tree holds a separate "VVVVVV Benchmark" core instead
+# (zenibako.vvvvvvbench, a build made with `make BENCH=1`). It sits beside
+# the game's core and shares its platform, data.zip, music and save, and
+# its own files are named vvvvvv-bench.* so the game's are left alone.
 set -euo pipefail
 
 POCKET_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -11,6 +16,11 @@ ELF="$POCKET_ROOT/build/app.elf"
 OUT="$POCKET_ROOT/build/sd"
 CORE_ID=zenibako.vvvvvv
 PLATFORM_ID=vvvvvv
+APP_NAME=vvvvvv
+if [[ "${BENCH:-0}" == 1 ]]; then
+    CORE_ID=zenibako.vvvvvvbench
+    APP_NAME=vvvvvv-bench
+fi
 
 [[ -f "$ELF" ]] || { echo "Missing $ELF; run make first" >&2; exit 1; }
 for file in os20.rbf_r loader.bin os.bin; do
@@ -28,8 +38,35 @@ cp "$RUNTIME_DIR/os20.rbf_r" "$RUNTIME_DIR/loader.bin" "$CORE_DIR/"
 cp "$GAME_ROOT/../LICENSE.md" "$CORE_DIR/LICENSE.txt"
 cp "$POCKET_ROOT/dist/platforms/$PLATFORM_ID.json" "$OUT/Platforms/"
 cp "$POCKET_ROOT/dist/instance/vvvvvv.json" "$INSTANCE_DIR/"
-cp "$RUNTIME_DIR/os.bin" "$POCKET_ROOT/dist/vvvvvv.ini" "$COMMON_DIR/"
-cp "$ELF" "$COMMON_DIR/vvvvvv.elf"
+cp "$RUNTIME_DIR/os.bin" "$COMMON_DIR/"
+sed "s/^ELF=vvvvvv\.elf$/ELF=$APP_NAME.elf/" "$POCKET_ROOT/dist/vvvvvv.ini" > "$COMMON_DIR/$APP_NAME.ini"
+cp "$ELF" "$COMMON_DIR/$APP_NAME.elf"
+
+if [[ "$APP_NAME" != vvvvvv ]]; then
+    # The core's slots and instance name the benchmark's ini and elf, and
+    # the core is named for the Pocket's core list.
+    python3 - "$CORE_DIR" "$INSTANCE_DIR/vvvvvv.json" "$APP_NAME" <<'PY'
+import json
+import pathlib
+import sys
+
+core_dir, instance, app = pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2]), sys.argv[3]
+renames = {"vvvvvv.ini": app + ".ini", "vvvvvv.elf": app + ".elf"}
+
+def rename_slots(path, key):
+    doc = json.loads(path.read_text())
+    for slot in doc[key]["data_slots"]:
+        slot["filename"] = renames.get(slot.get("filename"), slot.get("filename"))
+    path.write_text(json.dumps(doc, indent=4) + "\n")
+
+rename_slots(core_dir / "data.json", "data")
+rename_slots(instance, "instance")
+core = json.loads((core_dir / "core.json").read_text())
+core["core"]["metadata"]["shortname"] = "vvvvvvbench"
+core["core"]["metadata"]["description"] = "VVVVVV benchmark: a scripted run that times its frames and shows the results."
+(core_dir / "core.json").write_text(json.dumps(core, indent=4) + "\n")
+PY
+fi
 
 # The fonts and lang folders in one zip, laid out as the Android build's
 # repo.zip: the Pocket fonts replace the game's button fonts.  The Chinese,
