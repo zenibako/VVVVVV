@@ -20,6 +20,7 @@
 
 extern "C" Uint32 POCKET_bench_keys;
 extern "C" bool POCKET_saves_volatile;
+extern "C" bool POCKET_tint_runs;
 
 /* Keys held down, as input.c sends them (bit order there). */
 enum
@@ -270,6 +271,26 @@ static void ms(char* out, size_t size, Uint32 total_us, int count)
     SDL_snprintf(out, size, "%3u.%u", (unsigned) (value / 10), (unsigned) (value % 10));
 }
 
+/* Microseconds for one pass of draw, repeated count times into a scratch
+ * texture, over each of per things drawn a pass. */
+static Uint32 text_us(void (*draw)(void), int count, int per)
+{
+    graphics.set_render_target(graphics.tempShakeTexture);
+    const Uint32 start = of_time_us();
+    for (int i = 0; i < count; i++)
+    {
+        draw();
+    }
+    const Uint32 took = of_time_us() - start;
+    graphics.set_render_target(NULL);
+    return took / count / per;
+}
+
+static void grey_word(void) { font::print(0, 8, 8, "ABCDEFGHIJ", 196, 196, 196); }
+static void white_word(void) { font::print(0, 8, 8, "ABCDEFGHIJ", 255, 255, 255); }
+static void grey_letter(void) { font::print(0, 8, 8, "A", 196, 196, 196); }
+static void bordered_word(void) { font::print(PR_BOR, 8, 8, "ABCDEFGHIJ", 196, 196, 196); }
+
 void POCKET_BenchDraw(void)
 {
     if (!finished)
@@ -316,6 +337,19 @@ void POCKET_BenchDraw(void)
                 (unsigned) (f->us.logic / 1000), (unsigned) (f->us.draw / 1000),
                 f->colstate, f->colour_change ? "*" : "");
         }
+        /* What text costs: drawing it is most of a frame with the trial's
+         * clock and counters up. */
+        const Uint32 tinted = text_us(grey_word, 100, 10);
+        POCKET_tint_runs = false;
+        const Uint32 slow_tinted = text_us(grey_word, 100, 10);
+        POCKET_tint_runs = true;
+        const Uint32 white = text_us(white_word, 100, 10);
+        const Uint32 letter = text_us(grey_letter, 1000, 1);
+        const Uint32 bordered = text_us(bordered_word, 20, 1);
+        SDL_snprintf(lines[line_count++], 48, "text us: glyph %u (was %u) white %u",
+            (unsigned) tinted, (unsigned) slow_tinted, (unsigned) white);
+        SDL_snprintf(lines[line_count++], 48, "one-letter print %u, bordered word %u",
+            (unsigned) letter, (unsigned) bordered);
         SDL_snprintf(lines[line_count++], 48, "full speed is 34 ms; screenshot me");
         for (int i = 0; i < line_count; i++)
         {

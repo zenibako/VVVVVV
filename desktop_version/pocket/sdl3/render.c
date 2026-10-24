@@ -1284,6 +1284,14 @@ static int column_map_size;
 static Uint32 *src_line;
 static int src_line_size;
 
+#ifdef POCKET_BENCH
+/* The benchmark turns the tinted-run copy off to time it against the
+ * general one. */
+bool POCKET_tint_runs = true;
+#else
+#define POCKET_tint_runs true
+#endif
+
 static bool copy_rows(SDL_Renderer *renderer, Texture *src, const SDL_FRect *srcrect, const SDL_FRect *dstrect, SDL_FlipMode flip)
 {
     COUNT_CALL();
@@ -1503,6 +1511,27 @@ static bool copy_rows(SDL_Renderer *renderer, Texture *src, const SDL_FRect *src
                         for (int x = from; x < to; x++)
                         {
                             *d++ = POCKET_ToRGB565(srow[x]);
+                        }
+                    }
+                    else if (run[2] == RUN_OPAQUE && blend == SDL_BLENDMODE_BLEND && src->mod_a == 255
+                        && POCKET_tint_runs)
+                    {
+                        /* Opaque pixels only tinted, as text is: what is
+                         * under them does not matter, and a glyph's pixels
+                         * are mostly one colour, tinted once. */
+                        Uint32 last = ~srow[from];
+                        Uint16 tinted = 0;
+                        for (int x = from; x < to; x++)
+                        {
+                            if (srow[x] != last)
+                            {
+                                last = srow[x];
+                                tinted = POCKET_ToRGB565(0xFF000000u
+                                    | POCKET_Div255(((last >> 16) & 0xFF) * src->mod_r) << 16
+                                    | POCKET_Div255(((last >> 8) & 0xFF) * src->mod_g) << 8
+                                    | POCKET_Div255((last & 0xFF) * src->mod_b));
+                            }
+                            *d++ = tinted;
                         }
                     }
                     else
