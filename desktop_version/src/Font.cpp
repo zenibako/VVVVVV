@@ -11,6 +11,9 @@
 #include "GraphicsResources.h"
 #include "GraphicsUtil.h"
 #include "Localization.h"
+#ifdef VVV_POCKET
+#include "Screen.h"
+#endif
 #include "UTF8.h"
 #include "UtilityClass.h"
 #include "Vlogging.h"
@@ -714,8 +717,15 @@ void unload_font(Font* f)
     }
 }
 
+#ifdef VVV_POCKET
+static void clear_text_cache(void);
+#endif
+
 void unload_font_container(FontContainer* container)
 {
+#ifdef VVV_POCKET
+    clear_text_cache();
+#endif
     VVV_freefunc(hashmap_free, container->map_name_idx);
 
     for (uint8_t i = 0; i < container->count; i++)
@@ -1270,6 +1280,291 @@ bool is_rtl(const uint32_t flags)
     return pf.rtl;
 }
 
+static int y_shift(const PrintFlags& pf)
+{
+    /* How far print moves text down for a font that is not 8 high. */
+    int h_diff_8 = (pf.font_sel->glyph_h-8)*pf.scale;
+    if (h_diff_8 < 0)
+    {
+        /* If the font is less high than 8,
+         * just center it (lower on screen) */
+        return -h_diff_8/2;
+    }
+    else if (pf.cjk_high)
+    {
+        return -h_diff_8;
+    }
+    else if (!pf.cjk_low)
+    {
+        return -h_diff_8/2;
+    }
+    return 0;
+}
+
+#ifdef VVV_POCKET
+/* The Pocket spends some 50 us on each glyph, whatever its size, and a
+ * bordered string is drawn five times over (nine with a full border). So a
+ * string is drawn once into a texture of its own and copied from there
+ * while it is drawn again. It is drawn in white, so one texture serves any
+ * colour: tinting white gives the colour, and the black border stays black.
+ * Coloured glyphs (button icons) and dimmed text would not tint the same,
+ * so a string with those keeps its colour in the texture. */
+#define TEXT_CACHE_SIZE 48
+#define TEXT_CACHE_MAX_LEN 96
+
+struct CachedText
+{
+    char text[TEXT_CACHE_MAX_LEN];
+    uint32_t flags;
+    const Font* font;
+    bool rtl;
+    bool flipmode;
+    uint8_t r, g, b;
+    SDL_Texture* image;
+    int w, h;
+    int ox, oy; /* where print's x,y fall in the texture */
+    uint32_t used;
+};
+
+static CachedText text_cache[TEXT_CACHE_SIZE];
+
+/* Strings drawn once, by a hash of what keys them in the cache. */
+#define TEXT_SEEN_SIZE 32
+static uint32_t text_seen[TEXT_SEEN_SIZE];
+static int text_seen_next;
+static uint32_t text_cache_clock;
+static bool drawing_cached_text;
+
+} // namespace font
+#ifdef POCKET_BENCH
+#include "of_timer.h"
+bool POCKET_text_cache = true;
+/* What drawing text costs, for the benchmark: time in print and its
+ * calls, not counting the prints it makes itself, and how many strings
+ * were copied from the cache, newly kept in it, or drawn glyph by glyph. */
+Uint32 POCKET_print_us, POCKET_print_calls, POCKET_text_hits, POCKET_text_kept;
+char POCKET_last_kept[48]; /* the last string newly kept */
+struct PrintTimer
+{
+    static int depth;
+    Uint32 start;
+    PrintTimer() : start(depth++ == 0 ? of_time_us() : 0) {}
+    ~PrintTimer()
+    {
+        if (--depth == 0)
+        {
+            POCKET_print_us += of_time_us() - start;
+            POCKET_print_calls++;
+        }
+    }
+};
+int PrintTimer::depth;
+#define COUNT_TEXT(counter) (counter++)
+#else
+#define POCKET_text_cache true
+#define COUNT_TEXT(counter) ((void) 0)
+#endif
+namespace font
+{
+
+static void clear_text_cache(void)
+{
+    for (int i = 0; i < TEXT_CACHE_SIZE; i++)
+    {
+        VVV_freefunc(SDL_DestroyTexture, text_cache[i].image);
+        text_cache[i].text[0] = '\0';
+        text_cache[i].font = NULL;
+    }
+}
+
+static bool has_colour_glyph(const Font* f, const char* text)
+{
+    uint32_t codepoint;
+    while ((codepoint = UTF8_next(&text)))
+    {
+        const Font* f_glyph;
+        const GlyphInfo* glyph = find_glyphinfo(f, codepoint, &f_glyph);
+        if (glyph != NULL && (glyph->flags & GLYPH_COLOR))
+        {
+            return true;
+        }
+    }
+    return false;
+}
+
+void print(uint32_t flags, int x, int y, const char* text, uint8_t r, uint8_t g, uint8_t b);
+
+/* Draws text, its x already aligned, from a texture; false if it is not
+ * one to keep. */
+static bool print_cached(
+    uint32_t flags,
+    const PrintFlags& pf,
+    const int x,
+    const int y,
+    const char* text,
+    const uint8_t r,
+    const uint8_t g,
+    const uint8_t b
+)
+{
+    if (!POCKET_text_cache || drawing_cached_text)
+    {
+        return false;
+    }
+    flags &= ~(PR_CEN | PR_RIGHT | PR_RTL_XFLIP);
+    if (graphics.notextoutline)
+    {
+        flags &= ~PR_BOR;
+    }
+    /* A letter or two without a border is quicker drawn than copied. */
+    const size_t length = SDL_strlen(text);
+    if (length == 0 || length >= TEXT_CACHE_MAX_LEN
+        || (length <= 2 && !(flags & (PR_BOR | PR_FULLBOR))))
+    {
+        return false;
+    }
+    const bool white = r == 255 && g == 255 && b == 255;
+    const bool own_colour = !white
+        && (pf.brightness < 255 || has_colour_glyph(pf.font_sel, text));
+    const uint8_t kr = own_colour ? r : 255;
+    const uint8_t kg = own_colour ? g : 255;
+    const uint8_t kb = own_colour ? b : 255;
+
+    CachedText* entry = NULL;
+    CachedText* oldest = &text_cache[0];
+    for (int i = 0; i < TEXT_CACHE_SIZE; i++)
+    {
+        CachedText* c = &text_cache[i];
+        if (c->font == pf.font_sel && c->flags == flags && c->rtl == pf.rtl
+            && c->flipmode == graphics.flipmode
+            && c->r == kr && c->g == kg && c->b == kb
+            && SDL_strcmp(c->text, text) == 0)
+        {
+            entry = c;
+            COUNT_TEXT(POCKET_text_hits);
+            break;
+        }
+        if (c->used < oldest->used)
+        {
+            oldest = c;
+        }
+    }
+
+    if (entry == NULL)
+    {
+        /* A string is kept only once it is drawn a second time, so one
+         * that changes every frame, like the time trial's clock, is drawn
+         * as it always was. */
+        uint32_t key = 2166136261u;
+        for (const char* c = text; *c != '\0'; c++)
+        {
+            key = (key ^ (uint8_t) *c) * 16777619u;
+        }
+        const uint32_t fields[] = {
+            flags, (uint32_t) (uintptr_t) pf.font_sel, pf.rtl, graphics.flipmode,
+            (uint32_t) kr << 16 | (uint32_t) kg << 8 | kb
+        };
+        for (size_t i = 0; i < SDL_arraysize(fields); i++)
+        {
+            key = (key ^ fields[i]) * 16777619u;
+        }
+        bool seen = false;
+        for (int i = 0; i < TEXT_SEEN_SIZE; i++)
+        {
+            if (text_seen[i] == key)
+            {
+                seen = true;
+                break;
+            }
+        }
+        if (!seen)
+        {
+            text_seen[text_seen_next] = key;
+            text_seen_next = (text_seen_next + 1) % TEXT_SEEN_SIZE;
+            return false;
+        }
+
+        /* Room for the border, glyphs wider than their advance and a
+         * fallback font's glyphs, which are centred on the font's. */
+        const Font* fallback = fallback_for(pf.font_sel);
+        int gw = pf.font_sel->glyph_w;
+        int gh = pf.font_sel->glyph_h;
+        int pad = pf.scale;
+        if (fallback != NULL)
+        {
+            gw = SDL_max(gw, fallback->glyph_w);
+            gh = SDL_max(gh, fallback->glyph_h);
+            pad += gh;
+        }
+        const int shift = y_shift(pf);
+        const int ox = pad;
+        const int oy = pad - shift;
+        const int w = ox + len(flags, text) + gw * pf.scale + pad;
+        const int h = oy + shift + gh * pf.scale + pad;
+        if (w <= 0 || h <= 0 || w > 1024 || h > 256)
+        {
+            return false;
+        }
+
+        entry = oldest;
+        COUNT_TEXT(POCKET_text_kept);
+#ifdef POCKET_BENCH
+        SDL_snprintf(POCKET_last_kept, sizeof(POCKET_last_kept), "%08x %s", (unsigned) flags, text);
+#endif
+        if (entry->image == NULL || entry->w != w || entry->h != h)
+        {
+            VVV_freefunc(SDL_DestroyTexture, entry->image);
+            entry->image = SDL_CreateTexture(
+                gameScreen.m_renderer, SDL_PIXELFORMAT_ARGB8888,
+                SDL_TEXTUREACCESS_TARGET, w, h
+            );
+            if (entry->image == NULL)
+            {
+                entry->text[0] = '\0';
+                entry->font = NULL;
+                return false;
+            }
+            SDL_SetTextureBlendMode(entry->image, SDL_BLENDMODE_BLEND);
+        }
+        SDL_strlcpy(entry->text, text, sizeof(entry->text));
+        entry->flags = flags;
+        entry->font = pf.font_sel;
+        entry->rtl = pf.rtl;
+        entry->flipmode = graphics.flipmode;
+        entry->r = kr;
+        entry->g = kg;
+        entry->b = kb;
+        entry->w = w;
+        entry->h = h;
+        entry->ox = ox;
+        entry->oy = oy;
+
+        SDL_Texture* target = SDL_GetRenderTarget(gameScreen.m_renderer);
+        Uint8 dr, dg, db, da;
+        SDL_GetRenderDrawColor(gameScreen.m_renderer, &dr, &dg, &db, &da);
+        graphics.set_render_target(entry->image);
+        SDL_SetRenderDrawColor(gameScreen.m_renderer, 0, 0, 0, 0);
+        SDL_RenderClear(gameScreen.m_renderer);
+        SDL_SetRenderDrawColor(gameScreen.m_renderer, dr, dg, db, da);
+        drawing_cached_text = true;
+        print(flags, ox, oy, text, kr, kg, kb);
+        drawing_cached_text = false;
+        graphics.set_render_target(target);
+    }
+
+    entry->used = ++text_cache_clock;
+    const SDL_FRect dest = {
+        static_cast<float>(x - entry->ox),
+        static_cast<float>(y - entry->oy),
+        static_cast<float>(entry->w),
+        static_cast<float>(entry->h)
+    };
+    graphics.set_texture_color_mod(entry->image, own_colour ? 255 : r, own_colour ? 255 : g, own_colour ? 255 : b);
+    graphics.copy_texture(entry->image, NULL, &dest);
+    return true;
+}
+#endif
+
 void print(
     const uint32_t flags,
     int x,
@@ -1280,6 +1575,9 @@ void print(
     const uint8_t b
 )
 {
+#ifdef POCKET_BENCH
+    const PrintTimer timer;
+#endif
     PrintFlags pf = decode_print_flags(flags);
     if (pf.font_sel == NULL)
     {
@@ -1319,6 +1617,13 @@ void print(
         }
     }
 
+#ifdef VVV_POCKET
+    if (print_cached(flags, pf, x, y, text, r, g, b))
+    {
+        return;
+    }
+#endif
+
     if (pf.border && !graphics.notextoutline)
     {
         static const int offsets[4][2] = {{0,-1}, {-1,0}, {1,0}, {0,1}};
@@ -1351,21 +1656,7 @@ void print(
         }
     }
 
-    int h_diff_8 = (pf.font_sel->glyph_h-8)*pf.scale;
-    if (h_diff_8 < 0)
-    {
-        /* If the font is less high than 8,
-         * just center it (lower on screen) */
-        y -= h_diff_8/2;
-    }
-    else if (pf.cjk_high)
-    {
-        y -= h_diff_8;
-    }
-    else if (!pf.cjk_low)
-    {
-        y -= h_diff_8/2;
-    }
+    y += y_shift(pf);
 
     if (bidi_should_transform(pf.rtl, text))
     {

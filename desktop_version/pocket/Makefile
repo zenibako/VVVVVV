@@ -70,6 +70,11 @@ POCKET_DEFS := -DVVV_POCKET -D_GNU_SOURCE \
 ifeq ($(SHOW_FPS),1)
 POCKET_DEFS += -DPOCKET_SHOW_FPS
 endif
+# BENCH=1 builds the scripted benchmark (src/pocket_bench.h). It times
+# frames itself, without the profile above and its cost.
+ifeq ($(BENCH),1)
+POCKET_DEFS += -DPOCKET_BENCH
+endif
 POCKET_INCLUDES := -I$(POCKET_ROOT)/src -I$(SDL3_ROOT)/include \
 	-I$(THIRD_PARTY)/tinyxml2 -I$(THIRD_PARTY)/physfs/src \
 	-I$(THIRD_PARTY)/physfs/extras -I$(THIRD_PARTY)/lodepng \
@@ -104,7 +109,7 @@ deps:
 
 # The SD card tree in build/sd, without game data.
 package: $(BUILD_DIR)/app.elf
-	bash $(POCKET_ROOT)/scripts/package.sh
+	BENCH=$(BENCH) bash $(POCKET_ROOT)/scripts/package.sh
 
 # The game's button fonts with Pocket glyphs added; the output is committed.
 button-fonts:
