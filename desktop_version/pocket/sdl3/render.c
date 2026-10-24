@@ -28,21 +28,31 @@
 Uint32 POCKET_render_us;
 /* Microseconds in held back clears, row copies, copies by run, pixel by
  * pixel copies, fills and building runs. Each timer read is a call into
- * the OS, so a draw is timed once, around its pixel work; the render
- * total is the sum of the parts. */
+ * the OS costing about 16 us, so a draw is timed once, around its pixel
+ * work, and copies and fills only one in PART_SAMPLE, counted that many
+ * times; the render total is the sum of the parts. */
 Uint32 POCKET_render_part_us[6];
 /* Copies and fills asked for, drawn or not. */
 Uint32 POCKET_render_calls;
+#define PART_SAMPLE 16
 #define COUNT_CALL() (POCKET_render_calls++)
-#define PART_BEGIN() const Uint32 part_start = of_time_us()
+#define PART_BEGIN() PART_TIMED(1)
+#define PART_SAMPLE_BEGIN() PART_TIMED(POCKET_render_calls % PART_SAMPLE == 0 ? PART_SAMPLE : 0)
+#define PART_TIMED(weight) \
+    const Uint32 part_weight = (weight); \
+    const Uint32 part_start = part_weight ? of_time_us() : 0
 #define PART_END(part) do { \
-        const Uint32 part_time = of_time_us() - part_start; \
-        POCKET_render_part_us[part] += part_time; \
-        POCKET_render_us += part_time; \
+        if (part_weight) \
+        { \
+            const Uint32 part_time = (of_time_us() - part_start) * part_weight; \
+            POCKET_render_part_us[part] += part_time; \
+            POCKET_render_us += part_time; \
+        } \
     } while (0)
 #else
 #define COUNT_CALL() ((void) 0)
 #define PART_BEGIN() ((void) 0)
+#define PART_SAMPLE_BEGIN() ((void) 0)
 #define PART_END(part) ((void) 0)
 #endif
 
@@ -1022,7 +1032,7 @@ static void fill_rect(Texture *target, const SDL_Rect *rect, Uint8 r, Uint8 g, U
 static void fill(Texture *target, const SDL_Rect *rect, Uint8 r, Uint8 g, Uint8 b, Uint8 a, SDL_BlendMode blend)
 {
     COUNT_CALL();
-    PART_BEGIN();
+    PART_SAMPLE_BEGIN();
     fill_rect(target, rect, r, g, b, a, blend);
     PART_END(4);
 }
@@ -1405,7 +1415,7 @@ static bool copy_rows(SDL_Renderer *renderer, Texture *src, const SDL_FRect *src
     }
     const bool by_runs = !raw && skips_clear && contiguous && src->runs_valid;
 
-    PART_BEGIN();
+    PART_SAMPLE_BEGIN();
     for (int y = clip.y; y < clip.y + clip.h; y++)
     {
         int v = y - dr.y;
