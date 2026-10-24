@@ -44,7 +44,8 @@ sed "s/^ELF=vvvvvv\.elf$/ELF=$APP_NAME.elf/" "$POCKET_ROOT/dist/vvvvvv.ini" > "$
 cp "$ELF" "$COMMON_DIR/$APP_NAME.elf"
 
 if [[ "$APP_NAME" != vvvvvv ]]; then
-    # The core's slots and instance name the benchmark's ini, elf and save, and
+    # The core's slots and instance name the benchmark's instance json (the
+    # Game slot, which the core launches straight into), ini, elf and save, and
     # the core is named for the Pocket's core list.
     python3 - "$CORE_DIR" "$INSTANCE_DIR/$APP_NAME.json" "$APP_NAME" <<'PY'
 import json
@@ -53,7 +54,7 @@ import sys
 
 core_dir, instance, app = pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2]), sys.argv[3]
 renames = {"vvvvvv.ini": app + ".ini", "vvvvvv.elf": app + ".elf",
-           "vvvvvv_0.sav": app + "_0.sav"}
+           "vvvvvv_0.sav": app + "_0.sav", "vvvvvv.json": app + ".json"}
 
 def rename_slots(path, key):
     doc = json.loads(path.read_text())
