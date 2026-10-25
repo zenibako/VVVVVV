@@ -136,15 +136,15 @@ test: $(TEST_BIN) $(SAVEFS_TEST_BIN) $(AUDIO_TEST_BIN) $(BENCH_STARTUP_TEST_BIN)
 	$(BENCH_PROFILE_TEST_BIN)
 	$(BENCH_PROFILE_C_TEST_BIN)
 
-$(BENCH_PROFILE_C_TEST_BIN): $(POCKET_ROOT)/tests/bench_profile_c_test.c $(POCKET_ROOT)/src/pocket_bench_profile.h
+$(BENCH_PROFILE_C_TEST_BIN): $(POCKET_ROOT)/tests/bench_profile_c_test.c $(POCKET_ROOT)/src/pocket_bench_profile.h $(POCKET_ROOT)/tests/stub/of_timer.h
 	@mkdir -p $(dir $@)
 	$(HOST_CC) -std=gnu99 -Wall -Wextra -g $(HOST_SANITIZE) -DPOCKET_BENCH -DOF_PC \
-		-I$(SDK_DIR)/include $< -o $@
+		-I$(POCKET_ROOT)/tests/stub $< -o $@
 
-$(BENCH_PROFILE_TEST_BIN): $(POCKET_ROOT)/tests/bench_profile_test.cpp $(POCKET_ROOT)/src/pocket_bench_profile.h
+$(BENCH_PROFILE_TEST_BIN): $(POCKET_ROOT)/tests/bench_profile_test.cpp $(POCKET_ROOT)/src/pocket_bench_profile.h $(POCKET_ROOT)/tests/stub/of_timer.h
 	@mkdir -p $(dir $@)
 	$(HOST_CXX) -std=c++98 -Wall -Wextra -g $(HOST_SANITIZE) -DPOCKET_BENCH -DOF_PC \
-		-I$(SDK_DIR)/include $< -o $@
+		-I$(POCKET_ROOT)/tests/stub $< -o $@
 
 $(BENCH_REPORT_TEST_BIN): $(POCKET_ROOT)/tests/bench_report_test.cpp $(POCKET_ROOT)/src/pocket_bench_report.h
 	@mkdir -p $(dir $@)
@@ -254,6 +254,10 @@ ifeq ($(shell uname -s),Darwin)
 # Apple's toolchain has libc++abi in place of libsupc++, and links SDL3
 # as the shared library Homebrew installs.
 HOST_LIBS ?= -L$(SDL3_PREFIX)/lib -Wl,-rpath,$(SDL3_PREFIX)/lib -lSDL3 -lc++abi -lm
+else ifeq ($(HOST_BENCH_SMOKE),1)
+# The smoke harness overrides SDL timing and presentation entry points;
+# a static SDL archive can supply duplicate definitions of those symbols.
+HOST_LIBS ?= -L$(SDL3_PREFIX)/lib -Wl,-rpath,$(SDL3_PREFIX)/lib -lSDL3 -lsupc++ -lm -lpthread -ldl
 else
 HOST_LIBS ?= $(SDL3_PREFIX)/lib/libSDL3.a -lsupc++ -lm -lpthread -ldl
 endif

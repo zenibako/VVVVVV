@@ -66,6 +66,10 @@ The introduction is excluded from timing. Results include average frame,
 logic, drawing and text costs; press A to switch between results pages and
 take a screenshot of each page.
 
+The benchmark forces 30 Hz rendering, independent of saved settings. This
+keeps one presentation per logic timestep; faster render-only iterations
+would otherwise be excluded from its per-frame averages.
+
 The Gravitron split reports background update/drawing and enemy spawning,
 movement (including physics and wall collisions), pair collisions,
 animation/colour updates, and drawing (including warning indicators).
@@ -101,6 +105,11 @@ two. All borders still precede all foregrounds. The font's clock masks are
 checked for binary alpha when loaded; replacement fonts with partial alpha,
 other fonts, full borders and dimmed styles keep the existing path.
 `clock border us: old ... new ...` isolates this change from glyph caching.
+All cached text also checks the actual glyph's alpha mask, including fallback
+and replacement glyphs. Partial-alpha glyphs retain direct drawing so alpha
+is not applied twice; binary glyphs in the same font can still be cached.
+Text requiring bidi shaping also retains direct drawing, since shaping can
+substitute a glyph with a different alpha mask.
 
 Warp-background scrolling uses one shared renderer helper for both axes:
 vertical scrolling changes the first stored row, and horizontal RGB565
@@ -145,6 +154,15 @@ SDL_VIDEODRIVER=dummy SDL_AUDIODRIVER=dummy SDL_RENDER_DRIVER=software \
 These host timings are synthetic and must not be used as Pocket performance
 results. The host check uses desktop SDL rendering with the Pocket text cache;
 physical Pocket timing remains separate.
+Linux smoke builds require the shared SDL3 library so the harness's timing
+and presentation overrides do not conflict with static SDL definitions.
+
+To exercise partial-alpha replacement fonts, generate private test assets
+with `python3 tests/font_alpha_assets.py /path/to/data.zip /tmp/font-alpha.zip`.
+Run either smoke executable with `POCKET_TEST_FONT_ALPHA=1` and
+`-assets /tmp/font-alpha.zip`. This checks repeated strings, countdown digits,
+fallback and missing-glyph replacements against uncached pixels, plus binary
+glyph caching in the same fonts, then exits before the scripted route.
 
 For the same route and 3,764 countdown pixel comparisons using the Pocket's
 actual software renderer, build `host-render` with the same
