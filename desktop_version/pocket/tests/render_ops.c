@@ -10,6 +10,7 @@
 
 #ifdef SDL_RenderClear
 bool POCKET_ScrollTexture(SDL_Texture *texture, int dx, int dy);
+bool POCKET_RepeatTexture(SDL_Renderer*, SDL_Texture*, const SDL_Rect*, const SDL_Rect*);
 bool POCKET_ShiftTextureRows(SDL_Texture *texture, int dy);
 typedef struct POCKET_TileLayer POCKET_TileLayer;
 POCKET_TileLayer *POCKET_CreateTileLayer(int w, int h);
@@ -828,6 +829,87 @@ static void window_copies(SDL_Renderer *renderer, Capture *capture)
     SDL_DestroyTexture(image);
 }
 
+static void repeat_tiles(SDL_Renderer *renderer, SDL_Texture *sheet,
+    const SDL_Rect *source, const SDL_Rect *area, bool supported)
+{
+#ifdef SDL_RenderClear
+    const bool drawn = POCKET_RepeatTexture(renderer, sheet, source, area);
+    assert(drawn == supported);
+    if (drawn) return;
+#else
+    (void) supported;
+#endif
+    const SDL_FRect from = {(float) source->x, (float) source->y, (float) source->w, (float) source->h};
+    for (int y = area->y; y < area->y + area->h; y += source->h)
+        for (int x = area->x; x < area->x + area->w; x += source->w)
+        {
+            const SDL_FRect to = {(float) x, (float) y, (float) source->w, (float) source->h};
+            SDL_RenderTexture(renderer, sheet, &from, &to);
+        }
+}
+
+static void repeated_patterns(SDL_Renderer *renderer, Capture *capture)
+{
+    Uint32 pixels[32 * 16];
+    for (int y = 0; y < 16; y++)
+        for (int x = 0; x < 32; x++)
+            pixels[y * 32 + x] = (x >= 16 ? 0x80000000u : (x + y) % 5 ? 0xFF000000u : 0)
+                | (x % 2 ? 0x00FF0000u : 0) | (y % 2 ? 0x0000FF00u : 0) | 0xFF;
+    SDL_Surface *surface = SDL_CreateSurfaceFrom(32, 16, SDL_PIXELFORMAT_ARGB8888, pixels, 32 * 4);
+    SDL_Texture *sheet = SDL_CreateTextureFromSurface(renderer, surface);
+    SDL_DestroySurface(surface);
+    SDL_SetTextureBlendMode(sheet, SDL_BLENDMODE_BLEND);
+    SDL_SetRenderTarget(renderer, NULL);
+    SDL_SetRenderDrawColor(renderer, 0, 255, 0, 255);
+    SDL_RenderClear(renderer);
+    const SDL_Rect source = {0, 0, 16, 16};
+    const SDL_Rect top = {-5, -7, 64, 64}, bottom = {280, 212, 64, 64};
+    repeat_tiles(renderer, sheet, &source, &top, true);
+    exact_target(renderer, capture, "repeat keyed clipped top");
+    repeat_tiles(renderer, sheet, &source, &bottom, true);
+    exact_target(renderer, capture, "repeat clipped bottom");
+    const SDL_Rect changed = {3, 4, 1, 1};
+    Uint32 pixel = 0xFFFF0000u;
+    SDL_UpdateTexture(sheet, &changed, &pixel, sizeof(pixel));
+    repeat_tiles(renderer, sheet, &source, &top, true);
+    exact_target(renderer, capture, "repeat changed pixels");
+    pixel = 0x80FF00FFu;
+    SDL_UpdateTexture(sheet, &changed, &pixel, sizeof(pixel));
+    repeat_tiles(renderer, sheet, &source, &top, false);
+    capture_target(renderer, capture, "repeat partial fallback");
+    pixel = 0xFF00FFFFu;
+    SDL_UpdateTexture(sheet, &changed, &pixel, sizeof(pixel));
+    SDL_SetTextureColorMod(sheet, 128, 255, 255);
+    repeat_tiles(renderer, sheet, &source, &top, false);
+    capture_target(renderer, capture, "repeat tint fallback");
+    SDL_SetTextureColorMod(sheet, 255, 255, 255);
+    SDL_SetTextureBlendMode(sheet, SDL_BLENDMODE_NONE);
+    repeat_tiles(renderer, sheet, &source, &top, false);
+    capture_target(renderer, capture, "repeat none fallback");
+    SDL_SetTextureBlendMode(sheet, SDL_BLENDMODE_BLEND);
+    SDL_Texture *layer = SDL_CreateTexture(renderer, SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_TARGET, 320, 240);
+    SDL_Texture *snapshot = SDL_CreateTexture(renderer, SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_TARGET, 320, 240);
+    SDL_SetRenderTarget(renderer, layer);
+    SDL_SetRenderDrawColor(renderer, 0, 255, 0, 255);
+    SDL_RenderClear(renderer);
+    SDL_SetRenderTarget(renderer, snapshot);
+    SDL_RenderTexture(renderer, layer, NULL, NULL);
+    SDL_SetRenderTarget(renderer, layer);
+    repeat_tiles(renderer, sheet, &source, &top, true);
+    exact_target(renderer, capture, "repeat detaches target");
+    SDL_SetRenderTarget(renderer, snapshot);
+    exact_target(renderer, capture, "repeat preserves snapshot");
+    SDL_SetRenderTarget(renderer, layer);
+    SDL_SetRenderDrawColor(renderer, 0, 0, 0, 0);
+    SDL_RenderClear(renderer);
+    repeat_tiles(renderer, sheet, &source, &top, false);
+    capture_target(renderer, capture, "repeat ARGB fallback");
+    SDL_SetRenderTarget(renderer, NULL);
+    SDL_DestroyTexture(snapshot);
+    SDL_DestroyTexture(layer);
+    SDL_DestroyTexture(sheet);
+}
+
 static void surfaces(Capture *capture)
 {
     SDL_Surface *source = SDL_CreateSurface(8, 8, SDL_PIXELFORMAT_ARGB8888);
@@ -904,6 +986,7 @@ void RENDER_OPS(SDL_Renderer *renderer, Capture *capture)
     opaque_tiles(renderer, sprite, capture);
     frames(renderer, sprite, capture);
     window_copies(renderer, capture);
+    repeated_patterns(renderer, capture);
     surfaces(capture);
     SDL_DestroyTexture(sprite);
 }

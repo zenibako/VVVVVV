@@ -2790,6 +2790,39 @@ void Graphics::drawbackground( int t )
     }
 }
 
+#ifdef VVV_POCKET
+extern "C" bool POCKET_RepeatTexture(SDL_Renderer*, SDL_Texture*, const SDL_Rect*, const SDL_Rect*);
+#ifdef POCKET_BENCH
+extern "C" bool POCKET_warp_tiles_fast;
+#else
+#define POCKET_warp_tiles_fast true
+#endif
+#endif
+
+/* Both warp directions use the same four-tile pattern and repaint band. */
+static void draw_warp_tiles(Graphics& g, int first, int x, int y, int columns, int rows)
+{
+#ifdef VVV_POCKET
+    int width;
+    if (POCKET_warp_tiles_fast && g.query_texture(g.grphx.im_tiles2, NULL, NULL, &width, NULL)
+        && width == 320 && first % 40 < 39)
+    {
+        const SDL_Rect source = {(first % 40) * 8, (first / 40) * 8, 16, 16};
+        const SDL_Rect area = {x, y, columns * 16, rows * 16};
+        if (POCKET_RepeatTexture(gameScreen.m_renderer, g.grphx.im_tiles2, &source, &area))
+            return;
+    }
+#endif
+    for (int j = 0; j < rows; j++)
+        for (int i = 0; i < columns; i++)
+        {
+            g.drawtile2(x + i * 16, y + j * 16, first);
+            g.drawtile2(x + i * 16 + 8, y + j * 16, first + 1);
+            g.drawtile2(x + i * 16, y + j * 16 + 8, first + 40);
+            g.drawtile2(x + i * 16 + 8, y + j * 16 + 8, first + 41);
+        }
+}
+
 void Graphics::updatebackground(int t)
 {
     POCKET_GRAV_SCOPE(POCKET_GRAV_BG_UPDATE, true);
@@ -2859,32 +2892,14 @@ void Graphics::updatebackground(int t)
         if (backgrounddrawn)
         {
             scroll_texture(backgroundTexture, tempScrollingTexture, -3, 0);
-            for (int j = 0; j < 15; j++)
-            {
-                for (int i = 0; i < 2; i++)
-                {
-                    drawtile2(317 - backoffset + (i * 16), (j * 16), temp + 40);  // 20*16 = 320
-                    drawtile2(317 - backoffset + (i * 16) + 8, (j * 16), temp + 41);
-                    drawtile2(317 - backoffset + (i * 16), (j * 16) + 8, temp + 80);
-                    drawtile2(317 - backoffset + (i * 16) + 8, (j * 16) + 8, temp + 81);
-                }
-            }
+            draw_warp_tiles(*this, temp + 40, 317 - backoffset, 0, 2, 15);
         }
         else
         {
             // draw the whole thing for the first time!
             backoffset = 0;
             clear();
-            for (int j = 0; j < 15; j++)
-            {
-                for (int i = 0; i < 21; i++)
-                {
-                    drawtile2((i * 16) - backoffset - 3, (j * 16), temp + 40);
-                    drawtile2((i * 16) - backoffset + 8 - 3, (j * 16), temp + 41);
-                    drawtile2((i * 16) - backoffset - 3, (j * 16) + 8, temp + 80);
-                    drawtile2((i * 16) - backoffset + 8 - 3, (j * 16) + 8, temp + 81);
-                }
-            }
+            draw_warp_tiles(*this, temp + 40, -3, 0, 21, 15);
             backgrounddrawn = true;
         }
         set_render_target(target);
@@ -2902,32 +2917,14 @@ void Graphics::updatebackground(int t)
         if (backgrounddrawn)
         {
             scroll_texture(backgroundTexture, tempScrollingTexture, 0, -3);
-            for (int j = 0; j < 2; j++)
-            {
-                for (int i = 0; i < 21; i++)
-                {
-                    drawtile2((i * 16), 237 - backoffset + (j * 16), temp + 40); // 14*17=240 - 3
-                    drawtile2((i * 16) + 8, 237 - backoffset + (j * 16), temp + 41);
-                    drawtile2((i * 16), 237 - backoffset + (j * 16) + 8, temp + 80);
-                    drawtile2((i * 16) + 8, 237 - backoffset + (j * 16) + 8, temp + 81);
-                }
-            }
+            draw_warp_tiles(*this, temp + 40, 0, 237 - backoffset, 21, 2);
         }
         else
         {
             // draw the whole thing for the first time!
             backoffset = 0;
             clear();
-            for (int j = 0; j < 16; j++)
-            {
-                for (int i = 0; i < 21; i++)
-                {
-                    drawtile2((i * 16), (j * 16) - backoffset - 3, temp + 40);
-                    drawtile2((i * 16) + 8, (j * 16) - backoffset - 3, temp + 41);
-                    drawtile2((i * 16), (j * 16) - backoffset + 8 - 3, temp + 80);
-                    drawtile2((i * 16) + 8, (j * 16) - backoffset + 8 - 3, temp + 81);
-                }
-            }
+            draw_warp_tiles(*this, temp + 40, 0, -3, 21, 16);
             backgrounddrawn = true;
         }
         set_render_target(target);

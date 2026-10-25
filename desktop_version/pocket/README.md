@@ -108,6 +108,13 @@ moves each packed pixel row in place. Both retain the full scrolling
 texture and fill exposed pixels black. Unsupported blend or colour mods
 keep the original temporary-texture path. Results include `warp bg us:
 old ... new ...`, which compares complete background updates on device.
+Both warp directions also share a repeated-tile helper. It batches their
+four-tile pattern into cached RGB565 row spans, preserving transparent
+pixels and the complete original repaint band. Pixel changes and texture
+destruction invalidate the cache. Partial alpha, colour modulation and
+unsupported targets or blending keep the original tile draws.
+`warp tiles us: old ... new ...` isolates batching with shared scrolling
+enabled in both measurements.
 
 An opt-in host check runs the real scripted route with an accelerated test
 clock and AddressSanitizer/UBSan. It checks the Gravitron room, active enemy
@@ -139,8 +146,9 @@ of the countdown, all report pages, and unchanged counters on results screens.
 Native flip/audio paths are covered by C timer checks and the device build;
 the host presentation adapter does not emulate their hardware timing.
 
-The Pocket-renderer host check also compares 560 full warp-background
-textures against the original path (both axes, seven colours, 40 updates),
+The Pocket-renderer host check also compares 800 full warp-background
+textures against the original path (both axes, seven colours, 40 updates,
+plus colour changes, resets and direction switches),
 then reports host wall time for background updates. Renderer tests cover
 shared snapshots, pending clears, both pixel formats and extreme shifts.
 Window-copy checks compare the packed transfer with the original rows.

@@ -7,7 +7,7 @@ static void check_background_pixels(void)
     SDL_Texture* background = graphics.backgroundTexture;
     SDL_Texture* temp = graphics.tempScrollingTexture;
     const int colour = graphics.rcol, offset = graphics.backoffset;
-    const bool drawn = graphics.backgrounddrawn, enabled = POCKET_scroll_fast;
+    const bool drawn = graphics.backgrounddrawn, enabled = POCKET_scroll_fast, batched = POCKET_warp_tiles_fast;
     SDL_Texture* original = SDL_CreateTexture(gameScreen.m_renderer, SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_TARGET, 336, 336);
     SDL_Texture* optimized = SDL_CreateTexture(gameScreen.m_renderer, SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_TARGET, 336, 336);
     graphics.tempScrollingTexture = SDL_CreateTexture(gameScreen.m_renderer, SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_TARGET, 336, 336);
@@ -24,6 +24,7 @@ static void check_background_pixels(void)
                 graphics.backgrounddrawn = frame != 0;
                 graphics.backgroundTexture = original;
                 POCKET_scroll_fast = false;
+                POCKET_warp_tiles_fast = false;
                 graphics.set_render_target(target);
                 graphics.updatebackground(axis);
                 const int next_offset = graphics.backoffset;
@@ -35,6 +36,7 @@ static void check_background_pixels(void)
                 graphics.backgrounddrawn = frame != 0;
                 graphics.backgroundTexture = optimized;
                 POCKET_scroll_fast = true;
+                POCKET_warp_tiles_fast = true;
                 graphics.set_render_target(target);
                 graphics.updatebackground(axis);
                 assert(graphics.backoffset == next_offset);
@@ -50,11 +52,43 @@ static void check_background_pixels(void)
                 cases++;
             }
         }
+    /* Keep history across colour changes, resets and direction switches. */
+    int history_offset = 0;
+    for (int frame = 0; frame < 240; frame++)
+    {
+        const int axis = (frame / 23) % 2 ? 4 : 3;
+        const int c = frame % 2 ? frame % 7 : 6;
+        const bool retained = frame % 31 != 0;
+        int next_offset = 0;
+        SDL_Surface* pictures[2];
+        for (int mode = 0; mode < 2; mode++)
+        {
+            graphics.rcol = c;
+            graphics.backoffset = history_offset;
+            graphics.backgrounddrawn = retained;
+            graphics.backgroundTexture = mode ? optimized : original;
+            POCKET_scroll_fast = mode != 0;
+            POCKET_warp_tiles_fast = mode != 0;
+            graphics.set_render_target(target);
+            graphics.updatebackground(axis);
+            if (mode == 0) next_offset = graphics.backoffset;
+            else assert(graphics.backoffset == next_offset);
+            assert(SDL_GetRenderTarget(gameScreen.m_renderer) == target);
+            graphics.set_render_target(graphics.backgroundTexture);
+            pictures[mode] = SDL_RenderReadPixels(gameScreen.m_renderer, NULL);
+        }
+        assert(same_pixels(pictures[0], pictures[1]));
+        SDL_DestroySurface(pictures[0]);
+        SDL_DestroySurface(pictures[1]);
+        history_offset = next_offset;
+        cases++;
+    }
     graphics.rcol = 6;
-    Uint64 elapsed[2];
-    for (int mode = 0; mode < 2; mode++)
+    Uint64 elapsed[3];
+    for (int mode = 0; mode < 3; mode++)
     {
         POCKET_scroll_fast = mode != 0;
+        POCKET_warp_tiles_fast = mode == 2;
         graphics.backgrounddrawn = false;
         graphics.updatebackground(3);
         const Uint64 start = SDL_GetPerformanceCounter();
@@ -71,8 +105,9 @@ static void check_background_pixels(void)
     graphics.backoffset = offset;
     graphics.backgrounddrawn = drawn;
     POCKET_scroll_fast = enabled;
+    POCKET_warp_tiles_fast = batched;
     printf("Warp background pixels passed: %d full-texture cases, both axes\n", cases);
-    printf("Background host wall time, us/update: original %llu, shared scroll %llu (not Pocket timing)\n",
-        (unsigned long long) elapsed[0], (unsigned long long) elapsed[1]);
+    printf("Background host wall time, us/update: original %llu, shared scroll %llu, batched tiles %llu (not Pocket timing)\n",
+        (unsigned long long) elapsed[0], (unsigned long long) elapsed[1], (unsigned long long) elapsed[2]);
 #endif
 }

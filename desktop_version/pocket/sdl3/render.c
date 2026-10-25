@@ -539,6 +539,7 @@ static bool check_texture(const SDL_Texture *texture)
 }
 
 static void forget_keyed_sheet(const Texture *t);
+static void forget_repeat_sheet(const Texture *t);
 
 SDL_Renderer *SDL_CreateRenderer(SDL_Window *window, const char *name)
 {
@@ -729,6 +730,7 @@ void SDL_DestroyTexture(SDL_Texture *texture)
     }
     begin_change(t, false);
     forget_keyed_sheet(t);
+    forget_repeat_sheet(t);
     free_runs(t);
     SDL_free(t->buffer565);
     SDL_free(t->pixels);
@@ -1313,6 +1315,7 @@ static int src_line_size;
 /* The benchmark compares these shortcuts with the general paths. */
 bool POCKET_tint_runs = true;
 bool POCKET_scroll_fast = true;
+bool POCKET_warp_tiles_fast = true;
 bool POCKET_copy_fast = true;
 
 /* Counts a texture's pixels in a rectangle that are clear (alpha 0) and
@@ -2206,6 +2209,128 @@ bool POCKET_CopyOpaqueTile(SDL_Renderer *renderer, SDL_Texture *sheet, int sx, i
         SDL_memcpy(dst->pixels565 + kept_row(dst, row) * dst->pitch565 + clip.x, s, (size_t) clip.w * 2);
     }
     PART_END(1);
+    return true;
+}
+
+/* One small repeated tile, expanded into rows with runs of opaque pixels.
+ * The sheet may contain other tiles with partial alpha; only this region
+ * must be opaque or clear. Pixel changes and destruction invalidate it. */
+#define REPEAT_WIDTH (POCKET_SCREEN_W + 16)
+static struct
+{
+    const Texture *of;
+    Uint32 changes;
+    SDL_Rect source;
+    bool valid, layout_valid, opaque;
+    int width, phase;
+    Uint16 tile[16][16];
+    Uint8 mask[16][16];
+    Uint16 rows[16][REPEAT_WIDTH];
+    Uint16 runs[16][REPEAT_WIDTH + 2];
+    int count[16];
+} repeat_sheet;
+
+static void forget_repeat_sheet(const Texture *t)
+{
+    if (repeat_sheet.of == t)
+        repeat_sheet.valid = repeat_sheet.layout_valid = false;
+}
+
+/* Batch nearest, unmodulated repetitions of a <=16x16 tile. Return false
+ * without drawing for partial alpha, unsupported blending or target format. */
+bool POCKET_RepeatTexture(SDL_Renderer *renderer, SDL_Texture *sheet,
+    const SDL_Rect *source, const SDL_Rect *area)
+{
+    if (!check_renderer(renderer) || !check_texture(sheet) || source == NULL || area == NULL)
+        return false;
+    Texture *src = texture_data(sheet), *dst = current_target(renderer);
+    if (src == dst || dst->pixels565 == NULL || src->clear_pending
+        || (src->mod_r & src->mod_g & src->mod_b & src->mod_a) != 255
+        || (src->blend != SDL_BLENDMODE_NONE && src->blend != SDL_BLENDMODE_BLEND)
+        || source->w <= 0 || source->h <= 0 || source->w > 16 || source->h > 16
+        || source->x < 0 || source->y < 0
+        || source->x > src->texture.w - source->w || source->y > src->texture.h - source->h
+        || area->w <= 0 || area->h <= 0)
+        return false;
+    const SDL_Rect bounds = {0, 0, dst->texture.w, dst->texture.h};
+    SDL_Rect clip;
+    if (!POCKET_IntersectRect(area, &bounds, &clip))
+        return true;
+    if (clip.w > REPEAT_WIDTH)
+        return false;
+    if (!repeat_sheet.valid || repeat_sheet.of != src || repeat_sheet.changes != src->changes
+        || SDL_memcmp(&repeat_sheet.source, source, sizeof(*source)) != 0)
+    {
+        repeat_sheet.valid = repeat_sheet.layout_valid = false;
+        repeat_sheet.opaque = true;
+        const Uint16 *packed = texels565(src);
+        const Uint32 *wide = texels(src);
+        const int pitch = src->alias_of != NULL ? src->alias_of->pitch565 : src->pitch565;
+        for (int y = 0; y < source->h; y++)
+            for (int x = 0; x < source->w; x++)
+            {
+                const size_t row = shown_row(src, source->y + y);
+                const Uint32 pixel = packed != NULL ? POCKET_FromRGB565(packed[row * pitch + source->x + x])
+                    : wide[row * src->texture.w + source->x + x];
+                const Uint32 alpha = pixel >> 24;
+                if (alpha != 0 && alpha != 255)
+                    return false;
+                repeat_sheet.tile[y][x] = POCKET_ToRGB565(pixel);
+                repeat_sheet.mask[y][x] = alpha == 255;
+                repeat_sheet.opaque &= alpha == 255;
+            }
+        repeat_sheet.of = src;
+        repeat_sheet.changes = src->changes;
+        repeat_sheet.source = *source;
+        repeat_sheet.valid = true;
+    }
+    if (src->blend == SDL_BLENDMODE_NONE && !repeat_sheet.opaque)
+        return false;
+    const int phase = (clip.x - area->x) % source->w;
+    if (!repeat_sheet.layout_valid || repeat_sheet.width != clip.w || repeat_sheet.phase != phase)
+    {
+        for (int y = 0; y < source->h; y++)
+        {
+            int start = -1, count = 0;
+            for (int x = 0; x <= clip.w; x++)
+            {
+                const int tx = (phase + x) % source->w;
+                const bool opaque = x < clip.w && repeat_sheet.mask[y][tx];
+                if (opaque)
+                {
+                    repeat_sheet.rows[y][x] = repeat_sheet.tile[y][tx];
+                    if (start < 0) start = x;
+                }
+                else if (start >= 0)
+                {
+                    repeat_sheet.runs[y][count++] = (Uint16) start;
+                    repeat_sheet.runs[y][count++] = (Uint16) (x - start);
+                    start = -1;
+                }
+            }
+            repeat_sheet.count[y] = count;
+        }
+        repeat_sheet.width = clip.w;
+        repeat_sheet.phase = phase;
+        repeat_sheet.layout_valid = true;
+    }
+    COUNT_CALL();
+    PART_SAMPLE_BEGIN();
+    if (repeat_sheet.opaque && clip.w == dst->texture.w && clip.h == dst->texture.h)
+        begin_change(dst, true);
+    else
+        begin_rows_change(dst, clip.y, clip.h);
+    for (int y = clip.y; y < clip.y + clip.h; y++)
+    {
+        const int ty = (y - area->y) % source->h;
+        Uint16 *row = dst->pixels565 + kept_row(dst, y) * dst->pitch565 + clip.x;
+        for (int i = 0; i < repeat_sheet.count[ty]; i += 2)
+        {
+            const int x = repeat_sheet.runs[ty][i], n = repeat_sheet.runs[ty][i + 1];
+            SDL_memcpy(row + x, repeat_sheet.rows[ty] + x, (size_t) n * 2);
+        }
+    }
+    PART_END(2);
     return true;
 }
 
