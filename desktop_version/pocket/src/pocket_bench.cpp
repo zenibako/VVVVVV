@@ -4,6 +4,7 @@
 #ifdef POCKET_BENCH
 
 #include "pocket_bench_report.h"
+#include "pocket_bench_profile.h"
 
 #include <SDL3/SDL.h>
 
@@ -31,6 +32,7 @@ extern Uint32 POCKET_print_us, POCKET_print_calls, POCKET_text_hits, POCKET_text
 extern char POCKET_last_kept[48];
 extern Uint32 POCKET_bg_us, POCKET_bg_tiles;
 extern "C" void POCKET_CountSeeThrough(SDL_Texture* texture, int x, int y, int w, int h, int* clear, int* partial);
+PocketBenchProfile POCKET_grav_profile;
 
 /* Keys held down, as input.c sends them (bit order there). */
 enum
@@ -106,6 +108,7 @@ typedef struct
     int room[2]; /* where the part ended, to show it ran where it meant to */
     Uint32 text_us, prints, text_hits, text_kept; /* font::print's, summed */
     Uint32 bg_us, bg_tiles; /* the tower background's update, summed */
+    PocketBenchProfile grav;
     char last_kept[48];
 }
 PartTimes;
@@ -127,6 +130,7 @@ static Uint32 loop_start, step_start, draw_start;
 static int colstate_start;
 static Uint32 print_us_start, prints_start, hits_start, kept_start;
 static Uint32 bg_us_start, bg_tiles_start;
+static PocketBenchProfile grav_start;
 static int steps_this_loop;
 
 static void start_part(void)
@@ -266,6 +270,7 @@ void POCKET_BenchLoopStart(void)
     kept_start = POCKET_text_kept;
     bg_us_start = POCKET_bg_us;
     bg_tiles_start = POCKET_bg_tiles;
+    grav_start = POCKET_grav_profile;
     steps_this_loop = 0;
 }
 
@@ -304,6 +309,11 @@ void POCKET_BenchLoopEnd(void)
     t->text_kept += POCKET_text_kept - kept_start;
     t->bg_us += POCKET_bg_us - bg_us_start;
     t->bg_tiles += POCKET_bg_tiles - bg_tiles_start;
+    for (int i = 0; i < POCKET_GRAV_PHASES; i++)
+    {
+        t->grav.us[i] += POCKET_grav_profile.us[i] - grav_start.us[i];
+        t->grav.calls[i] += POCKET_grav_profile.calls[i] - grav_start.calls[i];
+    }
     if (POCKET_text_kept != kept_start)
     {
         SDL_strlcpy(t->last_kept, POCKET_last_kept, sizeof(t->last_kept));
@@ -379,10 +389,13 @@ static void grey_copy(void)
  * then three times with the cache on. */
 static int cache_cases, cache_same;
 
-static SDL_Surface* draw_case(uint32_t flags, int x, int y, const char* text, uint8_t r, uint8_t g, uint8_t b)
+static SDL_Surface* draw_case(uint32_t flags, int x, int y, const char* text, uint8_t r, uint8_t g, uint8_t b, bool clock = false)
 {
     graphics.fill_rect(40, 60, 90);
-    font::print(flags, x, y, text, r, g, b);
+    if (clock)
+        font::print_clock(flags, x, y, text, r, g, b);
+    else
+        font::print(flags, x, y, text, r, g, b);
     return SDL_RenderReadPixels(gameScreen.m_renderer, NULL);
 }
 
@@ -403,15 +416,15 @@ static bool same_pixels(const SDL_Surface* a, const SDL_Surface* b)
     return true;
 }
 
-static void check_case(uint32_t flags, int x, int y, const char* text, uint8_t r, uint8_t g, uint8_t b)
+static void check_case(uint32_t flags, int x, int y, const char* text, uint8_t r, uint8_t g, uint8_t b, bool clock = false)
 {
     POCKET_text_cache = false;
     SDL_Surface* slow = draw_case(flags, x, y, text, r, g, b);
     POCKET_text_cache = true;
     /* Drawn once as it always was, then into the cache, then from it. */
-    SDL_Surface* first = draw_case(flags, x, y, text, r, g, b);
-    SDL_Surface* again = draw_case(flags, x, y, text, r, g, b);
-    SDL_Surface* third = draw_case(flags, x, y, text, r, g, b);
+    SDL_Surface* first = draw_case(flags, x, y, text, r, g, b, clock);
+    SDL_Surface* again = draw_case(flags, x, y, text, r, g, b, clock);
+    SDL_Surface* third = draw_case(flags, x, y, text, r, g, b, clock);
     cache_cases++;
     if (same_pixels(slow, first) && same_pixels(slow, again) && same_pixels(slow, third))
     {
@@ -443,6 +456,9 @@ static void check_text_cache(void)
         check_case(PR_3X | PR_BOR | PR_CEN, -1, 200, "GO!", 220, 220, 255);
         check_case(PR_BOR | PR_BRIGHTNESS(128), 2, 0, "Dimmed", 255, 128, 64);
         check_case(PR_BOR, -4, 236, "Edge of the screen", 10, 20, 30);
+        const char* clocks[] = {"59.96", "10.00", "9.96", "0.00"};
+        for (size_t c = 0; c < SDL_arraysize(clocks); c++)
+            check_case(PR_2X | PR_CEN | PR_BOR, -1, 20, clocks[c], 196, 196, 255, true);
         graphics.flipmode = flipmode;
     }
     graphics.set_render_target(NULL);
@@ -450,6 +466,18 @@ static void check_text_cache(void)
 
 static void cached_letter(void) { font::print(0, 8, 8, "A", 196, 196, 196); }
 static void cached_bordered(void) { font::print(PR_BOR, 8, 8, "ABCDEFGHIJ", 196, 196, 196); }
+
+static int clock_micro_tick;
+static void original_clock(void)
+{
+    const std::string text = help.timestring(1799 - clock_micro_tick++ % 60);
+    font::print(PR_2X | PR_CEN | PR_BOR, -1, 20, text, 196, 196, 255);
+}
+static void cached_clock(void)
+{
+    const std::string text = help.timestring(1799 - clock_micro_tick++ % 60);
+    font::print_clock(PR_2X | PR_CEN | PR_BOR, -1, 20, text.c_str(), 196, 196, 255);
+}
 
 void POCKET_BenchDraw(void)
 {
@@ -507,6 +535,20 @@ void POCKET_BenchDraw(void)
             report.add("%-9s %s %3u.%u %3u.%u %2u.%u", parts[i].name, text,
                 prints / 10, prints % 10, hits / 10, hits % 10, kept / 10, kept % 10);
         }
+        report.add("Gravitron split: ms/frame, calls/frame");
+        static const char* phase_names[] = {
+            "bg update", "bg draw", "enemy spawn", "enemy move",
+            "enemy collide", "enemy animate", "enemy draw"
+        };
+        const PartTimes* grav = &times[PART_COUNT - 1];
+        for (int i = 0; i < POCKET_GRAV_PHASES; i++)
+        {
+            char elapsed[8];
+            ms(elapsed, sizeof(elapsed), grav->grav.us[i], grav->frames);
+            const unsigned calls = grav->frames ? grav->grav.calls[i] * 10 / grav->frames : 0;
+            report.add("%-14s %s %3u.%u", phase_names[i], elapsed, calls / 10, calls % 10);
+        }
+        report.add("split times are included in frame totals");
         report.add("slowest:   frame logic draw colour");
         for (int i = 0; i < slow_count; i++)
         {
@@ -537,6 +579,11 @@ void POCKET_BenchDraw(void)
             (unsigned) bordered, (unsigned) cached_bor);
         report.add("text cache same: %d of %d",
             cache_same, cache_cases);
+        clock_micro_tick = 0;
+        const Uint32 clock_old = text_us(original_clock, 60, 1);
+        clock_micro_tick = 0;
+        const Uint32 clock_new = text_us(cached_clock, 60, 1);
+        report.add("changing clock us: old %u new %u", (unsigned) clock_old, (unsigned) clock_new);
         /* Whether the tower's background tiles could be copied as they
          * are, needing nothing under them. */
         int tiles = 0, clear_tiles = 0, partial_tiles = 0;

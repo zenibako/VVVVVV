@@ -2566,7 +2566,7 @@ void gamerender(void)
         if (game.swngame == SWN_GRAVITRON)
         {
             std::string tempstring = help.timestring(game.swntimer);
-            font::print(PR_2X | PR_CEN | PR_BOR, -1, 20, tempstring, 220 - (help.glow), 220 - (help.glow), 255 - (help.glow / 2));
+            font::print_clock(PR_2X | PR_CEN | PR_BOR, -1, 20, tempstring.c_str(), 220 - (help.glow), 220 - (help.glow), 255 - (help.glow / 2));
         }
         else if (game.swngame == SWN_SUPERGRAVITRON)
         {

@@ -7,6 +7,7 @@
 #include "Map.h"
 #include "Script.h"
 #include "UtilityClass.h"
+#include "../pocket/src/pocket_bench_profile.h"
 
 static inline void titleupdatetextcol(void)
 {
@@ -42,6 +43,7 @@ void gamerenderfixed(void)
     {
         for (size_t i = 0; i < obj.entities.size(); i++)
         {
+            POCKET_GRAV_SCOPE(POCKET_GRAV_ENEMY_ANIMATE, obj.entities[i].type == EntityType_GRAVITRON_ENEMY);
             if (obj.entitycollidefloor(i))
             {
                 obj.entities[i].visualonground = 2;
@@ -126,6 +128,7 @@ void gamerenderfixed(void)
             continue;
         }
 
+        POCKET_GRAV_SCOPE(POCKET_GRAV_ENEMY_ANIMATE, obj.entities[i].type == EntityType_GRAVITRON_ENEMY);
         obj.entities[i].updatecolour();
     }
 

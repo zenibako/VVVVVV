@@ -121,13 +121,20 @@ AUDIO_TEST_BIN := $(BUILD_DIR)/host/audio_test
 BENCH_STARTUP_TEST_BIN := $(BUILD_DIR)/host/bench_startup_test
 BENCH_SAVEFS_TEST_BIN := $(BUILD_DIR)/host/bench_savefs_test
 BENCH_REPORT_TEST_BIN := $(BUILD_DIR)/host/bench_report_test
-test: $(TEST_BIN) $(SAVEFS_TEST_BIN) $(AUDIO_TEST_BIN) $(BENCH_STARTUP_TEST_BIN) $(BENCH_SAVEFS_TEST_BIN) $(BENCH_REPORT_TEST_BIN)
+BENCH_PROFILE_TEST_BIN := $(BUILD_DIR)/host/bench_profile_test
+test: $(TEST_BIN) $(SAVEFS_TEST_BIN) $(AUDIO_TEST_BIN) $(BENCH_STARTUP_TEST_BIN) $(BENCH_SAVEFS_TEST_BIN) $(BENCH_REPORT_TEST_BIN) $(BENCH_PROFILE_TEST_BIN)
 	$(TEST_BIN)
 	$(SAVEFS_TEST_BIN)
 	$(AUDIO_TEST_BIN)
 	$(BENCH_STARTUP_TEST_BIN)
 	$(BENCH_SAVEFS_TEST_BIN)
 	$(BENCH_REPORT_TEST_BIN)
+	$(BENCH_PROFILE_TEST_BIN)
+
+$(BENCH_PROFILE_TEST_BIN): $(POCKET_ROOT)/tests/bench_profile_test.cpp $(POCKET_ROOT)/src/pocket_bench_profile.h
+	@mkdir -p $(dir $@)
+	$(HOST_CXX) -std=c++98 -Wall -Wextra -g $(HOST_SANITIZE) -DPOCKET_BENCH -DOF_PC \
+		-I$(SDK_DIR)/include $< -o $@
 
 $(BENCH_REPORT_TEST_BIN): $(POCKET_ROOT)/tests/bench_report_test.cpp $(POCKET_ROOT)/src/pocket_bench_report.h
 	@mkdir -p $(dir $@)
@@ -211,7 +218,8 @@ ifeq ($(HOST_BENCH_SMOKE),1)
 # The font timer is part of the Pocket cache, which also runs on host SDL.
 $(call host_object,$(GAME_ROOT)/src/Font.cpp): HOST_DEFS += -DVVV_POCKET
 $(call host_object,$(POCKET_ROOT)/tests/bench_smoke.cpp): \
-	$(POCKET_ROOT)/src/pocket_bench.cpp $(POCKET_ROOT)/src/pocket_bench.h $(POCKET_ROOT)/src/pocket_bench_report.h
+	$(POCKET_ROOT)/src/pocket_bench.cpp $(POCKET_ROOT)/src/pocket_bench.h $(POCKET_ROOT)/src/pocket_bench_report.h \
+	$(POCKET_ROOT)/src/pocket_bench_profile.h $(POCKET_ROOT)/tests/clock_pixels.h $(GAME_ROOT)/src/Font.h
 endif
 
 define HOST_C_RULE
@@ -281,8 +289,17 @@ HOST_RENDER_DIR := $(HOST_DIR)/render
 HOST_RENDER_BIN := $(HOST_RENDER_DIR)/vvvvvv
 host_render_object = $(HOST_RENDER_DIR)/obj/$(subst ../,__parent__/,$(basename $(1))).o
 HOST_RENDER_C_SRCS := $(HOST_C_SRCS) $(RENDER_SRCS)
-HOST_RENDER_OBJS := $(foreach src,$(HOST_RENDER_C_SRCS) $(HOST_CXX_SRCS),$(call host_render_object,$(src))) \
-	$(HOST_RENDER_DIR)/obj/present.o
+HOST_RENDER_OBJS := $(foreach src,$(HOST_RENDER_C_SRCS) $(HOST_CXX_SRCS),$(call host_render_object,$(src)))
+ifeq ($(HOST_BENCH_SMOKE),1)
+$(call host_render_object,$(GAME_ROOT)/src/Font.cpp): HOST_DEFS += -DVVV_POCKET
+$(call host_render_object,$(GAME_ROOT)/src/Graphics.cpp): HOST_DEFS += -DVVV_POCKET
+$(call host_render_object,$(POCKET_ROOT)/tests/bench_smoke.cpp): HOST_DEFS += -DPOCKET_SMOKE_RENDER
+$(call host_render_object,$(POCKET_ROOT)/tests/bench_smoke.cpp): \
+	$(POCKET_ROOT)/src/pocket_bench.cpp $(POCKET_ROOT)/src/pocket_bench.h $(POCKET_ROOT)/src/pocket_bench_report.h \
+	$(POCKET_ROOT)/src/pocket_bench_profile.h $(POCKET_ROOT)/tests/clock_pixels.h $(GAME_ROOT)/src/Font.h
+else
+HOST_RENDER_OBJS += $(HOST_RENDER_DIR)/obj/present.o
+endif
 HOST_RENDER_FLAGS = -include $(RENDER_RENAME) -I$(POCKET_ROOT)/sdl3
 
 define HOST_RENDER_C_RULE

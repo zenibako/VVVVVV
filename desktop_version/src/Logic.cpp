@@ -128,6 +128,8 @@ static void gotoroom_wrapper(const int rx, const int ry)
     map.gotoroom(rx, ry);
 }
 
+#include "../pocket/src/pocket_bench_profile.h"
+
 void gamelogic(void)
 {
     if (game.physics_frozen())
@@ -894,6 +896,7 @@ void gamelogic(void)
                     continue;
                 }
 
+                POCKET_GRAV_SCOPE(POCKET_GRAV_ENEMY_UPDATE, obj.entities[ie].type == EntityType_GRAVITRON_ENEMY);
                 bool entitygone = obj.updateentities(ie);          // Behavioral logic
                 if (entitygone) continue;
                 obj.updateentitylogic(ie);       // Basic Physics

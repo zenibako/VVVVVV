@@ -2086,6 +2086,8 @@ void Graphics::drawentities(void)
     }
 }
 
+#include "../pocket/src/pocket_bench_profile.h"
+
 void Graphics::drawentity(const int i, const int yoff)
 {
     if (!INBOUNDS_VEC(i, obj.entities))
@@ -2098,6 +2100,8 @@ void Graphics::drawentity(const int i, const int yoff)
     {
         return;
     }
+
+    POCKET_GRAV_SCOPE(POCKET_GRAV_ENEMY_DRAW, obj.entities[i].type == EntityType_GRAVITRON_ENEMY);
 
     SDL_Point tpoint;
 
@@ -2393,6 +2397,7 @@ void Graphics::drawentity(const int i, const int yoff)
 
 void Graphics::drawbackground( int t )
 {
+    POCKET_GRAV_SCOPE(POCKET_GRAV_BG_DRAW, true);
 #ifdef VVV_POCKET
     /* The Pocket draws each tile on the CPU, so a tower hallway's 1200
      * unscrolling tiles are drawn once into a texture and copied from it
@@ -2781,6 +2786,7 @@ void Graphics::drawbackground( int t )
 
 void Graphics::updatebackground(int t)
 {
+    POCKET_GRAV_SCOPE(POCKET_GRAV_BG_UPDATE, true);
     switch (t)
     {
     case 1:

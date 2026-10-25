@@ -66,6 +66,20 @@ The introduction is excluded from timing. Results include average frame,
 logic, drawing and text costs; press A to switch between results pages and
 take a screenshot of each page.
 
+The Gravitron split reports background update/drawing and enemy spawning,
+movement (including physics and wall collisions), pair collisions,
+animation/colour updates, and drawing (including warning indicators).
+Each phase shows milliseconds and calls per presented frame; these times
+are already included in the main frame totals. Animation counts both its
+physics probes and colour pass. Wave-spawn calls include delay checks.
+Invincibility keeps the run reproducible and skips harmful pixel collisions.
+
+The Pocket's story countdown reuses digit textures instead of caching each
+changing time string. It preserves the font's spacing, glow and border order;
+localized numerals and RTL text use the existing renderer. Results include
+an old/new comparison in microseconds for the same changing clock values,
+plus pixel comparisons for the optimized countdown.
+
 An opt-in host check runs the real scripted route with an accelerated test
 clock and AddressSanitizer/UBSan. It checks the Gravitron room, active enemy
 waves, countdown completion and report pages, and captures room/results BMPs:
@@ -82,6 +96,14 @@ SDL_VIDEODRIVER=dummy SDL_AUDIODRIVER=dummy SDL_RENDER_DRIVER=software \
 These host timings are synthetic and must not be used as Pocket performance
 results. The host check uses desktop SDL rendering with the Pocket text cache;
 physical Pocket timing remains separate.
+
+For the same route and 3,704 countdown pixel comparisons using the Pocket's
+actual software renderer, build `host-render` with the same
+`HOST_BENCH_SMOKE=1`, `HOST_DIR` and `SDL3_PREFIX` arguments, then run
+`../render/vvvvvv` from the captures directory. Both checks exercise all
+seven Gravitron phases. They also compare host wall time for old/new clock
+drawing using the real performance counter; that comparison is independent
+of the accelerated game clock and is still not Pocket performance.
 
 ## Sound
 

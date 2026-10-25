@@ -1404,7 +1404,8 @@ static bool print_cached(
     const char* text,
     const uint8_t r,
     const uint8_t g,
-    const uint8_t b
+    const uint8_t b,
+    const bool keep_glyph = false
 )
 {
     if (!POCKET_text_cache || drawing_cached_text)
@@ -1419,7 +1420,7 @@ static bool print_cached(
     /* A letter or two without a border is quicker drawn than copied. */
     const size_t length = SDL_strlen(text);
     if (length == 0 || length >= TEXT_CACHE_MAX_LEN
-        || (length <= 2 && !(flags & (PR_BOR | PR_FULLBOR))))
+        || (!keep_glyph && length <= 2 && !(flags & (PR_BOR | PR_FULLBOR))))
     {
         return false;
     }
@@ -1468,7 +1469,7 @@ static bool print_cached(
         {
             key = (key ^ fields[i]) * 16777619u;
         }
-        bool seen = false;
+        bool seen = keep_glyph;
         for (int i = 0; i < TEXT_SEEN_SIZE; i++)
         {
             if (text_seen[i] == key)
@@ -1565,14 +1566,15 @@ static bool print_cached(
 }
 #endif
 
-void print(
+static void print_impl(
     const uint32_t flags,
     int x,
     int y,
     const char* text,
     const uint8_t r,
     const uint8_t g,
-    const uint8_t b
+    const uint8_t b,
+    const bool cache_glyphs
 )
 {
 #ifdef POCKET_BENCH
@@ -1618,10 +1620,13 @@ void print(
     }
 
 #ifdef VVV_POCKET
-    if (print_cached(flags, pf, x, y, text, r, g, b))
+    const bool glyph_cache = cache_glyphs && !pf.rtl && POCKET_text_cache && !drawing_cached_text;
+    if (!glyph_cache && print_cached(flags, pf, x, y, text, r, g, b))
     {
         return;
     }
+#else
+    (void) cache_glyphs;
 #endif
 
     if (pf.border && !graphics.notextoutline)
@@ -1630,12 +1635,12 @@ void print(
 
         for (int offset = 0; offset < 4; offset++)
         {
-            print(
+            print_impl(
                 flags & ~PR_BOR & ~PR_CEN & ~PR_RIGHT & ~PR_RTL_XFLIP,
                 x + offsets[offset][0]*pf.scale,
                 y + offsets[offset][1]*pf.scale,
                 text,
-                0, 0, 0
+                0, 0, 0, cache_glyphs
             );
         }
     }
@@ -1646,12 +1651,12 @@ void print(
 
         for (int offset = 0; offset < 8; offset++)
         {
-            print(
+            print_impl(
                 flags & ~PR_FULLBOR & ~PR_CEN & ~PR_RIGHT & ~PR_RTL_XFLIP,
                 x + offsets[offset][0] * pf.scale,
                 y + offsets[offset][1] * pf.scale,
                 text,
-                0, 0, 0
+                0, 0, 0, cache_glyphs
             );
         }
     }
@@ -1667,6 +1672,18 @@ void print(
     uint32_t codepoint;
     while ((codepoint = UTF8_next(&text)))
     {
+#ifdef VVV_POCKET
+        if (glyph_cache)
+        {
+            const char glyph_text[] = {static_cast<char>(codepoint), '\0'};
+            const uint32_t glyph_flags = flags & ~(PR_BOR | PR_FULLBOR | PR_CEN | PR_RIGHT | PR_RTL_XFLIP);
+            if (print_cached(glyph_flags, pf, x + position, y - y_shift(pf), glyph_text, r, g, b, true))
+            {
+                position += get_advance(pf.font_sel, codepoint) * pf.scale;
+                continue;
+            }
+        }
+#endif
         position += font::print_char(
             pf.font_sel,
             codepoint,
@@ -1679,6 +1696,28 @@ void print(
             pf.brightness
         );
     }
+}
+
+void print(uint32_t flags, int x, int y, const char* text, uint8_t r, uint8_t g, uint8_t b)
+{
+    print_impl(flags, x, y, text, r, g, b, false);
+}
+
+void print_clock(uint32_t flags, int x, int y, const char* text, uint8_t r, uint8_t g, uint8_t b)
+{
+    /* Localized numerals and bidi text retain the existing renderer. The
+     * ASCII clock path preserves complete border passes before foreground,
+     * so wide glyphs never have their foreground covered by the next border. */
+    bool numeric = text[0] != '\0';
+    for (const char* c = text; *c != '\0'; c++)
+    {
+        if (!(*c >= '0' && *c <= '9') && *c != '.' && *c != ':')
+        {
+            numeric = false;
+            break;
+        }
+    }
+    print_impl(flags, x, y, text, r, g, b, numeric);
 }
 
 void print(
