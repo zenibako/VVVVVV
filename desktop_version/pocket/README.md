@@ -121,6 +121,14 @@ enabled in both measurements.
 `warp scroll us: old ... new ...` compares horizontal movement with column
 offsets, with tile batching enabled in both measurements.
 
+Tower full-background redraws batch the indexed 8x8 tile grid from the
+existing opaque tile sheet into contiguous row copies. The scrolling
+update path and colour/camera logic retain their existing behaviour.
+`tower updates: full ... scroll ...` reports how often each path runs;
+invincible camera corrections can request full redraws on consecutive
+updates, as well as the normal colour transitions. `tower redraw us:
+old ... new ...` compares both full-redraw implementations on device.
+
 An opt-in host check runs the real scripted route with an accelerated test
 clock and AddressSanitizer/UBSan. It checks the Gravitron room, active enemy
 waves, countdown completion and report pages, and captures room/results BMPs:
@@ -160,6 +168,10 @@ shared snapshots, pending clears, both pixel formats and extreme shifts.
 Window-copy checks compare the packed transfer with the original rows.
 Run `RENDER_TEST_PADDED=1 make render-test` as well to check framebuffer
 padding and its sentinel pixels.
+The Pocket-renderer check also compares 2,560 complete Tower backgrounds
+across all 30 colours, both directions, every pixel offset, wrap boundaries,
+camera jumps and transitions between full redraws and scrolling. Its Tower
+and Gravitron captures allow whole-frame comparisons with earlier builds.
 
 ## Sound
 

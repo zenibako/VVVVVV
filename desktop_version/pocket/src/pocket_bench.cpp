@@ -32,11 +32,12 @@ extern "C" bool POCKET_scroll_fast;
 extern "C" bool POCKET_warp_tiles_fast;
 extern "C" bool POCKET_copy_fast;
 extern "C" bool POCKET_column_ring;
+extern "C" bool POCKET_tower_grid_fast;
 extern bool POCKET_text_cache;
 extern bool POCKET_clock_border_cache;
 extern Uint32 POCKET_print_us, POCKET_print_calls, POCKET_text_hits, POCKET_text_kept;
 extern char POCKET_last_kept[48];
-extern Uint32 POCKET_bg_us, POCKET_bg_tiles;
+extern Uint32 POCKET_bg_us, POCKET_bg_tiles, POCKET_bg_full, POCKET_bg_scroll;
 extern "C" void POCKET_CountSeeThrough(SDL_Texture* texture, int x, int y, int w, int h, int* clear, int* partial);
 PocketBenchProfile POCKET_grav_profile;
 bool POCKET_grav_draw_active;
@@ -116,6 +117,7 @@ typedef struct
     int room[2]; /* where the part ended, to show it ran where it meant to */
     Uint32 text_us, prints, text_hits, text_kept; /* font::print's, summed */
     Uint32 bg_us, bg_tiles; /* the tower background's update, summed */
+    Uint32 bg_full, bg_scroll;
     PocketBenchProfile grav;
     Uint32 draw_other, draw_overlap;
     char last_kept[48];
@@ -138,7 +140,7 @@ static FrameTimes frame_us;
 static Uint32 loop_start, step_start, draw_start;
 static int colstate_start;
 static Uint32 print_us_start, prints_start, hits_start, kept_start;
-static Uint32 bg_us_start, bg_tiles_start;
+static Uint32 bg_us_start, bg_tiles_start, bg_full_start, bg_scroll_start;
 static PocketBenchProfile grav_start;
 static int steps_this_loop;
 
@@ -289,6 +291,8 @@ void POCKET_BenchLoopStart(void)
     kept_start = POCKET_text_kept;
     bg_us_start = POCKET_bg_us;
     bg_tiles_start = POCKET_bg_tiles;
+    bg_full_start = POCKET_bg_full;
+    bg_scroll_start = POCKET_bg_scroll;
     grav_start = POCKET_grav_profile;
     steps_this_loop = 0;
 }
@@ -328,6 +332,8 @@ void POCKET_BenchLoopEnd(void)
     t->text_kept += POCKET_text_kept - kept_start;
     t->bg_us += POCKET_bg_us - bg_us_start;
     t->bg_tiles += POCKET_bg_tiles - bg_tiles_start;
+    t->bg_full += POCKET_bg_full - bg_full_start;
+    t->bg_scroll += POCKET_bg_scroll - bg_scroll_start;
     const Uint32 draw_before = POCKET_GravDrawTime(&t->grav);
     for (int i = 0; i < POCKET_GRAV_PHASES; i++)
     {
@@ -505,6 +511,12 @@ static void cached_clock(void)
 }
 
 static void warp_background(void) { graphics.updatebackground(3); }
+static TowerBG tower_micro_bg;
+static void redraw_tower(void)
+{
+    tower_micro_bg.tdrawback = true;
+    graphics.updatetowerbackground(tower_micro_bg);
+}
 
 static void window_copy(void)
 {
@@ -551,6 +563,9 @@ void POCKET_BenchDraw(void)
             report.add("%-9s %s %5u", parts[i].name, bg,
                 (unsigned) (t->bg_tiles / t->frames));
         }
+        for (int i = 0; i < PART_COUNT; i++)
+            if (parts[i].name != NULL && SDL_strcmp(parts[i].name, "tower") == 0)
+                report.add("tower updates: full %u scroll %u", (unsigned) times[i].bg_full, (unsigned) times[i].bg_scroll);
         report.add("a frame: text ms, prints, cached, new");
         for (int i = 0; i < PART_COUNT; i++)
         {
@@ -666,6 +681,12 @@ void POCKET_BenchDraw(void)
         POCKET_copy_fast = true;
         const Uint32 copy_new = text_us(window_copy, 100, 1);
         report.add("window copy us: old %u new %u", (unsigned) copy_old, (unsigned) copy_new);
+        tower_micro_bg = graphics.towerbg;
+        POCKET_tower_grid_fast = false;
+        const Uint32 tower_old = text_us(redraw_tower, 60, 1);
+        POCKET_tower_grid_fast = true;
+        const Uint32 tower_new = text_us(redraw_tower, 60, 1);
+        report.add("tower redraw us: old %u new %u", (unsigned) tower_old, (unsigned) tower_new);
         /* Whether the tower's background tiles could be copied as they
          * are, needing nothing under them. */
         int tiles = 0, clear_tiles = 0, partial_tiles = 0;

@@ -20,6 +20,7 @@
  * texture copied unchanged onto another of its size is shared until one of
  * the two is drawn on. */
 #include <SDL3/SDL.h>
+#include <limits.h>
 
 #include "render_internal.h"
 
@@ -1374,6 +1375,7 @@ bool POCKET_scroll_fast = true;
 bool POCKET_warp_tiles_fast = true;
 bool POCKET_copy_fast = true;
 bool POCKET_column_ring = true;
+bool POCKET_tower_grid_fast = true;
 
 /* Counts a texture's pixels in a rectangle that are clear (alpha 0) and
  * that are partly see-through, for the benchmark to tell which tiles can
@@ -2292,6 +2294,86 @@ bool POCKET_CopyOpaqueTile(SDL_Renderer *renderer, SDL_Texture *sheet, int sx, i
         copy_packed_span(dst->pixels565 + kept_row(dst, row) * dst->pitch565,
             dst->texture.w, kept_column(dst, clip.x), s, src->texture.w,
             shown_column(src, sx + clip.x - x), clip.w);
+    }
+    PART_END(1);
+    return true;
+}
+
+/* Draw an indexed 8x8 opaque tile grid with one target mutation and one
+ * destination copy per pixel row. Gather short tile spans into a scratch
+ * row so the destination is written contiguously, including ring targets. */
+bool POCKET_CopyOpaqueGrid(SDL_Renderer *renderer, SDL_Texture *sheet,
+    const Uint16 *tiles, int columns, int rows, int x, int y)
+{
+    if (!check_renderer(renderer) || !check_texture(sheet) || tiles == NULL
+        || columns <= 0 || rows <= 0 || columns > 64 || rows > 64)
+        return false;
+    if (x > INT_MAX - columns * 8 || y > INT_MAX - rows * 8)
+        return false;
+    Texture *src = texture_data(sheet), *dst = current_target(renderer);
+    if (src == dst || dst->pixels565 == NULL || src->clear_pending
+        || texels565(src) == NULL || !src->opaque
+        || (src->mod_r & src->mod_g & src->mod_b & src->mod_a) != 255
+        || (src->blend != SDL_BLENDMODE_NONE && src->blend != SDL_BLENDMODE_BLEND)
+        || src->texture.w < 8 || src->texture.h < 8
+        || src->texture.w % 8 != 0 || src->texture.h % 8 != 0
+        || shown_row(src, 0) != 0 || shown_column(src, 0) != 0)
+        return false;
+    const int sheet_columns = src->texture.w / 8;
+    const int sheet_tiles = sheet_columns * (src->texture.h / 8);
+    for (int i = 0; i < columns * rows; i++)
+        if (tiles[i] >= sheet_tiles)
+            return false;
+    const SDL_Rect wanted = {x, y, columns * 8, rows * 8};
+    const SDL_Rect bounds = {0, 0, dst->texture.w, dst->texture.h};
+    SDL_Rect clip;
+    if (!POCKET_IntersectRect(&wanted, &bounds, &clip))
+        return true;
+    if (clip.w > POCKET_SCREEN_W + 16)
+        return false;
+    COUNT_CALL();
+    PART_SAMPLE_BEGIN();
+    if (clip.w == dst->texture.w && clip.h == dst->texture.h)
+        begin_change(dst, true);
+    else
+        begin_rows_change(dst, clip.y, clip.h);
+    const Uint16 *pixels = texels565(src);
+    const int pitch = src->alias_of != NULL ? src->alias_of->pitch565 : src->pitch565;
+    struct Span { const Uint16 *source; int destination, count; } spans[64];
+    Uint16 line[POCKET_SCREEN_W + 16];
+    const int first_column = (clip.x - x) / 8;
+    const int last_column = (clip.x + clip.w - 1 - x) / 8;
+    const int first_row = (clip.y - y) / 8;
+    const int last_row = (clip.y + clip.h - 1 - y) / 8;
+    for (int j = first_row; j <= last_row; j++)
+    {
+        int count = 0;
+        for (int i = first_column; i <= last_column; i++)
+        {
+            const int tile = tiles[j * columns + i];
+            const int left = SDL_max(clip.x, x + i * 8);
+            const int right = SDL_min(clip.x + clip.w, x + i * 8 + 8);
+            spans[count].source = pixels + (size_t) (tile / sheet_columns * 8) * pitch
+                + tile % sheet_columns * 8 + left - (x + i * 8);
+            spans[count].destination = left - clip.x;
+            spans[count++].count = right - left;
+        }
+        const int top = SDL_max(clip.y, y + j * 8);
+        const int bottom = SDL_min(clip.y + clip.h, y + j * 8 + 8);
+        for (int py = top; py < bottom; py++)
+        {
+            const size_t source_row = (size_t) (py - y - j * 8) * pitch;
+            for (int i = 0; i < count; i++)
+            {
+                const struct Span *span = &spans[i];
+                if (span->count == 8)
+                    SDL_memcpy(line + span->destination, span->source + source_row, 8 * sizeof(Uint16));
+                else
+                    SDL_memcpy(line + span->destination, span->source + source_row, (size_t) span->count * 2);
+            }
+            copy_packed_span(dst->pixels565 + kept_row(dst, py) * dst->pitch565,
+                dst->texture.w, kept_column(dst, clip.x), line, clip.w, 0, clip.w);
+        }
     }
     PART_END(1);
     return true;

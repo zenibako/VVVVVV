@@ -866,10 +866,12 @@ void Graphics::drawtile2(int x, int y, int t)
 #include "of_timer.h"
 /* For the benchmark: time spent updating the tower's background, and the
  * tiles it and drawtile3 drew. */
-Uint32 POCKET_bg_us, POCKET_bg_tiles;
+Uint32 POCKET_bg_us, POCKET_bg_tiles, POCKET_bg_full, POCKET_bg_scroll;
 #define COUNT_BG_TILE() (POCKET_bg_tiles++)
+#define COUNT_BG_TILES(n) (POCKET_bg_tiles += (n))
 #else
 #define COUNT_BG_TILE() ((void) 0)
+#define COUNT_BG_TILES(n) ((void) 0)
 #endif
 
 void Graphics::drawtile3(int x, int y, int t, int off, int height_subtract /*= 0*/)
@@ -3052,6 +3054,13 @@ extern "C" void POCKET_ClearTileLayer(POCKET_TileLayer* layer);
 extern "C" void POCKET_PutTile(POCKET_TileLayer* layer, SDL_Texture* sheet, int sx, int sy, int x, int y, int w, int h);
 extern "C" bool POCKET_DrawTileLayer(SDL_Renderer* renderer, POCKET_TileLayer* layer, int src_y);
 extern "C" bool POCKET_CopyOpaqueTile(SDL_Renderer* renderer, SDL_Texture* sheet, int sx, int sy, int x, int y, int w, int h);
+extern "C" bool POCKET_CopyOpaqueGrid(SDL_Renderer*, SDL_Texture*, const Uint16*, int, int, int, int);
+#ifdef POCKET_BENCH
+extern "C" bool POCKET_tower_grid_fast;
+#else
+#define POCKET_tower_grid_fast true
+#endif
+
 
 static bool tower_texture_valid = false;
 
@@ -3314,6 +3323,8 @@ void Graphics::updatetowerbackground(TowerBG& bg_obj)
 {
 #ifdef POCKET_BENCH
     const Uint32 bench_start = of_time_us();
+    if (bg_obj.tdrawback) POCKET_bg_full++;
+    else POCKET_bg_scroll++;
     update_tower_background(bg_obj);
     POCKET_bg_us += of_time_us() - bench_start;
 }
@@ -3350,19 +3361,37 @@ void Graphics::update_tower_background(TowerBG& bg_obj)
             fill_rect(0, 0, texture_w, SDL_max(band_top, 0), 0, 0, 0, 255);
             fill_rect(0, band_bottom, texture_w, texture_h - band_bottom, 0, 0, 0, 255);
             fill_rect(40 * 8, band_top, texture_w - 40 * 8, band_bottom - band_top, 0, 0, 0, 255);
-            for (int j = -1; j < 32; j++)
+            bool copied = false;
+            if (POCKET_tower_grid_fast)
             {
-                for (int i = 0; i < 40; i++)
-                {
-                    const int t = map.tower.backat(i, j, bg_obj.bypos) + bg_obj.colstate * 30;
-                    const int x = i * 8;
-                    const int y = (j * 8) - (bg_obj.bypos % 8) - off;
-                    const int sx = (t % (width / 8)) * 8;
-                    const int sy = (t / (width / 8)) * 8;
-                    COUNT_BG_TILE();
-                    if (!POCKET_CopyOpaqueTile(gameScreen.m_renderer, sheet, sx, sy, x, y, 8, 8))
+                static Uint16 tiles[40 * 33];
+                bool valid = true;
+                for (int j = -1; j < 32; j++)
+                    for (int i = 0; i < 40; i++)
                     {
-                        draw_texture_part(sheet, x, y, sx, sy, 8, 8, 1, 1);
+                        const int t = map.tower.backat(i, j, bg_obj.bypos) + bg_obj.colstate * 30;
+                        if (t < 0 || t > 65535) valid = false;
+                        tiles[(j + 1) * 40 + i] = (Uint16) t;
+                    }
+                copied = valid && POCKET_CopyOpaqueGrid(gameScreen.m_renderer, sheet, tiles, 40, 33, 0, band_top);
+                if (copied) COUNT_BG_TILES(40 * 33);
+            }
+            if (!copied)
+            {
+                for (int j = -1; j < 32; j++)
+                {
+                    for (int i = 0; i < 40; i++)
+                    {
+                        const int t = map.tower.backat(i, j, bg_obj.bypos) + bg_obj.colstate * 30;
+                        const int x = i * 8;
+                        const int y = (j * 8) - (bg_obj.bypos % 8) - off;
+                        const int sx = (t % (width / 8)) * 8;
+                        const int sy = (t / (width / 8)) * 8;
+                        COUNT_BG_TILE();
+                        if (!POCKET_CopyOpaqueTile(gameScreen.m_renderer, sheet, sx, sy, x, y, 8, 8))
+                        {
+                            draw_texture_part(sheet, x, y, sx, sy, 8, 8, 1, 1);
+                        }
                     }
                 }
             }

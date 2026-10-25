@@ -14,6 +14,7 @@ bool POCKET_scroll_fast = true;
 bool POCKET_warp_tiles_fast = true;
 bool POCKET_copy_fast = true;
 bool POCKET_column_ring = true;
+bool POCKET_tower_grid_fast = true;
 /* Host rendering has no Pocket-only text cache or transparent-run index. */
 void POCKET_CountSeeThrough(SDL_Texture*, int, int, int, int, int* clear, int* partial)
 {
@@ -27,7 +28,7 @@ unsigned int of_time_us(void) { static unsigned int ticks; return ++ticks; }
 unsigned int of_time_ms(void) { return of_time_us() / 1000; }
 }
 
-static bool saw_enemy, saw_active, captured_room;
+static bool saw_enemy, saw_active, captured_room, captured_tower;
 static int max_enemies, renders, result_frames, captured_pages;
 static PocketBenchProfile results_profile;
 static bool near_end_sampled;
@@ -37,6 +38,7 @@ static bool save_capture(SDL_Surface* surface, const char* path);
 
 #include "clock_pixels.h"
 #include "background_pixels.h"
+#include "tower_pixels.h"
 
 static void check_window_copy(void)
 {
@@ -83,6 +85,14 @@ static bool smoke_present(SDL_Renderer* renderer)
         }
     }
     sent_keys = POCKET_bench_keys;
+    if (!captured_tower && part >= 0 && part < PART_COUNT && parts[part].name != NULL
+        && SDL_strcmp(parts[part].name, "tower") == 0 && step >= 300)
+    {
+        SDL_Surface* screen = SDL_RenderReadPixels(renderer, NULL);
+        assert(screen && save_capture(screen, "tower-room.bmp"));
+        SDL_DestroySurface(screen);
+        captured_tower = true;
+    }
     if (game.swnmode && game.swngame == SWN_GRAVITRON)
     {
         saw_active = true;
@@ -113,7 +123,7 @@ static bool smoke_present(SDL_Renderer* renderer)
     }
     if (finished)
     {
-        assert(saw_active && saw_enemy && captured_room);
+        assert(saw_active && saw_enemy && captured_room && captured_tower);
         const PartTimes& gravitron = times[PART_COUNT - 1];
         assert(gravitron.frames > 0);
         assert(gravitron.room[0] == 53 && gravitron.room[1] == 50);
@@ -159,6 +169,7 @@ static bool smoke_present(SDL_Renderer* renderer)
             assert(captured_pages == report.pages());
             check_clock_pixels();
             check_background_pixels();
+            check_tower_pixels();
             check_window_copy();
             printf("Draw accounting passed: %d rows, %d pages, no overlap; results do not change counters\n",
                 report.size(), report.pages());

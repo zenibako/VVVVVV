@@ -11,6 +11,7 @@
 #ifdef SDL_RenderClear
 bool POCKET_ScrollTexture(SDL_Texture *texture, int dx, int dy);
 bool POCKET_RepeatTexture(SDL_Renderer*, SDL_Texture*, const SDL_Rect*, const SDL_Rect*);
+bool POCKET_CopyOpaqueGrid(SDL_Renderer*, SDL_Texture*, const Uint16*, int, int, int, int);
 bool POCKET_ShiftTextureRows(SDL_Texture *texture, int dy);
 typedef struct POCKET_TileLayer POCKET_TileLayer;
 POCKET_TileLayer *POCKET_CreateTileLayer(int w, int h);
@@ -1012,6 +1013,88 @@ static void column_origins(SDL_Renderer *renderer, Capture *capture)
     SDL_DestroyTexture(stamp);
 }
 
+static void draw_grid(SDL_Renderer *renderer, SDL_Texture *sheet, const Uint16 *tiles,
+    int columns, int rows, int x, int y, bool supported)
+{
+#ifdef SDL_RenderClear
+    const bool drawn = POCKET_CopyOpaqueGrid(renderer, sheet, tiles, columns, rows, x, y);
+    assert(drawn == supported);
+    if (drawn) return;
+#else
+    (void) supported;
+#endif
+    for (int j = 0; j < rows; j++)
+        for (int i = 0; i < columns; i++)
+        {
+            const int tile = tiles[j * columns + i];
+            const SDL_FRect from = {(float) (tile % 4 * 8), (float) (tile / 4 * 8), 8, 8};
+            const SDL_FRect to = {(float) (x + i * 8), (float) (y + j * 8), 8, 8};
+            SDL_RenderTexture(renderer, sheet, &from, &to);
+        }
+}
+
+static void opaque_grid(SDL_Renderer *renderer, Capture *capture)
+{
+    SDL_Texture *sheet = SDL_CreateTexture(renderer, SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_TARGET, 32, 24);
+    SDL_SetRenderTarget(renderer, sheet);
+    SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255);
+    SDL_RenderClear(renderer);
+    for (int tile = 0; tile < 12; tile++)
+    {
+        SDL_SetRenderDrawColor(renderer, tile & 1 ? 255 : 0, tile & 2 ? 255 : 0, tile & 4 ? 255 : 0, 255);
+        const SDL_FRect rect = {(float) (tile % 4 * 8), (float) (tile / 4 * 8), 8, 8};
+        SDL_RenderFillRect(renderer, &rect);
+    }
+    SDL_SetTextureBlendMode(sheet, SDL_BLENDMODE_NONE);
+    SDL_Texture *image = SDL_CreateTexture(renderer, SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_TARGET, 336, 336);
+    SDL_Texture *temp = SDL_CreateTexture(renderer, SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_TARGET, 336, 336);
+    SDL_Texture *snapshot = SDL_CreateTexture(renderer, SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_TARGET, 336, 336);
+    SDL_SetTextureBlendMode(image, SDL_BLENDMODE_NONE);
+    SDL_SetTextureBlendMode(temp, SDL_BLENDMODE_NONE);
+    SDL_SetTextureBlendMode(snapshot, SDL_BLENDMODE_NONE);
+    scroll_pattern(renderer, image);
+    static const Uint16 tiles[12] = {11, 0, 5, 2, 8, 3, 7, 1, 4, 10, 6, 9};
+    draw_grid(renderer, sheet, tiles, 4, 3, -3, -5, true);
+    exact_target(renderer, capture, "grid clipped top");
+    scroll_offset(renderer, image, temp, -7, -3);
+    draw_grid(renderer, sheet, tiles, 4, 3, 314, 319, true);
+    exact_target(renderer, capture, "grid circular target");
+    SDL_SetRenderTarget(renderer, snapshot);
+    SDL_RenderTexture(renderer, image, NULL, NULL);
+    SDL_SetRenderTarget(renderer, image);
+    draw_grid(renderer, sheet, tiles, 4, 3, 19, 23, true);
+    exact_target(renderer, capture, "grid detached target");
+    SDL_SetRenderTarget(renderer, snapshot);
+    exact_target(renderer, capture, "grid snapshot retained");
+    SDL_SetRenderTarget(renderer, image);
+    SDL_SetTextureColorMod(sheet, 128, 255, 255);
+    draw_grid(renderer, sheet, tiles, 4, 3, 45, 67, false);
+    capture_target(renderer, capture, "grid tint fallback");
+    SDL_SetTextureColorMod(sheet, 255, 255, 255);
+    SDL_SetRenderDrawColor(renderer, 0, 255, 0, 255);
+    SDL_RenderClear(renderer);
+#ifdef SDL_RenderClear
+    Uint16 invalid[12];
+    SDL_memcpy(invalid, tiles, sizeof(invalid));
+    invalid[11] = 99;
+    capture_number(capture, "grid rejects invalid tile", POCKET_CopyOpaqueGrid(renderer, sheet, invalid, 4, 3, 0, 0));
+    capture_number(capture, "grid rejects overflowing area", POCKET_CopyOpaqueGrid(renderer, sheet, tiles, 4, 3, INT_MAX, 0));
+#else
+    capture_number(capture, "grid rejects invalid tile", 0);
+    capture_number(capture, "grid rejects overflowing area", 0);
+#endif
+    exact_target(renderer, capture, "invalid grid draws nothing");
+    SDL_SetRenderDrawColor(renderer, 0, 0, 0, 0);
+    SDL_RenderClear(renderer);
+    draw_grid(renderer, sheet, tiles, 4, 3, 20, 30, false);
+    capture_target(renderer, capture, "grid ARGB fallback");
+    SDL_SetRenderTarget(renderer, NULL);
+    SDL_DestroyTexture(snapshot);
+    SDL_DestroyTexture(temp);
+    SDL_DestroyTexture(image);
+    SDL_DestroyTexture(sheet);
+}
+
 static void surfaces(Capture *capture)
 {
     SDL_Surface *source = SDL_CreateSurface(8, 8, SDL_PIXELFORMAT_ARGB8888);
@@ -1090,6 +1173,7 @@ void RENDER_OPS(SDL_Renderer *renderer, Capture *capture)
     window_copies(renderer, capture);
     repeated_patterns(renderer, capture);
     column_origins(renderer, capture);
+    opaque_grid(renderer, capture);
     surfaces(capture);
     SDL_DestroyTexture(sprite);
 }
