@@ -5,9 +5,9 @@
 # sdk-container.sh mounts only the SDK.)
 set -euo pipefail
 
-POCKET_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-REPO_ROOT="$(cd "$POCKET_ROOT/.." && pwd -P)"
-SDK_ROOT="${SDK_ROOT:-$POCKET_ROOT/.deps/openfpgaos-sdk}"
+OPENFPGA_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+REPO_ROOT="$(cd "$OPENFPGA_ROOT/.." && pwd -P)"
+SDK_ROOT="${SDK_ROOT:-$OPENFPGA_ROOT/.deps/openfpgaos-sdk}"
 IMG="${SDK_IMG:-openfpgaos-firmware}"
 DOCKERFILE="${SDK_DOCKERFILE:-$SDK_ROOT/tools/docker/Dockerfile.firmware}"
 

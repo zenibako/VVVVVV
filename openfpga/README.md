@@ -3,7 +3,8 @@
 This directory builds VVVVVV as an [openfpgaOS](https://github.com/zenibako/openfpgaCore)
 app for the Analogue Pocket. It is an altered version of the game: see the
 [licence](../LICENSE.md). VVVVVV is copyright Terry Cavanagh, and this
-port is based on the VVVVVV source code.
+port is based on the VVVVVV source code. The `openfpga/` directory names
+the port; its hardware target remains the Analogue Pocket.
 
 The port is in progress. The plan and its phases are tracked in
 [zenibako/VVVVVV#1](https://github.com/zenibako/VVVVVV/issues/1).
@@ -31,8 +32,8 @@ build. The few changes they need are guarded by `VVV_POCKET`.
 
 ```sh
 git submodule update --init       # physfs, tinyxml2, lodepng, c-hashmap, SheenBidi, FAudio
-make -C pocket deps
-make -C pocket    # build/app.elf
+make -C openfpga deps
+make -C openfpga    # build/app.elf
 ```
 
 By default `make` compiles in the SDK's `openfpgaos-firmware` container, as
@@ -258,7 +259,7 @@ same compat headers, on desktop SDL3 and FAudio. Use it to debug game logic
 off the device: run `build/host/vvvvvv -assets <path to data.zip>`. Saves
 go to your desktop VVVVVV folder unless you also pass `-basedir <folder>/`.
 The host targets link the shared fonts and language directories beside
-their executables, so resource discovery works from root `pocket/`.
+their executables, so resource discovery works from root `openfpga/`.
 Pass `-translator` to enable the upstream developer translation tools;
 executable-adjacent resources do not enable that menu automatically.
 

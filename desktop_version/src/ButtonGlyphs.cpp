@@ -72,7 +72,7 @@ typedef enum
     GLYPH_NINTENDO_GAMECUBE_Z,
 
 #ifdef VVV_POCKET
-    /* Analogue Pocket; only in the Pocket build's fonts (pocket/fonts) */
+    /* Analogue Pocket; only in the Pocket build's fonts (openfpga/fonts) */
     GLYPH_POCKET_A,
     GLYPH_POCKET_B,
     GLYPH_POCKET_X,
@@ -170,7 +170,7 @@ static const char* glyph_layout[LAYOUT_TOTAL][SDL_GAMEPAD_BUTTON_RIGHT_SHOULDER 
         glyph[GLYPH_UNKNOWN], glyph[GLYPH_NINTENDO_GAMECUBE_Z]
     },
 #ifdef VVV_POCKET
-    { // POCKET: A is south and B east (pocket/sdl3/input.c)
+    { // POCKET: A is south and B east (openfpga/sdl3/input.c)
         glyph[GLYPH_POCKET_A], glyph[GLYPH_POCKET_B],
         glyph[GLYPH_POCKET_Y], glyph[GLYPH_POCKET_X],
         glyph[GLYPH_POCKET_SELECT], glyph[GLYPH_UNKNOWN], glyph[GLYPH_POCKET_START],

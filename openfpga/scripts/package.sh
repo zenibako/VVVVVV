@@ -10,11 +10,11 @@
 # file of the game's has the same name, wherever a copy puts it.
 set -euo pipefail
 
-POCKET_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-GAME_ROOT="$(cd "$POCKET_ROOT/../desktop_version" && pwd)"
-RUNTIME_DIR="$POCKET_ROOT/.deps/pocket-runtime"
-ELF="$POCKET_ROOT/build/app.elf"
-OUT="$POCKET_ROOT/build/sd"
+OPENFPGA_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+GAME_ROOT="$(cd "$OPENFPGA_ROOT/../desktop_version" && pwd)"
+RUNTIME_DIR="$OPENFPGA_ROOT/.deps/pocket-runtime"
+ELF="$OPENFPGA_ROOT/build/app.elf"
+OUT="$OPENFPGA_ROOT/build/sd"
 CORE_ID=zenibako.vvvvvv
 PLATFORM_ID=vvvvvv
 APP_NAME=vvvvvv
@@ -34,13 +34,13 @@ COMMON_DIR="$OUT/Assets/$PLATFORM_ID/common"
 INSTANCE_DIR="$OUT/Assets/$PLATFORM_ID/$CORE_ID"
 mkdir -p "$CORE_DIR" "$COMMON_DIR" "$INSTANCE_DIR" "$OUT/Platforms"
 
-cp "$POCKET_ROOT"/dist/core/*.json "$CORE_DIR/"
+cp "$OPENFPGA_ROOT"/dist/core/*.json "$CORE_DIR/"
 cp "$RUNTIME_DIR/os20.rbf_r" "$RUNTIME_DIR/loader.bin" "$CORE_DIR/"
 cp "$GAME_ROOT/../LICENSE.md" "$CORE_DIR/LICENSE.txt"
-cp "$POCKET_ROOT/dist/platforms/$PLATFORM_ID.json" "$OUT/Platforms/"
-cp "$POCKET_ROOT/dist/instance/vvvvvv.json" "$INSTANCE_DIR/$APP_NAME.json"
+cp "$OPENFPGA_ROOT/dist/platforms/$PLATFORM_ID.json" "$OUT/Platforms/"
+cp "$OPENFPGA_ROOT/dist/instance/vvvvvv.json" "$INSTANCE_DIR/$APP_NAME.json"
 cp "$RUNTIME_DIR/os.bin" "$COMMON_DIR/"
-sed "s/^ELF=vvvvvv\.elf$/ELF=$APP_NAME.elf/" "$POCKET_ROOT/dist/vvvvvv.ini" > "$COMMON_DIR/$APP_NAME.ini"
+sed "s/^ELF=vvvvvv\.elf$/ELF=$APP_NAME.elf/" "$OPENFPGA_ROOT/dist/vvvvvv.ini" > "$COMMON_DIR/$APP_NAME.ini"
 cp "$ELF" "$COMMON_DIR/$APP_NAME.elf"
 
 if [[ "$APP_NAME" != vvvvvv ]]; then
@@ -76,7 +76,7 @@ fi
 # Japanese and Korean fonts are left out for now: as ARGB8888 textures they
 # would take about 31 MB of the app's 54 MB, so those languages fall back
 # to the 8x8 font until the renderer keeps alpha-only textures.
-python3 - "$GAME_ROOT" "$POCKET_ROOT/fonts" "$COMMON_DIR/vvvvvv-repo.zip" <<'PY'
+python3 - "$GAME_ROOT" "$OPENFPGA_ROOT/fonts" "$COMMON_DIR/vvvvvv-repo.zip" <<'PY'
 import pathlib
 import sys
 import zipfile

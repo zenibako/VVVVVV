@@ -1,11 +1,11 @@
 # VVVVVV for Analogue Pocket
 
 This fork adds an [openfpgaOS](https://github.com/zenibako/openfpgaCore) port
-of VVVVVV. The Pocket platform code, builds, benchmarks and packaging live
-in [`pocket/`](pocket/). The shared C++ engine and game resources remain in
+of VVVVVV. The openfpgaOS port code, builds, benchmarks and packaging live
+in [`openfpga/`](openfpga/). The shared C++ engine and game resources remain in
 [`desktop_version/`](desktop_version/) to follow upstream's layout.
 
-- [Build, test and install the Pocket port](pocket/README.md)
+- [Build, test and install the Pocket port](openfpga/README.md)
 - [Port plan and progress](https://github.com/zenibako/VVVVVV/issues/1)
 - [Upstream VVVVVV](https://github.com/TerryCavanagh/VVVVVV)
 

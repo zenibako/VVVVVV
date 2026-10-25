@@ -7,7 +7,7 @@ on:
   push:
     paths:
       - "desktop_version/CMakeLists.txt"
-      - "pocket/src/pocket_bench_profile.h"
+      - "openfpga/src/pocket_bench_profile.h"
       - "desktop_version/src/ButtonGlyphs.cpp"
       - "desktop_version/src/FileSystemUtils.cpp"
       - "desktop_version/src/Screen.cpp"
@@ -26,7 +26,7 @@ on:
   pull_request:
     paths:
       - "desktop_version/CMakeLists.txt"
-      - "pocket/src/pocket_bench_profile.h"
+      - "openfpga/src/pocket_bench_profile.h"
       - "desktop_version/src/ButtonGlyphs.cpp"
       - "desktop_version/src/FileSystemUtils.cpp"
       - "desktop_version/src/Screen.cpp"

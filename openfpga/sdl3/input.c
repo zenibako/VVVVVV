@@ -6,7 +6,7 @@
  * to confirm and B to go back: A (right) is SDL's south button, which the
  * game uses to confirm and flip, and B (bottom) is east, its back button.
  * X (top) and Y (left) map by position. The game shows Pocket button glyphs
- * for them (ButtonGlyphs.cpp, pocket/fonts). */
+ * for them (ButtonGlyphs.cpp, openfpga/fonts). */
 #include <SDL3/SDL.h>
 
 #include "of_input.h"

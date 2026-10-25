@@ -181,7 +181,7 @@ endif()
 
 # Include Directories
 # Pocket profiling hooks are no-ops in ordinary desktop/Android builds.
-target_include_directories(VVVVVV PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/../pocket/src")
+target_include_directories(VVVVVV PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/../openfpga/src")
 if(BUNDLE_DEPENDENCIES)
     target_include_directories(
         VVVVVV PRIVATE
