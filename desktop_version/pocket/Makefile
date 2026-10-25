@@ -230,7 +230,7 @@ ifeq ($(HOST_BENCH_SMOKE),1)
 $(call host_object,$(GAME_ROOT)/src/Font.cpp): HOST_DEFS += -DVVV_POCKET
 $(call host_object,$(POCKET_ROOT)/tests/bench_smoke.cpp): \
 	$(POCKET_ROOT)/src/pocket_bench.cpp $(POCKET_ROOT)/src/pocket_bench.h $(POCKET_ROOT)/src/pocket_bench_report.h \
-	$(POCKET_ROOT)/src/pocket_bench_profile.h $(POCKET_ROOT)/tests/clock_pixels.h $(POCKET_ROOT)/tests/background_pixels.h $(POCKET_ROOT)/tests/tower_pixels.h $(GAME_ROOT)/src/Font.h
+	$(POCKET_ROOT)/src/pocket_bench_profile.h $(POCKET_ROOT)/tests/clock_pixels.h $(POCKET_ROOT)/tests/font_alpha_pixels.h $(POCKET_ROOT)/tests/background_pixels.h $(POCKET_ROOT)/tests/tower_pixels.h $(GAME_ROOT)/src/Font.h
 endif
 
 define HOST_C_RULE
@@ -307,7 +307,7 @@ $(call host_render_object,$(GAME_ROOT)/src/Graphics.cpp): HOST_DEFS += -DVVV_POC
 $(call host_render_object,$(POCKET_ROOT)/tests/bench_smoke.cpp): HOST_DEFS += -DPOCKET_SMOKE_RENDER
 $(call host_render_object,$(POCKET_ROOT)/tests/bench_smoke.cpp): \
 	$(POCKET_ROOT)/src/pocket_bench.cpp $(POCKET_ROOT)/src/pocket_bench.h $(POCKET_ROOT)/src/pocket_bench_report.h \
-	$(POCKET_ROOT)/src/pocket_bench_profile.h $(POCKET_ROOT)/tests/clock_pixels.h $(POCKET_ROOT)/tests/background_pixels.h $(POCKET_ROOT)/tests/tower_pixels.h $(GAME_ROOT)/src/Font.h
+	$(POCKET_ROOT)/src/pocket_bench_profile.h $(POCKET_ROOT)/tests/clock_pixels.h $(POCKET_ROOT)/tests/font_alpha_pixels.h $(POCKET_ROOT)/tests/background_pixels.h $(POCKET_ROOT)/tests/tower_pixels.h $(GAME_ROOT)/src/Font.h
 else
 HOST_RENDER_OBJS += $(HOST_RENDER_DIR)/obj/present.o
 endif
