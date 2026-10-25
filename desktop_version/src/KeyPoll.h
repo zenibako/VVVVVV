@@ -57,6 +57,8 @@ public:
     bool isDown(std::vector<SDL_GamepadButton> buttons);
     bool isDown(SDL_GamepadButton button);
     bool controllerButtonDown(void);
+    bool controllerWantsMenuAccept(void);
+    bool controllerWantsMenuBack(void);
     bool controllerWantsLeft(bool includeVert);
     bool controllerWantsRight(bool includeVert);
     bool controllerWantsUp(void);

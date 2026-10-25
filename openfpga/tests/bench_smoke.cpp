@@ -40,6 +40,7 @@ static bool save_capture(SDL_Surface* surface, const char* path);
 #include "background_pixels.h"
 #include "tower_pixels.h"
 #include "font_alpha_pixels.h"
+#include "controls.h"
 
 static void check_window_copy(void)
 {
@@ -71,6 +72,11 @@ static void check_window_copy(void)
 static bool smoke_present(SDL_Renderer* renderer)
 {
     assert(!game.over30mode);
+    if (getenv("POCKET_TEST_CONTROLS") != NULL)
+    {
+        check_controls();
+        exit(0);
+    }
     if (getenv("POCKET_TEST_FONT_ALPHA") != NULL)
     {
         check_font_alpha_pixels();

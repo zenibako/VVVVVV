@@ -615,6 +615,25 @@ bool KeyPoll::controllerButtonDown(void)
     return false;
 }
 
+bool KeyPoll::controllerWantsMenuBack(void)
+{
+#ifdef VVV_POCKET
+    return isDown(SDL_GAMEPAD_BUTTON_EAST) || isDown(SDL_GAMEPAD_BUTTON_START);
+#else
+    return isDown(game.controllerButton_esc);
+#endif
+}
+
+bool KeyPoll::controllerWantsMenuAccept(void)
+{
+#ifdef VVV_POCKET
+    /* Menu controls stay usable even when gameplay actions are rebound. */
+    return isDown(SDL_GAMEPAD_BUTTON_SOUTH) && !controllerWantsMenuBack();
+#else
+    return isDown(game.controllerButton_flip);
+#endif
+}
+
 bool KeyPoll::controllerWantsLeft(bool includeVert)
 {
     return (    buttonmap[SDL_GAMEPAD_BUTTON_DPAD_LEFT] ||

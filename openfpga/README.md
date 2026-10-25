@@ -216,9 +216,9 @@ pausing, track changes, volume settings) is unchanged.
 
 ## Controls and saves
 
-The Pocket's controller is reported to the game as one SDL gamepad. A and
-B follow the Pocket's convention (A confirms, B goes back), so A is the
-gamepad's south button and B its east; X and Y map by position. The
+The Pocket's controller is reported to the game as one SDL gamepad. A
+(right) is the gamepad's south button and B (bottom) its east; both flip
+in gameplay, while menus use A to confirm and B to go back. X and Y map by position. The
 defaults, which the core's controls page in the Pocket's menu also lists
 (`dist/core/input.json`):
 
@@ -226,7 +226,7 @@ defaults, which the core's controls page in the Pocket's menu also lists
 |---|---|---|
 | D-pad | Move | Choose |
 | A | Flip | Confirm |
-| B | Pause menu | Back |
+| B | Flip | Back |
 | X | Map; also talk, unless the interact button is set apart | |
 | Y | Talk, when the interact button is set apart in the options | |
 | R | Restart from the checkpoint | |
@@ -235,7 +235,14 @@ defaults, which the core's controls page in the Pocket's menu also lists
 
 The game's own controller options can rebind A, B, X, Y, L, R, Start and
 Select. Start and Select are given their defaults whenever no action has
-them, which includes saves made before they had any.
+them, which includes saves made before they had any. Saved A-to-flip,
+B-to-pause defaults migrate to the new layout; custom gameplay bindings are retained.
+Menu navigation always uses A to confirm and B or Start to go back.
+The title uses a white `Press START to continue` prompt instead of a tinted
+button glyph, and Start opens the menu regardless of custom action bindings.
+The host smoke's `POCKET_TEST_CONTROLS=1` mode checks both face buttons,
+held-button releases, saved/default/custom layouts and Start on the title,
+then saves `title-controls.bmp` with the title colour set to black.
 
 Button prompts use Pocket glyphs in the style of Butterscotch Pocket's: the
 face-button diamond with the pressed button marked, the row of three small

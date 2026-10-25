@@ -6,11 +6,11 @@
                 "type": "default",
                 "mappings": [
                     { "id": 0,  "name": "Flip / Confirm",  "key": "pad_btn_a" },
-                    { "id": 1,  "name": "Back / Pause",    "key": "pad_btn_b" },
+                    { "id": 1,  "name": "Flip / Back",     "key": "pad_btn_b" },
                     { "id": 2,  "name": "Map / Talk",      "key": "pad_btn_x" },
                     { "id": 3,  "name": "Talk (option)",   "key": "pad_btn_y" },
                     { "id": 11, "name": "Restart",         "key": "pad_trig_r" },
-                    { "id": 20, "name": "Pause",           "key": "pad_btn_start" },
+                    { "id": 20, "name": "Pause / Back",    "key": "pad_btn_start" },
                     { "id": 21, "name": "Map",             "key": "pad_btn_select" }
                 ]
             }

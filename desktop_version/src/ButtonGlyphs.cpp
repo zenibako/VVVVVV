@@ -362,7 +362,11 @@ const char* BUTTONGLYPHS_get_button(const ActionSet actionset, const Action acti
         case Action_Menu_Accept:
             if (show_controller)
             {
+#ifdef VVV_POCKET
+                return binding == 0 ? glyph[GLYPH_POCKET_A] : NULL;
+#else
                 return glyph_for_vector(game.controllerButton_flip, binding);
+#endif
             }
             return loc::gettext("ACTION");
         }

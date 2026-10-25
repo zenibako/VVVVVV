@@ -2,9 +2,9 @@
  *
  * The Pocket has one built-in controller. It is reported as a single
  * gamepad that is added on the first poll, and its buttons and left stick
- * become SDL gamepad events. A and B follow the Pocket's convention of A
- * to confirm and B to go back: A (right) is SDL's south button, which the
- * game uses to confirm and flip, and B (bottom) is east, its back button.
+ * become SDL gamepad events. A (right) is SDL's south button and B (bottom)
+ * is east. Both default to flip; menus use A to confirm and B to go back.
+ * Start defaults to pause/back.
  * X (top) and Y (left) map by position. The game shows Pocket button glyphs
  * for them (ButtonGlyphs.cpp, openfpga/fonts). */
 #include <SDL3/SDL.h>

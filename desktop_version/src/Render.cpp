@@ -1956,6 +1956,10 @@ void titlerender(void)
         font::print(PR_RIGHT, 264, temp+35, loc::gettext("MAKE AND PLAY EDITION"), tr, tg, tb);
 #endif
 
+#ifdef VVV_POCKET
+        /* Plain, high-contrast text stays legible throughout the colour cycle. */
+        font::print_wrap(PR_CEN, -1, 175, loc::gettext("[ Press START to continue ]"), 255, 255, 255);
+#else
         char buffer[SCREEN_WIDTH_CHARS*2 + 1];
         vformat_buf(
             buffer, sizeof(buffer),
@@ -1964,6 +1968,7 @@ void titlerender(void)
             vformat_button(ActionSet_Menu, Action_Menu_Accept)
         );
         font::print_wrap(PR_CEN, -1, 175, buffer, tr, tg, tb);
+#endif
         if (BUTTONGLYPHS_keyboard_is_active())
         {
             font::print_wrap(PR_CEN, -1, 195, loc::gettext("ACTION = Space, Z, or V"), int(tr*0.5f), int(tg*0.5f), int(tb*0.5f));

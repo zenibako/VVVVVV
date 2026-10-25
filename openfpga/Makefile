@@ -226,11 +226,11 @@ endif
 host_object = $(HOST_DIR)/obj/$(subst ../,__parent__/,$(basename $(1))).o
 HOST_OBJS := $(foreach src,$(HOST_C_SRCS) $(HOST_CXX_SRCS),$(call host_object,$(src)))
 ifeq ($(HOST_BENCH_SMOKE),1)
-# The font timer is part of the Pocket cache, which also runs on host SDL.
-$(call host_object,$(GAME_ROOT)/src/Font.cpp): HOST_DEFS += -DVVV_POCKET
+# Exercise the device's controls, title prompt and text cache on host SDL.
+$(foreach src,Font Game Input KeyPoll Render ButtonGlyphs,$(call host_object,$(GAME_ROOT)/src/$(src).cpp)): HOST_DEFS += -DVVV_POCKET
 $(call host_object,$(OPENFPGA_ROOT)/tests/bench_smoke.cpp): \
 	$(OPENFPGA_ROOT)/src/pocket_bench.cpp $(OPENFPGA_ROOT)/src/pocket_bench.h $(OPENFPGA_ROOT)/src/pocket_bench_report.h \
-	$(OPENFPGA_ROOT)/src/pocket_bench_profile.h $(OPENFPGA_ROOT)/tests/clock_pixels.h $(OPENFPGA_ROOT)/tests/font_alpha_pixels.h $(OPENFPGA_ROOT)/tests/background_pixels.h $(OPENFPGA_ROOT)/tests/tower_pixels.h $(GAME_ROOT)/src/Font.h
+	$(OPENFPGA_ROOT)/src/pocket_bench_profile.h $(OPENFPGA_ROOT)/tests/clock_pixels.h $(OPENFPGA_ROOT)/tests/font_alpha_pixels.h $(OPENFPGA_ROOT)/tests/controls.h $(OPENFPGA_ROOT)/tests/background_pixels.h $(OPENFPGA_ROOT)/tests/tower_pixels.h $(GAME_ROOT)/src/Font.h
 endif
 
 define HOST_C_RULE
@@ -306,12 +306,12 @@ host_render_object = $(HOST_RENDER_DIR)/obj/$(subst ../,__parent__/,$(basename $
 HOST_RENDER_C_SRCS := $(HOST_C_SRCS) $(RENDER_SRCS)
 HOST_RENDER_OBJS := $(foreach src,$(HOST_RENDER_C_SRCS) $(HOST_CXX_SRCS),$(call host_render_object,$(src)))
 ifeq ($(HOST_BENCH_SMOKE),1)
-$(call host_render_object,$(GAME_ROOT)/src/Font.cpp): HOST_DEFS += -DVVV_POCKET
+$(foreach src,Font Game Input KeyPoll Render ButtonGlyphs,$(call host_render_object,$(GAME_ROOT)/src/$(src).cpp)): HOST_DEFS += -DVVV_POCKET
 $(call host_render_object,$(GAME_ROOT)/src/Graphics.cpp): HOST_DEFS += -DVVV_POCKET
 $(call host_render_object,$(OPENFPGA_ROOT)/tests/bench_smoke.cpp): HOST_DEFS += -DPOCKET_SMOKE_RENDER
 $(call host_render_object,$(OPENFPGA_ROOT)/tests/bench_smoke.cpp): \
 	$(OPENFPGA_ROOT)/src/pocket_bench.cpp $(OPENFPGA_ROOT)/src/pocket_bench.h $(OPENFPGA_ROOT)/src/pocket_bench_report.h \
-	$(OPENFPGA_ROOT)/src/pocket_bench_profile.h $(OPENFPGA_ROOT)/tests/clock_pixels.h $(OPENFPGA_ROOT)/tests/font_alpha_pixels.h $(OPENFPGA_ROOT)/tests/background_pixels.h $(OPENFPGA_ROOT)/tests/tower_pixels.h $(GAME_ROOT)/src/Font.h
+	$(OPENFPGA_ROOT)/src/pocket_bench_profile.h $(OPENFPGA_ROOT)/tests/clock_pixels.h $(OPENFPGA_ROOT)/tests/font_alpha_pixels.h $(OPENFPGA_ROOT)/tests/controls.h $(OPENFPGA_ROOT)/tests/background_pixels.h $(OPENFPGA_ROOT)/tests/tower_pixels.h $(GAME_ROOT)/src/Font.h
 else
 HOST_RENDER_OBJS += $(HOST_RENDER_DIR)/obj/present.o
 endif
