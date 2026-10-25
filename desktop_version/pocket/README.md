@@ -58,6 +58,31 @@ first-run language prompt, including with an empty or unreadable benchmark
 save. Its save slot is separate from the game's, and benchmark writes stay
 in memory. The startup check is included in `make test`.
 
+The timed route covers Teleporter Divot (with and without the time-trial
+HUD), Tower, map, climbing, and the story Gravitron. Gravitron uses its
+normal introduction and complete 60-second countdown, including the denser
+late waves, with a fixed random seed and invincibility to prevent resets.
+The introduction is excluded from timing. Results include average frame,
+logic, drawing and text costs; press A to switch between results pages and
+take a screenshot of each page.
+
+An opt-in host check runs the real scripted route with an accelerated test
+clock and AddressSanitizer/UBSan. It checks the Gravitron room, active enemy
+waves, countdown completion and report pages, and captures room/results BMPs:
+
+```sh
+make host HOST_BENCH_SMOKE=1 HOST_DIR="$PWD/build/host-bench-smoke" SDL3_PREFIX=/opt/homebrew
+mkdir -p build/host-bench-smoke/captures build/host-bench-smoke/saves
+cd build/host-bench-smoke/captures
+SDL_VIDEODRIVER=dummy SDL_AUDIODRIVER=dummy SDL_RENDER_DRIVER=software \
+  ASAN_OPTIONS=detect_leaks=0 ../vvvvvv -assets /absolute/path/to/data.zip \
+  -basedir "$PWD/../saves/"
+```
+
+These host timings are synthetic and must not be used as Pocket performance
+results. The host check uses desktop SDL rendering with the Pocket text cache;
+physical Pocket timing remains separate.
+
 ## Sound
 
 The Pocket can't decode the game's Ogg Vorbis music while it runs, so the

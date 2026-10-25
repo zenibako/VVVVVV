@@ -120,12 +120,18 @@ SAVEFS_TEST_BIN := $(BUILD_DIR)/host/savefs_test
 AUDIO_TEST_BIN := $(BUILD_DIR)/host/audio_test
 BENCH_STARTUP_TEST_BIN := $(BUILD_DIR)/host/bench_startup_test
 BENCH_SAVEFS_TEST_BIN := $(BUILD_DIR)/host/bench_savefs_test
-test: $(TEST_BIN) $(SAVEFS_TEST_BIN) $(AUDIO_TEST_BIN) $(BENCH_STARTUP_TEST_BIN) $(BENCH_SAVEFS_TEST_BIN)
+BENCH_REPORT_TEST_BIN := $(BUILD_DIR)/host/bench_report_test
+test: $(TEST_BIN) $(SAVEFS_TEST_BIN) $(AUDIO_TEST_BIN) $(BENCH_STARTUP_TEST_BIN) $(BENCH_SAVEFS_TEST_BIN) $(BENCH_REPORT_TEST_BIN)
 	$(TEST_BIN)
 	$(SAVEFS_TEST_BIN)
 	$(AUDIO_TEST_BIN)
 	$(BENCH_STARTUP_TEST_BIN)
 	$(BENCH_SAVEFS_TEST_BIN)
+	$(BENCH_REPORT_TEST_BIN)
+
+$(BENCH_REPORT_TEST_BIN): $(POCKET_ROOT)/tests/bench_report_test.cpp $(POCKET_ROOT)/src/pocket_bench_report.h
+	@mkdir -p $(dir $@)
+	$(HOST_CXX) -std=c++98 -Wall -Wextra -g $(HOST_SANITIZE) $< -o $@
 
 $(BENCH_SAVEFS_TEST_BIN): $(POCKET_ROOT)/tests/bench_savefs_test.c \
 		$(addprefix $(POCKET_ROOT)/sdl3/, savefs.c savefs.h io.c stdinc.c)
@@ -192,8 +198,21 @@ HOST_DEFS := -D_GNU_SOURCE -DLODEPNG_NO_COMPILE_ALLOCATORS -DLODEPNG_NO_COMPILE_
 	-DSB_CONFIG_UNITY -DFAUDIO_SDL3_PLATFORM
 HOST_INCLUDES := -I$(SDL3_PREFIX)/include $(filter-out -I$(SDL3_ROOT)/include,$(POCKET_INCLUDES)) \
 	-I$(THIRD_PARTY)/FAudio/include -I$(THIRD_PARTY)/FAudio/src
+# Opt-in accelerated host check of the real benchmark route and game logic.
+# Run with private assets and a private -basedir; these timings are synthetic.
+ifeq ($(HOST_BENCH_SMOKE),1)
+HOST_DEFS += -DPOCKET_BENCH -DOF_PC
+HOST_INCLUDES += -I$(SDK_DIR)/include
+HOST_CXX_SRCS += $(POCKET_ROOT)/src/pocket_bench_startup.cpp $(POCKET_ROOT)/tests/bench_smoke.cpp
+endif
 host_object = $(HOST_DIR)/obj/$(subst ../,__parent__/,$(basename $(1))).o
 HOST_OBJS := $(foreach src,$(HOST_C_SRCS) $(HOST_CXX_SRCS),$(call host_object,$(src)))
+ifeq ($(HOST_BENCH_SMOKE),1)
+# The font timer is part of the Pocket cache, which also runs on host SDL.
+$(call host_object,$(GAME_ROOT)/src/Font.cpp): HOST_DEFS += -DVVV_POCKET
+$(call host_object,$(POCKET_ROOT)/tests/bench_smoke.cpp): \
+	$(POCKET_ROOT)/src/pocket_bench.cpp $(POCKET_ROOT)/src/pocket_bench.h $(POCKET_ROOT)/src/pocket_bench_report.h
+endif
 
 define HOST_C_RULE
 $(call host_object,$(1)): $(1)

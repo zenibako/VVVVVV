@@ -3,6 +3,8 @@
 
 #ifdef POCKET_BENCH
 
+#include "pocket_bench_report.h"
+
 #include <SDL3/SDL.h>
 
 #include <stdio.h>
@@ -18,6 +20,8 @@
 #include "../../src/Screen.h"
 #include "../../src/Script.h"
 #include "../../src/UtilityClass.h"
+#include "../../src/KeyPoll.h"
+#include "../../src/Xoshiro.h"
 
 extern "C" Uint32 POCKET_bench_keys;
 extern "C" bool POCKET_saves_volatile;
@@ -42,7 +46,8 @@ enum Start
     START_NONE,
     START_TOWER,
     HIDE_TRIAL,
-    GO_TO_TOWER
+    GO_TO_TOWER,
+    START_GRAVITRON
 };
 
 enum Keys
@@ -72,6 +77,10 @@ parts[] = {
     {"tower", 600, GO_TO_TOWER, KEYS_NONE},
     {"map", 480, START_NONE, KEYS_MAP},
     {"climb", 600, START_NONE, KEYS_CLIMB},
+    /* Wait for the real introduction to finish, then time the complete
+     * story-room countdown, including its increasingly dense waves. */
+    {NULL, 0, START_GRAVITRON, KEYS_NONE},
+    {"gravitron", 1799, START_NONE, KEYS_NONE},
 };
 #define PART_COUNT ((int) SDL_arraysize(parts))
 
@@ -151,6 +160,31 @@ static void start_part(void)
         map.gotoroom(109, 109);
         break;
     }
+    case START_GRAVITRON:
+    {
+        game.intimetrial = false;
+        game.inintermission = true;
+        game.gravitycontrol = 0;
+        game.swnstate = game.swnstate2 = game.swnstate3 = game.swnstate4 = 0;
+        map.invincibility = true;
+        map.finalmode = true;
+        map.finalstretch = false;
+        map.final_colormode = false;
+        map.final_mapcol = 0;
+        map.gotoroom(53, 50);
+        const int player = obj.getplayer();
+        if (INBOUNDS_VEC(player, obj.entities))
+        {
+            entclass& p = obj.entities[player];
+            p.xp = p.lerpoldxp = 148;
+            p.yp = p.lerpoldyp = 100;
+            p.vx = p.vy = p.ax = p.ay = 0;
+        }
+        xoshiro_seed(7);
+        game.setstate(10); /* Ordinary Gravitron: lines, intro and 60s clock. */
+        game.setstatedelay(0);
+        break;
+    }
     }
 }
 
@@ -189,7 +223,9 @@ void POCKET_BenchStep(void)
         part = 0;
         start_part();
     }
-    else if (++step >= parts[part].steps)
+    else if (parts[part].steps == 0
+        ? game.swngame == SWN_GRAVITRON
+        : ++step >= parts[part].steps)
     {
         times[part].room[0] = game.roomx;
         times[part].room[1] = game.roomy;
@@ -421,12 +457,11 @@ void POCKET_BenchDraw(void)
     {
         return;
     }
-    static char lines[30][48];
-    static int line_count;
-    if (line_count == 0)
+    static PocketBenchReport report;
+    if (report.size() == 0)
     {
-        SDL_snprintf(lines[line_count++], 48, "VVVVVV benchmark, ms a frame");
-        SDL_snprintf(lines[line_count++], 48, "part      fr  frame logic  draw   col");
+        report.add("VVVVVV benchmark, ms a frame");
+        report.add("part      fr  frame logic  draw   col");
         for (int i = 0; i < PART_COUNT; i++)
         {
             if (parts[i].name == NULL)
@@ -439,10 +474,10 @@ void POCKET_BenchDraw(void)
             ms(logic, sizeof(logic), t->sum.logic, t->frames);
             ms(draw, sizeof(draw), t->sum.draw, t->frames);
             ms(col, sizeof(col), t->colour_total, t->colour_frames);
-            SDL_snprintf(lines[line_count++], 48, "%-9s%4d %s %s %s %s",
+            report.add("%-9s%4d %s %s %s %s",
                 parts[i].name, t->frames, total, logic, draw, col);
         }
-        SDL_snprintf(lines[line_count++], 48, "a frame: tower bg update ms, tiles");
+        report.add("a frame: tower bg update ms, tiles");
         for (int i = 0; i < PART_COUNT; i++)
         {
             const PartTimes* t = &times[i];
@@ -452,10 +487,10 @@ void POCKET_BenchDraw(void)
             }
             char bg[8];
             ms(bg, sizeof(bg), t->bg_us, t->frames);
-            SDL_snprintf(lines[line_count++], 48, "%-9s %s %5u", parts[i].name, bg,
+            report.add("%-9s %s %5u", parts[i].name, bg,
                 (unsigned) (t->bg_tiles / t->frames));
         }
-        SDL_snprintf(lines[line_count++], 48, "a frame: text ms, prints, cached, new");
+        report.add("a frame: text ms, prints, cached, new");
         for (int i = 0; i < PART_COUNT; i++)
         {
             const PartTimes* t = &times[i];
@@ -469,14 +504,14 @@ void POCKET_BenchDraw(void)
             const unsigned prints = t->prints * 10 / t->frames;
             const unsigned hits = t->text_hits * 10 / t->frames;
             const unsigned kept = t->text_kept * 10 / t->frames;
-            SDL_snprintf(lines[line_count++], 48, "%-9s %s %3u.%u %3u.%u %2u.%u", parts[i].name, text,
+            report.add("%-9s %s %3u.%u %3u.%u %2u.%u", parts[i].name, text,
                 prints / 10, prints % 10, hits / 10, hits % 10, kept / 10, kept % 10);
         }
-        SDL_snprintf(lines[line_count++], 48, "slowest:   frame logic draw colour");
+        report.add("slowest:   frame logic draw colour");
         for (int i = 0; i < slow_count; i++)
         {
             const SlowFrame* f = &slowest[i];
-            SDL_snprintf(lines[line_count++], 48, "%-9s#%-4d %3u %3u %3u %2d%s",
+            report.add("%-9s#%-4d %3u %3u %3u %2d%s",
                 parts[f->part].name, f->frame, (unsigned) (f->us.total / 1000),
                 (unsigned) (f->us.logic / 1000), (unsigned) (f->us.draw / 1000),
                 f->colstate, f->colour_change ? "*" : "");
@@ -494,13 +529,13 @@ void POCKET_BenchDraw(void)
         const Uint32 cached_one = text_us(cached_letter, 1000, 1);
         const Uint32 cached_bor = text_us(cached_bordered, 100, 1);
         check_text_cache();
-        SDL_snprintf(lines[line_count++], 48, "glyph us %u, 1 letter %u tile %u copy %u",
+        report.add("glyph us %u, 1 letter %u tile %u copy %u",
             (unsigned) tinted, (unsigned) letter, (unsigned) tile, (unsigned) copy);
-        SDL_snprintf(lines[line_count++], 48, "cached word %u (%u) letter %u (%u)",
+        report.add("cached word %u (%u) letter %u (%u)",
             (unsigned) cached_word, (unsigned) (tinted * 10), (unsigned) cached_one, (unsigned) letter);
-        SDL_snprintf(lines[line_count++], 48, "bordered word %u, cached %u us",
+        report.add("bordered word %u, cached %u us",
             (unsigned) bordered, (unsigned) cached_bor);
-        SDL_snprintf(lines[line_count++], 48, "text cache same: %d of %d",
+        report.add("text cache same: %d of %d",
             cache_same, cache_cases);
         /* Whether the tower's background tiles could be copied as they
          * are, needing nothing under them. */
@@ -520,24 +555,28 @@ void POCKET_BenchDraw(void)
                 }
             }
         }
-        SDL_snprintf(lines[line_count++], 48, "tiles3 %d: %d part clear, %d see-thru",
+        report.add("tiles3 %d: %d part clear, %d see-thru",
             tiles, clear_tiles, partial_tiles);
-        SDL_snprintf(lines[line_count++], 48, "new: %.38s", times[2].last_kept);
-        SDL_snprintf(lines[line_count++], 48, "full speed is 34 ms; screenshot me");
-        for (int i = 0; i < line_count; i++)
+        report.add("new: %.38s", times[2].last_kept);
+        report.add("full speed is 34 ms; screenshot me");
+        for (int i = 0; i < report.size(); i++)
         {
-            printf("%s\n", lines[i]);
+            printf("%s\n", report.line(i));
         }
     }
     /* The frame has been copied to the window already, so the results are
      * drawn there. */
     graphics.set_render_target(NULL);
     graphics.fill_rect(0, 0, 0);
-    const int spacing = line_count > 26 ? 8 : 9; /* fits the 240-pixel screen */
-    for (int i = 0; i < line_count; i++)
+    report.next(key.isDown(SDL_GAMEPAD_BUTTON_SOUTH) || key.isDown(SDLK_SPACE));
+    for (int i = report.first(); i < report.end(); i++)
     {
-        font::print(0, 4, 2 + i * spacing, lines[i], 255, 255, 255);
+        font::print(0, 4, 2 + (i - report.first()) * 8, report.line(i), 255, 255, 255);
     }
+    char footer[48];
+    SDL_snprintf(footer, sizeof(footer), "page %d/%d  A: next  screenshot each page",
+        report.page() + 1, report.pages());
+    font::print(0, 4, 232, footer, 255, 255, 255);
 }
 
 #endif
