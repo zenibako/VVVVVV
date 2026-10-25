@@ -79,7 +79,7 @@ typedef struct Texture
     SDL_PropertiesID props;
 
     /* Row y is kept at row (y + row0) % h, so that scrolling a texture up
-     * or down moves no pixels (POCKET_ScrollTextureRows). */
+     * or down moves no pixels (POCKET_ScrollTexture). */
     int row0;
 
     bool opaque;         /* every pixel's alpha is 255 */
@@ -1310,9 +1310,9 @@ static Uint32 *src_line;
 static int src_line_size;
 
 #ifdef POCKET_BENCH
-/* The benchmark turns the tinted-run copy off to time it against the
- * general one. */
+/* The benchmark compares these shortcuts with the general paths. */
 bool POCKET_tint_runs = true;
+bool POCKET_scroll_fast = true;
 
 /* Counts a texture's pixels in a rectangle that are clear (alpha 0) and
  * that are partly see-through, for the benchmark to tell which tiles can
@@ -1710,25 +1710,59 @@ static void shift_rows(Texture *t, int dy, Uint32 fill)
     }
 }
 
-/* Scrolls an opaque, unmodulated texture down by dy rows (up when dy is
- * negative), filling the rows it exposes with opaque black: what clearing
- * a second texture, copying this one onto it at (0, dy) and copying that
- * back would do, but by moving where rows are kept instead of the rows.
- * Returns false, changing nothing, when the copy would differ. */
-bool POCKET_ScrollTextureRows(SDL_Texture *texture, int dy)
+/* Move columns within each physical row; the vertical row offset stays
+ * valid. begin_change preserves shared snapshots and invalidates runs. */
+static void shift_columns(Texture *t, int dx)
+{
+    begin_change(t, false);
+    const int exposed = dx > 0 ? dx : -dx;
+    const int kept = t->texture.w - exposed;
+    const int from = dx > 0 ? 0 : exposed;
+    const int to = dx > 0 ? exposed : 0;
+    const int edge = dx > 0 ? 0 : kept;
+    const bool packed = t->pixels565 != NULL;
+    const size_t bytes = packed ? sizeof(Uint16) : sizeof(Uint32);
+    const int pitch = packed ? t->pitch565 : t->texture.w;
+    Uint8 *pixels = packed ? (Uint8 *) t->pixels565 : (Uint8 *) t->pixels;
+    for (int y = 0; y < t->texture.h; y++)
+    {
+        Uint8 *row = pixels + (size_t) y * pitch * bytes;
+        if (kept > 0)
+            SDL_memmove(row + to * bytes, row + from * bytes, (size_t) kept * bytes);
+        if (packed)
+            SDL_memset(row + edge * bytes, 0, (size_t) exposed * bytes);
+        else
+            for (int x = edge; x < edge + exposed; x++)
+                ((Uint32 *) row)[x] = 0xFF000000u;
+    }
+}
+
+/* Shared fast path for an opaque, unmodulated scroll in either direction.
+ * Match clearing a temporary to black, offset-copying this texture there,
+ * then copying back. Vertical movement retains the row-ring optimization;
+ * horizontal movement uses one overlapping copy per row. */
+bool POCKET_ScrollTexture(SDL_Texture *texture, int dx, int dy)
 {
     if (!check_texture(texture))
     {
         return false;
     }
     Texture *t = texture_data(texture);
-    if (!t->opaque || t->mod_r != 255 || t->mod_g != 255 || t->mod_b != 255 || t->mod_a != 255)
+    if (!t->opaque || t->mod_r != 255 || t->mod_g != 255 || t->mod_b != 255 || t->mod_a != 255
+        || (t->blend != SDL_BLENDMODE_NONE && t->blend != SDL_BLENDMODE_BLEND))
     {
         return false;
     }
+    /* Clamp before negating, including INT_MIN and offscreen shifts. */
+    dx = SDL_clamp(dx, -t->texture.w, t->texture.w);
+    dy = SDL_clamp(dy, -t->texture.h, t->texture.h);
     if (dy != 0)
     {
         shift_rows(t, dy, 0xFF000000);
+    }
+    if (dx != 0)
+    {
+        shift_columns(t, dx);
     }
     return true;
 }

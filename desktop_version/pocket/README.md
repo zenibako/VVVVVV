@@ -80,6 +80,13 @@ localized numerals and RTL text use the existing renderer. Results include
 an old/new comparison in microseconds for the same changing clock values,
 plus pixel comparisons for the optimized countdown.
 
+Warp-background scrolling uses one shared renderer helper for both axes:
+vertical scrolling changes the first stored row, and horizontal scrolling
+moves each packed pixel row in place. Both retain the full scrolling
+texture and fill exposed pixels black. Unsupported blend or colour mods
+keep the original temporary-texture path. Results include `warp bg us:
+old ... new ...`, which compares complete background updates on device.
+
 An opt-in host check runs the real scripted route with an accelerated test
 clock and AddressSanitizer/UBSan. It checks the Gravitron room, active enemy
 waves, countdown completion and report pages, and captures room/results BMPs:
@@ -104,6 +111,11 @@ actual software renderer, build `host-render` with the same
 seven Gravitron phases. They also compare host wall time for old/new clock
 drawing using the real performance counter; that comparison is independent
 of the accelerated game clock and is still not Pocket performance.
+
+The Pocket-renderer host check also compares 560 full warp-background
+textures against the original path (both axes, seven colours, 40 updates),
+then reports host wall time for background updates. Renderer tests cover
+shared snapshots, pending clears, both pixel formats and extreme shifts.
 
 ## Sound
 

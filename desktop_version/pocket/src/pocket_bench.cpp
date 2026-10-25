@@ -27,6 +27,7 @@
 extern "C" Uint32 POCKET_bench_keys;
 extern "C" bool POCKET_saves_volatile;
 extern "C" bool POCKET_tint_runs;
+extern "C" bool POCKET_scroll_fast;
 extern bool POCKET_text_cache;
 extern Uint32 POCKET_print_us, POCKET_print_calls, POCKET_text_hits, POCKET_text_kept;
 extern char POCKET_last_kept[48];
@@ -479,6 +480,8 @@ static void cached_clock(void)
     font::print_clock(PR_2X | PR_CEN | PR_BOR, -1, 20, text.c_str(), 196, 196, 255);
 }
 
+static void warp_background(void) { graphics.updatebackground(3); }
+
 void POCKET_BenchDraw(void)
 {
     if (!finished)
@@ -584,6 +587,13 @@ void POCKET_BenchDraw(void)
         clock_micro_tick = 0;
         const Uint32 clock_new = text_us(cached_clock, 60, 1);
         report.add("changing clock us: old %u new %u", (unsigned) clock_old, (unsigned) clock_new);
+        POCKET_scroll_fast = false;
+        graphics.backgrounddrawn = false;
+        const Uint32 background_old = text_us(warp_background, 60, 1);
+        POCKET_scroll_fast = true;
+        graphics.backgrounddrawn = false;
+        const Uint32 background_new = text_us(warp_background, 60, 1);
+        report.add("warp bg us: old %u new %u", (unsigned) background_old, (unsigned) background_new);
         /* Whether the tower's background tiles could be copied as they
          * are, needing nothing under them. */
         int tiles = 0, clear_tiles = 0, partial_tiles = 0;

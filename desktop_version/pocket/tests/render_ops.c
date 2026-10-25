@@ -3,11 +3,13 @@
  * port's renderer (sdl3/render.c and sdl3/surface.c).  Each step appends
  * what it produced to the capture, and render_test.c compares the two. */
 #include <SDL3/SDL.h>
+#include <limits.h>
+#include <assert.h>
 
 #include "render_test.h"
 
 #ifdef SDL_RenderClear
-bool POCKET_ScrollTextureRows(SDL_Texture *texture, int dy);
+bool POCKET_ScrollTexture(SDL_Texture *texture, int dx, int dy);
 bool POCKET_ShiftTextureRows(SDL_Texture *texture, int dy);
 typedef struct POCKET_TileLayer POCKET_TileLayer;
 POCKET_TileLayer *POCKET_CreateTileLayer(int w, int h);
@@ -248,7 +250,7 @@ static void scroll_rows(SDL_Renderer *renderer, SDL_Texture *texture, SDL_Textur
 #ifdef SDL_RenderClear
     (void) renderer;
     (void) temp;
-    POCKET_ScrollTextureRows(texture, dy);
+    POCKET_ScrollTexture(texture, 0, dy);
 #else
     SDL_Texture *target = SDL_GetRenderTarget(renderer);
     const SDL_FRect src = {0, 0, 96, 64};
@@ -475,6 +477,151 @@ static void opaque_tiles(SDL_Renderer *renderer, SDL_Texture *sprite, Capture *c
     SDL_DestroyTexture(sheet);
 }
 
+/* Full scrolling textures are 336 square, including pixels offscreen. */
+#ifndef SDL_RenderClear
+static void scroll_reference(SDL_Renderer *renderer, SDL_Texture *texture, SDL_Texture *temp, int dx, int dy)
+{
+    SDL_SetRenderTarget(renderer, temp);
+    SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255);
+    SDL_RenderClear(renderer);
+    if (dx > -336 && dx < 336 && dy > -336 && dy < 336)
+    {
+        const SDL_FRect to = {(float) dx, (float) dy, 336, 336};
+        SDL_RenderTexture(renderer, texture, NULL, &to);
+    }
+    SDL_SetRenderTarget(renderer, texture);
+    SDL_RenderTexture(renderer, temp, NULL, NULL);
+}
+#endif
+
+static bool try_fast_scroll(SDL_Texture *texture, int dx, int dy)
+{
+#ifdef SDL_RenderClear
+    return POCKET_ScrollTexture(texture, dx, dy);
+#else
+    (void) texture; (void) dx; (void) dy;
+    return false;
+#endif
+}
+
+static void scroll_offset(SDL_Renderer *renderer, SDL_Texture *texture, SDL_Texture *temp, int dx, int dy)
+{
+#ifdef SDL_RenderClear
+    (void) renderer;
+    (void) temp;
+    assert(POCKET_ScrollTexture(texture, dx, dy));
+#else
+    scroll_reference(renderer, texture, temp, dx, dy);
+#endif
+}
+
+static void scroll_pattern(SDL_Renderer *renderer, SDL_Texture *texture)
+{
+    SDL_SetRenderTarget(renderer, texture);
+    SDL_SetRenderDrawBlendMode(renderer, SDL_BLENDMODE_NONE);
+    SDL_SetRenderDrawColor(renderer, 255, 0, 0, 255);
+    SDL_RenderClear(renderer);
+    for (int y = 0; y < 8; y++)
+        for (int x = 0; x < 11; x++)
+        {
+            const SDL_FRect mark = {(float) (x * 31), (float) (y * 47), 5, 9};
+            SDL_SetRenderDrawColor(renderer, (x + y) % 3 ? 255 : 0, x % 2 ? 255 : 0, y % 2 ? 255 : 0, 255);
+            SDL_RenderFillRect(renderer, &mark);
+        }
+}
+
+static void exact_target(SDL_Renderer *renderer, Capture *capture, const char *name)
+{
+    capture_target(renderer, capture, name);
+    capture->items[capture->count - 1].tolerance = 0;
+}
+
+static void scroll_axes(SDL_Renderer *renderer, Capture *capture)
+{
+    SDL_Texture *texture = SDL_CreateTexture(renderer, SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_TARGET, 336, 336);
+    SDL_Texture *temp = SDL_CreateTexture(renderer, SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_TARGET, 336, 336);
+    SDL_Texture *shared = SDL_CreateTexture(renderer, SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_TARGET, 336, 336);
+    SDL_SetTextureBlendMode(texture, SDL_BLENDMODE_NONE);
+    SDL_SetTextureBlendMode(temp, SDL_BLENDMODE_NONE);
+    SDL_SetTextureBlendMode(shared, SDL_BLENDMODE_NONE);
+    static const struct { int x, y; const char *name; } cases[] = {
+        {0, 0, "scroll unchanged"}, {-3, 0, "scroll left"}, {7, 0, "scroll right"},
+        {-3, -5, "scroll diagonal up"}, {9, 5, "scroll diagonal down"},
+        {-336, 0, "scroll full width"}, {400, 0, "scroll beyond width"},
+        {INT_MIN, 0, "scroll minimum x"}, {INT_MAX, 0, "scroll maximum x"},
+        {0, INT_MIN, "scroll minimum y"}, {0, INT_MAX, "scroll maximum y"}
+    };
+    for (size_t i = 0; i < SDL_arraysize(cases); i++)
+    {
+        scroll_pattern(renderer, texture);
+        scroll_offset(renderer, texture, temp, cases[i].x, cases[i].y);
+        exact_target(renderer, capture, cases[i].name);
+    }
+    scroll_pattern(renderer, texture);
+    for (int i = 0; i < 120; i++) scroll_offset(renderer, texture, temp, -3, 0);
+    exact_target(renderer, capture, "scroll repeated beyond width");
+    SDL_SetRenderDrawColor(renderer, 0, 255, 0, 255);
+    SDL_RenderClear(renderer);
+    scroll_offset(renderer, texture, temp, -3, 5);
+    exact_target(renderer, capture, "scroll pending clear");
+
+    scroll_pattern(renderer, texture);
+    SDL_SetRenderTarget(renderer, shared);
+    SDL_RenderTexture(renderer, texture, NULL, NULL);
+    SDL_SetRenderTarget(renderer, texture);
+    scroll_offset(renderer, texture, temp, -3, 0);
+    exact_target(renderer, capture, "scroll source after sharing");
+    SDL_SetRenderTarget(renderer, shared);
+    exact_target(renderer, capture, "scroll shared snapshot kept");
+    scroll_pattern(renderer, texture);
+    SDL_SetRenderTarget(renderer, shared);
+    SDL_RenderTexture(renderer, texture, NULL, NULL);
+    scroll_offset(renderer, shared, temp, 4, -7);
+    exact_target(renderer, capture, "scroll shared after row shift");
+    SDL_SetRenderTarget(renderer, texture);
+    exact_target(renderer, capture, "scroll shared leaves original");
+
+    scroll_pattern(renderer, texture);
+    SDL_SetTextureColorMod(texture, 128, 255, 255);
+    capture_number(capture, "scroll rejects tint", try_fast_scroll(texture, -3, 0));
+    SDL_SetTextureColorMod(texture, 255, 255, 255);
+    SDL_SetTextureAlphaMod(texture, 128);
+    capture_number(capture, "scroll rejects alpha mod", try_fast_scroll(texture, 0, -3));
+    SDL_SetTextureAlphaMod(texture, 255);
+    SDL_SetTextureBlendMode(texture, SDL_BLENDMODE_ADD);
+    capture_number(capture, "scroll rejects add blend", try_fast_scroll(texture, -3, 2));
+    SDL_SetTextureBlendMode(texture, SDL_BLENDMODE_NONE);
+    exact_target(renderer, capture, "scroll rejected without mutation");
+    SDL_SetRenderDrawColor(renderer, 255, 0, 0, 128);
+    SDL_RenderClear(renderer);
+    capture_number(capture, "scroll rejects transparent", try_fast_scroll(texture, -3, 0));
+    exact_target(renderer, capture, "scroll transparent unchanged");
+
+    /* Static textures retain ARGB storage even when all pixels are opaque. */
+    static Uint32 pixels[336 * 336];
+    for (int i = 0; i < 336 * 336; i++)
+        pixels[i] = 0xFF000000u | ((Uint32) (i % 251) << 16) | ((Uint32) (i % 193) << 8) | (Uint32) (i % 173);
+    SDL_Surface *surface = SDL_CreateSurfaceFrom(336, 336, SDL_PIXELFORMAT_ARGB8888, pixels, 336 * 4);
+    SDL_Texture *image = SDL_CreateTextureFromSurface(renderer, surface);
+    SDL_DestroySurface(surface);
+    SDL_SetTextureBlendMode(image, SDL_BLENDMODE_NONE);
+    SDL_SetRenderTarget(renderer, texture);
+#ifdef SDL_RenderClear
+    capture_number(capture, "scroll ARGB accepted", POCKET_ScrollTexture(image, -3, 0));
+    SDL_RenderTexture(renderer, image, NULL, NULL);
+#else
+    capture_number(capture, "scroll ARGB accepted", 1);
+    SDL_RenderTexture(renderer, image, NULL, NULL);
+    scroll_reference(renderer, texture, temp, -3, 0);
+#endif
+    exact_target(renderer, capture, "scroll opaque ARGB");
+    SDL_DestroyTexture(image);
+    SDL_DestroyTexture(shared);
+    SDL_DestroyTexture(temp);
+    SDL_DestroyTexture(texture);
+    SDL_SetRenderTarget(renderer, NULL);
+}
+
 static void scrolling(SDL_Renderer *renderer, SDL_Texture *sprite, Capture *capture)
 {
     SDL_Texture *tower = SDL_CreateTexture(renderer, SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_TARGET, 96, 64);
@@ -699,6 +846,7 @@ void RENDER_OPS(SDL_Renderer *renderer, Capture *capture)
     sprites(renderer, sprite, capture);
     targets(renderer, sprite, capture);
     scrolling(renderer, sprite, capture);
+    scroll_axes(renderer, capture);
     tower_cache(renderer, sprite, capture);
     tile_layer(renderer, capture);
     opaque_tiles(renderer, sprite, capture);

@@ -787,15 +787,21 @@ void Graphics::draw_flipsprite(const int x, const int y, const int t, const SDL_
 }
 
 #ifdef VVV_POCKET
-extern "C" bool POCKET_ScrollTextureRows(SDL_Texture* texture, int dy);
+extern "C" bool POCKET_ScrollTexture(SDL_Texture* texture, int dx, int dy);
+#ifdef POCKET_BENCH
+extern "C" bool POCKET_scroll_fast;
+#else
+#define POCKET_scroll_fast true
+#endif
 #endif
 
 void Graphics::scroll_texture(SDL_Texture* texture, SDL_Texture* temp, const int x, const int y)
 {
 #ifdef VVV_POCKET
-    /* Copying the texture there and back costs the Pocket about 20 ms, so
-     * an up or down scroll only changes which row is shown first. */
-    if (x == 0 && POCKET_ScrollTextureRows(texture, y))
+    /* The renderer shares validation and alias handling for both axes,
+     * avoiding the full temporary-texture round trip. */
+    if (POCKET_scroll_fast && SDL_GetRenderTarget(gameScreen.m_renderer) == texture
+        && POCKET_ScrollTexture(texture, x, y))
     {
         return;
     }

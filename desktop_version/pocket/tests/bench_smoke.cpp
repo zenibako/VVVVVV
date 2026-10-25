@@ -10,6 +10,7 @@ Uint32 POCKET_bench_keys;
 bool POCKET_saves_volatile;
 #ifndef POCKET_SMOKE_RENDER
 bool POCKET_tint_runs;
+bool POCKET_scroll_fast = true;
 /* Host rendering has no Pocket-only text cache or transparent-run index. */
 void POCKET_CountSeeThrough(SDL_Texture*, int, int, int, int, int* clear, int* partial)
 {
@@ -29,6 +30,7 @@ static Uint32 sent_keys;
 static bool save_capture(SDL_Surface* surface, const char* path);
 
 #include "clock_pixels.h"
+#include "background_pixels.h"
 
 static bool smoke_present(SDL_Renderer* renderer)
 {
@@ -52,6 +54,7 @@ static bool smoke_present(SDL_Renderer* renderer)
     {
         saw_active = true;
         assert(game.roomx == 53 && game.roomy == 50);
+        assert(map.background == 3);
         assert(map.finalmode && !map.towermode && map.invincibility);
         assert(game.deathseq == -1);
         int enemies = 0;
@@ -98,6 +101,7 @@ static bool smoke_present(SDL_Renderer* renderer)
         if (++result_frames == 4)
         {
             check_clock_pixels();
+            check_background_pixels();
             printf("Gravitron smoke passed: %d frames, max %d enemies, timer %d, room %d,%d\n",
                 gravitron.frames, max_enemies, game.swntimer, game.roomx, game.roomy);
             exit(0);
