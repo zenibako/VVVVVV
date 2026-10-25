@@ -95,6 +95,12 @@ changing time string. It preserves the font's spacing, glow and border order;
 localized numerals and RTL text use the existing renderer. Results include
 an old/new comparison in microseconds for the same changing clock values,
 plus pixel comparisons for the optimized countdown.
+For the default font's regular border, each digit uses a cached black
+border layer followed by its foreground layer, reducing five copies to
+two. All borders still precede all foregrounds. The font's clock masks are
+checked for binary alpha when loaded; replacement fonts with partial alpha,
+other fonts, full borders and dimmed styles keep the existing path.
+`clock border us: old ... new ...` isolates this change from glyph caching.
 
 Warp-background scrolling uses one shared renderer helper for both axes:
 vertical scrolling changes the first stored row, and horizontal scrolling
@@ -120,7 +126,7 @@ These host timings are synthetic and must not be used as Pocket performance
 results. The host check uses desktop SDL rendering with the Pocket text cache;
 physical Pocket timing remains separate.
 
-For the same route and 3,704 countdown pixel comparisons using the Pocket's
+For the same route and 3,764 countdown pixel comparisons using the Pocket's
 actual software renderer, build `host-render` with the same
 `HOST_BENCH_SMOKE=1`, `HOST_DIR` and `SDL3_PREFIX` arguments, then run
 `../render/vvvvvv` from the captures directory. Both checks exercise all

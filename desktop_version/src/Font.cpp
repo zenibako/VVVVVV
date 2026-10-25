@@ -59,6 +59,9 @@ struct Font
     uint8_t glyph_h;
 
     SDL_Texture* image;
+#ifdef VVV_POCKET
+    bool clock_border_safe;
+#endif
 
     GlyphInfo* glyph_page[FONT_N_PAGES];
 
@@ -257,6 +260,36 @@ static bool decode_xml_range(tinyxml2::XMLElement* elem, unsigned* start, unsign
     return true;
 }
 
+#ifdef VVV_POCKET
+/* Grouping black border passes is exact only for binary alpha. Check the
+ * clock's own glyphs, so a replacement font can safely retain the old path. */
+static bool binary_clock_mask(const Font* f, const SDL_Surface* image)
+{
+    if (image == NULL || image->w < f->glyph_w)
+        return false;
+    const int columns = image->w / f->glyph_w;
+    const char* digits = "0123456789.:";
+    for (const char* c = digits; *c; c++)
+    {
+        const GlyphInfo* glyph = get_glyphinfo(f, *c);
+        if (glyph == NULL || !(glyph->flags & GLYPH_EXISTS))
+            return false;
+        const int x = glyph->image_idx % columns * f->glyph_w;
+        const int y = glyph->image_idx / columns * f->glyph_h;
+        if (y + f->glyph_h > image->h)
+            return false;
+        for (int dy = 0; dy < f->glyph_h; dy++)
+            for (int dx = 0; dx < f->glyph_w; dx++)
+            {
+                const Uint8 alpha = ReadPixel(image, x + dx, y + dy).a;
+                if (alpha != 0 && alpha != 255)
+                    return false;
+            }
+    }
+    return true;
+}
+#endif
+
 static uint8_t load_font(FontContainer* container, const char* name)
 {
     if (container->count >= 254)
@@ -287,6 +320,9 @@ static uint8_t load_font(FontContainer* container, const char* name)
 
     f->glyph_w = 8;
     f->glyph_h = 8;
+#ifdef VVV_POCKET
+    f->clock_border_safe = false;
+#endif
 
     f->fallback_key[0] = '\0';
     f->fallback_idx_valid = false;
@@ -499,6 +535,14 @@ static uint8_t load_font(FontContainer* container, const char* name)
         }
     }
 
+#ifdef VVV_POCKET
+    if (SDL_strcmp(name, "font") == 0 && f->glyph_w == 8 && f->glyph_h == 8)
+    {
+        SDL_Surface* mask = LoadImageSurface(name_png);
+        f->clock_border_safe = binary_clock_mask(f, mask);
+        VVV_freefunc(SDL_DestroySurface, mask);
+    }
+#endif
     return f_idx;
 }
 
@@ -1301,6 +1345,9 @@ static int y_shift(const PrintFlags& pf)
     return 0;
 }
 
+static void print_impl(uint32_t flags, int x, int y, const char* text,
+    uint8_t r, uint8_t g, uint8_t b, bool cache_glyphs, bool border_only = false);
+
 #ifdef VVV_POCKET
 /* The Pocket spends some 50 us on each glyph, whatever its size, and a
  * bordered string is drawn five times over (nine with a full border). So a
@@ -1319,6 +1366,7 @@ struct CachedText
     const Font* font;
     bool rtl;
     bool flipmode;
+    bool border_only;
     uint8_t r, g, b;
     SDL_Texture* image;
     int w, h;
@@ -1339,6 +1387,7 @@ static bool drawing_cached_text;
 #ifdef POCKET_BENCH
 #include "of_timer.h"
 bool POCKET_text_cache = true;
+bool POCKET_clock_border_cache = true;
 /* What drawing text costs, for the benchmark: time in print and its
  * calls, not counting the prints it makes itself, and how many strings
  * were copied from the cache, newly kept in it, or drawn glyph by glyph. */
@@ -1362,6 +1411,7 @@ int PrintTimer::depth;
 #define COUNT_TEXT(counter) (counter++)
 #else
 #define POCKET_text_cache true
+#define POCKET_clock_border_cache true
 #define COUNT_TEXT(counter) ((void) 0)
 #endif
 namespace font
@@ -1405,7 +1455,8 @@ static bool print_cached(
     const uint8_t r,
     const uint8_t g,
     const uint8_t b,
-    const bool keep_glyph = false
+    const bool keep_glyph = false,
+    const bool border_only = false
 )
 {
     if (!POCKET_text_cache || drawing_cached_text)
@@ -1437,7 +1488,7 @@ static bool print_cached(
     {
         CachedText* c = &text_cache[i];
         if (c->font == pf.font_sel && c->flags == flags && c->rtl == pf.rtl
-            && c->flipmode == graphics.flipmode
+            && c->flipmode == graphics.flipmode && c->border_only == border_only
             && c->r == kr && c->g == kg && c->b == kb
             && SDL_strcmp(c->text, text) == 0)
         {
@@ -1462,7 +1513,7 @@ static bool print_cached(
             key = (key ^ (uint8_t) *c) * 16777619u;
         }
         const uint32_t fields[] = {
-            flags, (uint32_t) (uintptr_t) pf.font_sel, pf.rtl, graphics.flipmode,
+            flags, (uint32_t) (uintptr_t) pf.font_sel, pf.rtl, graphics.flipmode, border_only,
             (uint32_t) kr << 16 | (uint32_t) kg << 8 | kb
         };
         for (size_t i = 0; i < SDL_arraysize(fields); i++)
@@ -1532,6 +1583,7 @@ static bool print_cached(
         entry->font = pf.font_sel;
         entry->rtl = pf.rtl;
         entry->flipmode = graphics.flipmode;
+        entry->border_only = border_only;
         entry->r = kr;
         entry->g = kg;
         entry->b = kb;
@@ -1548,7 +1600,7 @@ static bool print_cached(
         SDL_RenderClear(gameScreen.m_renderer);
         SDL_SetRenderDrawColor(gameScreen.m_renderer, dr, dg, db, da);
         drawing_cached_text = true;
-        print(flags, ox, oy, text, kr, kg, kb);
+        print_impl(flags, ox, oy, text, kr, kg, kb, false, border_only);
         drawing_cached_text = false;
         graphics.set_render_target(target);
     }
@@ -1564,6 +1616,17 @@ static bool print_cached(
     graphics.copy_texture(entry->image, NULL, &dest);
     return true;
 }
+
+/* Both clock layers use the same placement, cache and allocation fallback. */
+static int print_clock_glyph(uint32_t flags, const PrintFlags& pf, int x, int y,
+    uint32_t codepoint, uint8_t r, uint8_t g, uint8_t b, bool border_only)
+{
+    const char glyph_text[] = {static_cast<char>(codepoint), '\0'};
+    flags &= ~(PR_CEN | PR_RIGHT | PR_RTL_XFLIP);
+    if (!print_cached(flags, pf, x, y, glyph_text, r, g, b, true, border_only))
+        print_impl(flags, x, y, glyph_text, r, g, b, false, border_only);
+    return get_advance(pf.font_sel, codepoint) * pf.scale;
+}
 #endif
 
 static void print_impl(
@@ -1574,7 +1637,8 @@ static void print_impl(
     const uint8_t r,
     const uint8_t g,
     const uint8_t b,
-    const bool cache_glyphs
+    const bool cache_glyphs,
+    const bool border_only
 )
 {
 #ifdef POCKET_BENCH
@@ -1621,7 +1685,7 @@ static void print_impl(
 
 #ifdef VVV_POCKET
     const bool glyph_cache = cache_glyphs && !pf.rtl && POCKET_text_cache && !drawing_cached_text;
-    if (!glyph_cache && print_cached(flags, pf, x, y, text, r, g, b))
+    if (!glyph_cache && print_cached(flags, pf, x, y, text, r, g, b, false, border_only))
     {
         return;
     }
@@ -1629,6 +1693,16 @@ static void print_impl(
     (void) cache_glyphs;
 #endif
 
+#ifdef VVV_POCKET
+    if (glyph_cache && POCKET_clock_border_cache && pf.border && !graphics.notextoutline
+        && !(flags & PR_FULLBOR) && pf.brightness == 255 && pf.font_sel->clock_border_safe)
+    {
+        int position = 0;
+        for (const char* c = text; *c; c++)
+            position += print_clock_glyph(flags, pf, x + position, y, *c, 0, 0, 0, true);
+    }
+    else
+#endif
     if (pf.border && !graphics.notextoutline)
     {
         static const int offsets[4][2] = {{0,-1}, {-1,0}, {1,0}, {0,1}};
@@ -1661,6 +1735,9 @@ static void print_impl(
         }
     }
 
+    if (border_only)
+        return;
+
     y += y_shift(pf);
 
     if (bidi_should_transform(pf.rtl, text))
@@ -1675,13 +1752,10 @@ static void print_impl(
 #ifdef VVV_POCKET
         if (glyph_cache)
         {
-            const char glyph_text[] = {static_cast<char>(codepoint), '\0'};
-            const uint32_t glyph_flags = flags & ~(PR_BOR | PR_FULLBOR | PR_CEN | PR_RIGHT | PR_RTL_XFLIP);
-            if (print_cached(glyph_flags, pf, x + position, y - y_shift(pf), glyph_text, r, g, b, true))
-            {
-                position += get_advance(pf.font_sel, codepoint) * pf.scale;
-                continue;
-            }
+            const uint32_t glyph_flags = flags & ~(PR_BOR | PR_FULLBOR);
+            position += print_clock_glyph(glyph_flags, pf, x + position, y - y_shift(pf),
+                codepoint, r, g, b, false);
+            continue;
         }
 #endif
         position += font::print_char(

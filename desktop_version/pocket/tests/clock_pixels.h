@@ -3,14 +3,15 @@ static int clock_pixel_cases;
 
 /* This uses the host's real counter, independent of the accelerated game
  * clock. It compares implementations, not physical Pocket frame times. */
-static Uint64 host_clock_cost(bool optimized)
+static Uint64 host_clock_cost(int mode)
 {
+    POCKET_clock_border_cache = mode == 2;
     graphics.fill_rect(40, 60, 90);
     const Uint64 start = SDL_GetPerformanceCounter();
     for (int i = 0; i < 600; i++)
     {
         const std::string text = help.timestring(1799 - i);
-        if (optimized)
+        if (mode != 0)
             font::print_clock(PR_2X | PR_CEN | PR_BOR, -1, 20, text.c_str(), 196, 196, 255);
         else
             font::print(PR_2X | PR_CEN | PR_BOR, -1, 20, text, 196, 196, 255);
@@ -53,7 +54,8 @@ static void check_clock_pixels(void)
                 220 - tick % 30, 220 - tick % 30, 255 - tick % 15);
         }
         const uint32_t styles[] = {clock_flags, PR_3X | PR_FULLBOR | PR_RIGHT,
-            PR_2X | PR_BOR | PR_BRIGHTNESS(128), PR_2X | PR_BOR | PR_RTL_FORCE};
+            PR_2X | PR_BOR | PR_BRIGHTNESS(128), PR_2X | PR_BOR | PR_RTL_FORCE,
+            PR_2X | PR_BOR | PR_FULLBOR, PR_BOR | PR_RIGHT, PR_3X | PR_BOR};
         for (int no = 0; no < 2; no++)
         {
             graphics.notextoutline = no != 0;
@@ -73,6 +75,18 @@ static void check_clock_pixels(void)
     graphics.flipmode = false;
     graphics.notextoutline = false;
     POCKET_text_cache = true;
+    /* A border-only clock entry must never replace a complete text entry. */
+    font::print_clock(clock_flags, -1, 20, "1", 200, 200, 240);
+    POCKET_text_cache = false;
+    SDL_Surface* complete = draw_case(clock_flags, -1, 20, "1", 200, 200, 240);
+    POCKET_text_cache = true;
+    for (int i = 0; i < 2; i++)
+    {
+        SDL_Surface* cached = draw_case(clock_flags, -1, 20, "1", 200, 200, 240);
+        assert(same_pixels(complete, cached));
+        SDL_DestroySurface(cached);
+    }
+    SDL_DestroySurface(complete);
     font::print_clock(clock_flags, -1, 20, "0123456789.:", 200, 200, 240);
     const Uint32 kept = POCKET_text_kept;
     for (int i = 0; i < 60; i++)
@@ -81,14 +95,16 @@ static void check_clock_pixels(void)
         font::print_clock(clock_flags, -1, 20, text.c_str(), 200, 200, 240);
     }
     assert(POCKET_text_kept == kept); /* Changing values reuse the same glyphs. */
-    Uint64 old_us = 0, new_us = 0;
+    Uint64 old_us = 0, glyph_us = 0, new_us = 0;
     for (int round = 0; round < 3; round++)
     {
-        old_us += host_clock_cost(false);
-        new_us += host_clock_cost(true);
+        old_us += host_clock_cost(0);
+        glyph_us += host_clock_cost(1);
+        new_us += host_clock_cost(2);
     }
-    printf("Clock host wall time, us/draw: original %llu, glyphs %llu (not Pocket timing)\n",
-        (unsigned long long) (old_us / 1800), (unsigned long long) (new_us / 1800));
+    printf("Clock host wall time, us/draw: original %llu, glyphs %llu, border pairs %llu (not Pocket timing)\n",
+        (unsigned long long) (old_us / 1800), (unsigned long long) (glyph_us / 1800),
+        (unsigned long long) (new_us / 1800));
     graphics.flipmode = flip;
     graphics.notextoutline = no_outline;
     graphics.set_render_target(target);
