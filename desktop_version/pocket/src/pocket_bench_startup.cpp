@@ -2,6 +2,7 @@
 
 #ifdef POCKET_BENCH
 #include "../../src/Localization.h"
+#include "../../src/Game.h"
 
 void POCKET_BenchPrepare(void)
 {
@@ -10,5 +11,8 @@ void POCKET_BenchPrepare(void)
      * and fonts in every run even if settings were saved previously. */
     loc::lang = "en";
     loc::lang_set = loc::lang_set_current;
+    /* Measure one presentation per logic timestep. Render-only loops would
+     * otherwise be omitted from the benchmark's per-frame accounting. */
+    game.over30mode = false;
 }
 #endif

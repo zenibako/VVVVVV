@@ -161,10 +161,11 @@ $(BENCH_SAVEFS_TEST_BIN): $(POCKET_ROOT)/tests/bench_savefs_test.c \
 
 $(BENCH_STARTUP_TEST_BIN): $(POCKET_ROOT)/tests/bench_startup_test.cpp \
 		$(POCKET_ROOT)/src/pocket_bench_startup.cpp $(POCKET_ROOT)/src/pocket_bench.h \
-		$(GAME_ROOT)/src/Localization.h $(wildcard $(POCKET_ROOT)/compat/cxx/*)
+		$(GAME_ROOT)/src/Localization.h $(GAME_ROOT)/src/Game.h $(wildcard $(POCKET_ROOT)/compat/cxx/*)
 	@mkdir -p $(dir $@)
 	$(HOST_CXX) -std=c++98 -nostdinc++ -fno-exceptions -fno-rtti -Wall -Wextra -g \
 		$(HOST_SANITIZE) -DPOCKET_BENCH -I$(POCKET_ROOT)/compat/cxx \
+		-I$(SDL3_ROOT)/include \
 		$(POCKET_ROOT)/tests/bench_startup_test.cpp $(POCKET_ROOT)/src/pocket_bench_startup.cpp \
 		$(POCKET_ROOT)/compat/cxx/compat.cpp -o $@
 
