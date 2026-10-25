@@ -10,6 +10,7 @@
 #include "of_video.h"
 #include "render_internal.h"
 #include "pocket_audio.h"
+#include "pocket_bench_profile.h"
 
 #ifdef POCKET_SHOW_FPS
 #include "of_timer.h"
@@ -43,7 +44,9 @@ static void start_video(void)
 
 #ifdef POCKET_SHOW_FPS
 extern Uint32 POCKET_render_us;
+extern Uint32 POCKET_timer_read_us;
 extern Uint32 POCKET_render_part_us[6];
+extern Uint32 POCKET_render_calls;
 extern int POCKET_saves_written;
 extern int POCKET_saves_failed;
 static Uint32 present_us;
@@ -87,8 +90,8 @@ static void draw_number(Uint8 *fb, int stride, int line, int value)
     }
 }
 
-/* Once, tenths of a millisecond for a full screen of ARGB8888: memcpy,
- * a word fill loop, and a word copy loop. */
+/* Once, tenths of a millisecond for a full screen of ARGB8888 by memcpy
+ * and by a word fill loop, then for 1000 timer reads. */
 static int bench[3];
 
 static void run_bench(void)
@@ -117,12 +120,14 @@ static void run_bench(void)
         ((volatile Uint32 *) a)[i] = 0xFF000000u;
     }
     bench[1] = (int) ((of_time_us() - start) / 100);
+    /* 1000 timer reads, so the profile's own cost per draw is known. */
     start = of_time_us();
-    for (size_t i = 0; i < count; i++)
+    for (int i = 0; i < 1000; i++)
     {
-        ((volatile Uint32 *) b)[i] = ((volatile Uint32 *) a)[i];
+        (void) of_time_us();
     }
     bench[2] = (int) ((of_time_us() - start) / 100);
+    POCKET_timer_read_us = (Uint32) bench[2] / 10;
     SDL_free(a);
     SDL_free(b);
 }
@@ -130,7 +135,9 @@ static void run_bench(void)
 /* Over the last second, down the top right corner: frames presented, then
  * the milliseconds per frame spent drawing in the renderer, presenting,
  * and everywhere else (the game's own code, input and sound); then saves
- * written to the save file and saves that failed. */
+ * written to the save file and saves that failed; then tens of copies and
+ * fills per frame; then the parts in tenths of a millisecond per frame; then
+ * the slowest frame's milliseconds. */
 static void draw_profile(Uint8 *fb, int stride)
 {
     static Uint32 second_start, render_start, present_start;
@@ -138,8 +145,13 @@ static void draw_profile(Uint8 *fb, int stride)
     static int shown[4];
     static int parts[6];
     static Uint32 parts_start[6];
+    static int calls;
+    static Uint32 calls_start;
+    static Uint32 frame_start, slowest, shown_slowest;
     run_bench();
     const Uint32 now = of_time_ms();
+    slowest = SDL_max(slowest, now - frame_start);
+    frame_start = now;
     frames++;
     if (now - second_start >= 1000)
     {
@@ -156,6 +168,10 @@ static void draw_profile(Uint8 *fb, int stride)
             parts[i] = (int) ((POCKET_render_part_us[i] - parts_start[i]) / frames / 100);
             parts_start[i] = POCKET_render_part_us[i];
         }
+        calls = (int) ((POCKET_render_calls - calls_start) / frames / 10);
+        calls_start = POCKET_render_calls;
+        shown_slowest = slowest;
+        slowest = 0;
         frames = 0;
         second_start = now;
         render_start = POCKET_render_us;
@@ -167,10 +183,12 @@ static void draw_profile(Uint8 *fb, int stride)
     }
     draw_number(fb, stride, 4, POCKET_saves_written);
     draw_number(fb, stride, 5, POCKET_saves_failed);
+    draw_number(fb, stride, 6, calls);
     for (int i = 0; i < 6; i++)
     {
         draw_number(fb, stride, 7 + i, parts[i]);
     }
+    draw_number(fb, stride, 13, (int) shown_slowest);
     draw_number(fb, stride, 14, bench[0]);
     draw_number(fb, stride, 15, bench[1]);
     draw_number(fb, stride, 16, bench[2]);
@@ -213,11 +231,15 @@ void POCKET_PresentFrame(void)
     const Uint32 present_start = of_time_us();
     draw_profile(of_video_surface(), video_mode.stride ? video_mode.stride : POCKET_SCREEN_W * 2);
 #endif
+    POCKET_GRAV_TIMER_START(flip_start);
     of_video_flip();
+    POCKET_GRAV_TIMER_END(flip_start, POCKET_GRAV_VIDEO_FLIP);
 #ifdef POCKET_SHOW_FPS
     present_us += of_time_us() - present_start;
 #endif
+    POCKET_GRAV_TIMER_START(audio_start);
     pocket_audio_update();
+    POCKET_GRAV_TIMER_END(audio_start, POCKET_GRAV_AUDIO);
 }
 
 SDL_Window *SDL_CreateWindow(const char *title, int w, int h, SDL_WindowFlags flags)

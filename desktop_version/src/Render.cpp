@@ -26,6 +26,7 @@
 #include "Screen.h"
 #include "Script.h"
 #include "UtilityClass.h"
+#include "../pocket/src/pocket_bench_profile.h"
 #include "VFormat.h"
 
 static int tr;
@@ -2382,9 +2383,11 @@ static void mode_indicator_text(const int alpha)
 
 void gamerender(void)
 {
+    POCKET_GRAV_DRAW_SCOPE(POCKET_GRAV_DRAW_SETUP);
     graphics.set_render_target(graphics.gameplayTexture);
     graphics.set_color(0, 0, 0, 255);
 
+    POCKET_GRAV_DRAW_NEXT(POCKET_GRAV_DRAW_BACKGROUND);
     if(!game.blackout)
     {
         if (map.towermode)
@@ -2397,6 +2400,7 @@ void gamerender(void)
             {
                 graphics.clear();
             }
+            POCKET_GRAV_DRAW_NEXT(POCKET_GRAV_DRAW_MAP);
             graphics.drawtowermap();
         }
         else
@@ -2409,6 +2413,7 @@ void gamerender(void)
             {
                 graphics.clear();
             }
+            POCKET_GRAV_DRAW_NEXT(POCKET_GRAV_DRAW_MAP);
             if ((map.finalmode || map.custommode) && map.final_colormode)
             {
                 graphics.drawfinalmap();
@@ -2420,6 +2425,7 @@ void gamerender(void)
         }
 
 
+        POCKET_GRAV_DRAW_NEXT(POCKET_GRAV_DRAW_ENTITIES);
         graphics.drawentities();
         if (map.towermode)
         {
@@ -2427,6 +2433,7 @@ void gamerender(void)
         }
     }
 
+    POCKET_GRAV_DRAW_NEXT(POCKET_GRAV_DRAW_HUD);
     int return_editor_alpha = 0;
     bool draw_return_editor_text = false;
     if (map.custommode && !map.custommodeforreal && !game.advancetext)
@@ -2523,9 +2530,10 @@ void gamerender(void)
         mode_indicator_text(mode_indicator_alpha);
     }
 
+    POCKET_GRAV_DRAW_NEXT(POCKET_GRAV_DRAW_COPY);
     graphics.set_render_target(graphics.gameTexture);
-
     graphics.copy_texture(graphics.gameplayTexture, NULL, NULL);
+    POCKET_GRAV_DRAW_NEXT(POCKET_GRAV_DRAW_HUD);
 
     if (game.advancetext)
     {
@@ -2566,7 +2574,7 @@ void gamerender(void)
         if (game.swngame == SWN_GRAVITRON)
         {
             std::string tempstring = help.timestring(game.swntimer);
-            font::print(PR_2X | PR_CEN | PR_BOR, -1, 20, tempstring, 220 - (help.glow), 220 - (help.glow), 255 - (help.glow / 2));
+            font::print_clock(PR_2X | PR_CEN | PR_BOR, -1, 20, tempstring.c_str(), 220 - (help.glow), 220 - (help.glow), 255 - (help.glow / 2));
         }
         else if (game.swngame == SWN_SUPERGRAVITRON)
         {
@@ -2834,6 +2842,7 @@ void gamerender(void)
 
     level_debugger::render();
 
+    POCKET_GRAV_DRAW_NEXT(POCKET_GRAV_DRAW_EFFECTS);
     graphics.renderwithscreeneffects();
 }
 
@@ -2993,6 +3002,69 @@ static void rendermapcursor(const bool flashing)
     }
 }
 
+#ifdef VVV_POCKET
+/* The Pocket draws each image on the CPU, and the map page's frame,
+ * minimap and up to 400 fog squares change only when a room is explored.
+ * They are drawn into a texture when they change and copied from it,
+ * opaque, otherwise: the frame's fill covers the whole box they are in. */
+static bool rendermap_cached(void)
+{
+    static SDL_Texture* cache = NULL;
+    static bool valid = false;
+    static bool cached_explored[SDL_arraysize(map.explored)];
+    static bool cached_finalmode;
+    static SDL_Texture* cached_images[3];
+    SDL_Texture* const images[3] = {
+        graphics.images[IMAGE_MINIMAP],
+        graphics.images[IMAGE_COVERED],
+        graphics.grphx.im_tiles_white
+    };
+
+    if (cache == NULL)
+    {
+        cache = SDL_CreateTexture(gameScreen.m_renderer, SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_TARGET, SCREEN_WIDTH_PIXELS, SCREEN_HEIGHT_PIXELS);
+        if (cache == NULL)
+        {
+            return false;
+        }
+    }
+
+    if (!valid
+    || cached_finalmode != map.finalmode
+    || SDL_memcmp(cached_images, images, sizeof(images)) != 0
+    || SDL_memcmp(cached_explored, map.explored, sizeof(cached_explored)) != 0)
+    {
+        SDL_Texture* target = SDL_GetRenderTarget(gameScreen.m_renderer);
+        graphics.set_render_target(cache);
+        graphics.clear();
+        rendermap();
+        if (map.finalmode)
+        {
+            for (int j = 0; j < 20; j++)
+            {
+                for (int i = 0; i < 20; i++)
+                {
+                    graphics.drawimage(IMAGE_COVERED, 40 + (i * 12), 21 + (j * 9), false);
+                }
+            }
+        }
+        else
+        {
+            rendermapfog();
+        }
+        graphics.set_render_target(target);
+        valid = true;
+        cached_finalmode = map.finalmode;
+        SDL_memcpy(cached_images, images, sizeof(images));
+        SDL_memcpy(cached_explored, map.explored, sizeof(cached_explored));
+    }
+
+    const SDL_FRect box = {35.0f, 16.0f, 250.0f, 190.0f};
+    graphics.copy_texture(cache, &box, &box);
+    return true;
+}
+#endif
+
 void maprender(void)
 {
     graphics.set_render_target(graphics.menuTexture);
@@ -3071,6 +3143,21 @@ void maprender(void)
     switch(game.menupage)
     {
     case 0:
+#ifdef VVV_POCKET
+        if (!map.custommode && rendermap_cached())
+        {
+            if (map.finalmode)
+            {
+                font::print(PR_CEN | PR_BOR, -1, 105, loc::gettext("NO SIGNAL"), 245, 245, 245);
+            }
+            else
+            {
+                rendermapcursor(true);
+                rendermaplegend();
+            }
+            break;
+        }
+#endif
         rendermap();
 
         if (map.finalmode || (map.custommode&&!map.customshowmm))

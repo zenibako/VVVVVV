@@ -50,6 +50,147 @@ now the Chinese, Japanese and Korean fonts are left out to save memory.
 `make test` runs the compat-header, save-archive and sound checks on the
 host with AddressSanitizer and UBSan.
 
+`make BENCH=1` builds the scripted benchmark; `make BENCH=1 package`
+packages it as the separate `zenibako.vvvvvvbench` core. Use fresh object
+and build directories when switching between the game and benchmark.
+The benchmark always selects English before loading fonts and skips the
+first-run language prompt, including with an empty or unreadable benchmark
+save. Its save slot is separate from the game's, and benchmark writes stay
+in memory. The startup check is included in `make test`.
+
+The timed route covers Teleporter Divot (with and without the time-trial
+HUD), Tower, map, climbing, and the story Gravitron. Gravitron uses its
+normal introduction and complete 60-second countdown, including the denser
+late waves, with a fixed random seed and invincibility to prevent resets.
+The introduction is excluded from timing. Results include average frame,
+logic, drawing and text costs; press A to switch between results pages and
+take a screenshot of each page.
+
+The benchmark forces 30 Hz rendering, independent of saved settings. This
+keeps one presentation per logic timestep; faster render-only iterations
+would otherwise be excluded from its per-frame averages.
+
+The Gravitron split reports background update/drawing and enemy spawning,
+movement (including physics and wall collisions), pair collisions,
+animation/colour updates, and drawing (including warning indicators).
+Each phase shows milliseconds and calls per presented frame; these times
+are already included in the main frame totals. Animation counts both its
+physics probes and colour pass. Wave-spawn calls include delay checks.
+Invincibility keeps the run reproducible and skips harmful pixel collisions.
+
+The detailed Gravitron draw breakdown partitions clear/setup, background,
+map/foreground, all entities, HUD/overlays, gameplay copying, final window
+copy/effects, presentation, and the post-present clear. Its sum plus
+`other` reconciles with the existing draw total; `overlap` should be zero.
+Existing text, enemy and background counters are nested diagnostics.
+Framebuffer flip and audio servicing are shown separately inside presentation,
+so their times must not be added to the flat draw sum. The flip queues a
+frame; this is not a measurement of physical scanout latency. Deferred clears
+are charged to whichever later drawing call actually writes their pixels.
+The report now spans three pages; press A and capture every page.
+
+The final window copy batches tightly packed, unscaled RGB565 rows into
+one transfer. Flips, scrolling row storage, padded pitch and horizontal
+clipping retain the existing row path. `window copy us: old ... new ...`
+compares both paths on the device, including the deferred window clear.
+
+The Pocket's story countdown reuses digit textures instead of caching each
+changing time string. It preserves the font's spacing, glow and border order;
+localized numerals and RTL text use the existing renderer. Results include
+an old/new comparison in microseconds for the same changing clock values,
+plus pixel comparisons for the optimized countdown.
+For the default font's regular border, each digit uses a cached black
+border layer followed by its foreground layer, reducing five copies to
+two. All borders still precede all foregrounds. The font's clock masks are
+checked for binary alpha when loaded; replacement fonts with partial alpha,
+other fonts, full borders and dimmed styles keep the existing path.
+`clock border us: old ... new ...` isolates this change from glyph caching.
+All cached text also checks the actual glyph's alpha mask, including fallback
+and replacement glyphs. Partial-alpha glyphs retain direct drawing so alpha
+is not applied twice; binary glyphs in the same font can still be cached.
+Text requiring bidi shaping also retains direct drawing, since shaping can
+substitute a glyph with a different alpha mask.
+
+Warp-background scrolling uses one shared renderer helper for both axes:
+vertical scrolling changes the first stored row, and horizontal RGB565
+scrolling changes the first stored column. Both retain the full scrolling
+texture and fill only exposed pixels black. Packed copies and repeated-tile
+repainting split spans at the physical row ends; readback preserves the
+column origin. Other drawing operations normalize columns when needed,
+and ARGB scrolling retains the existing move. Unsupported blend or colour mods
+keep the original temporary-texture path. Results include `warp bg us:
+old ... new ...`, which compares complete background updates on device.
+Both warp directions also share a repeated-tile helper. It batches their
+four-tile pattern into cached RGB565 row spans, preserving transparent
+pixels and the complete original repaint band. Pixel changes and texture
+destruction invalidate the cache. Partial alpha, colour modulation and
+unsupported targets or blending keep the original tile draws.
+`warp tiles us: old ... new ...` isolates batching with shared scrolling
+enabled in both measurements.
+`warp scroll us: old ... new ...` compares horizontal movement with column
+offsets, with tile batching enabled in both measurements.
+
+Tower full-background redraws batch the indexed 8x8 tile grid from the
+existing opaque tile sheet into contiguous row copies. The scrolling
+update path and colour/camera logic retain their existing behaviour.
+`tower updates: full ... scroll ...` reports how often each path runs;
+invincible camera corrections can request full redraws on consecutive
+updates, as well as the normal colour transitions. `tower redraw us:
+old ... new ...` compares both full-redraw implementations on device.
+
+An opt-in host check runs the real scripted route with an accelerated test
+clock and AddressSanitizer/UBSan. It checks the Gravitron room, active enemy
+waves, countdown completion and report pages, and captures room/results BMPs:
+
+```sh
+make host HOST_BENCH_SMOKE=1 HOST_DIR="$PWD/build/host-bench-smoke" SDL3_PREFIX=/opt/homebrew
+mkdir -p build/host-bench-smoke/captures build/host-bench-smoke/saves
+cd build/host-bench-smoke/captures
+SDL_VIDEODRIVER=dummy SDL_AUDIODRIVER=dummy SDL_RENDER_DRIVER=software \
+  ASAN_OPTIONS=detect_leaks=0 ../vvvvvv -assets /absolute/path/to/data.zip \
+  -basedir "$PWD/../saves/"
+```
+
+These host timings are synthetic and must not be used as Pocket performance
+results. The host check uses desktop SDL rendering with the Pocket text cache;
+physical Pocket timing remains separate.
+Linux smoke builds require the shared SDL3 library so the harness's timing
+and presentation overrides do not conflict with static SDL definitions.
+
+To exercise partial-alpha replacement fonts, generate private test assets
+with `python3 tests/font_alpha_assets.py /path/to/data.zip /tmp/font-alpha.zip`.
+Run either smoke executable with `POCKET_TEST_FONT_ALPHA=1` and
+`-assets /tmp/font-alpha.zip`. This checks repeated strings, countdown digits,
+fallback and missing-glyph replacements against uncached pixels, plus binary
+glyph caching in the same fonts, then exits before the scripted route.
+
+For the same route and 3,764 countdown pixel comparisons using the Pocket's
+actual software renderer, build `host-render` with the same
+`HOST_BENCH_SMOKE=1`, `HOST_DIR` and `SDL3_PREFIX` arguments, then run
+`../render/vvvvvv` from the captures directory. Both checks exercise all
+seven Gravitron phases. They also compare host wall time for old/new clock
+drawing using the real performance counter; that comparison is independent
+of the accelerated game clock and is still not Pocket performance.
+
+The host check verifies draw accounting, continued presentation at the end
+of the countdown, all report pages, and unchanged counters on results screens.
+Native flip/audio paths are covered by C timer checks and the device build;
+the host presentation adapter does not emulate their hardware timing.
+
+The Pocket-renderer host check also compares 960 full warp-background
+textures against the original path (both axes, seven colours, 40 updates,
+plus sustained scrolling past a complete column wrap, colour changes,
+resets and direction switches),
+then reports host wall time for background updates. Renderer tests cover
+shared snapshots, pending clears, both pixel formats and extreme shifts.
+Window-copy checks compare the packed transfer with the original rows.
+Run `RENDER_TEST_PADDED=1 make render-test` as well to check framebuffer
+padding and its sentinel pixels.
+The Pocket-renderer check also compares 2,560 complete Tower backgrounds
+across all 30 colours, both directions, every pixel offset, wrap boundaries,
+camera jumps and transitions between full redraws and scrolling. Its Tower
+and Gravitron captures allow whole-frame comparisons with earlier builds.
+
 ## Sound
 
 The Pocket can't decode the game's Ogg Vorbis music while it runs, so the

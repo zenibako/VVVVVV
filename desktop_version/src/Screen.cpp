@@ -19,6 +19,7 @@
 #include "Map.h"
 #include "Render.h"
 #include "Vlogging.h"
+#include "../pocket/src/pocket_bench_profile.h"
 
 void ScreenSettings_default(struct ScreenSettings* _this)
 {
@@ -285,7 +286,9 @@ void Screen::GetScreenSize(int* x, int* y)
 
 void Screen::RenderPresent(void)
 {
+    POCKET_GRAV_DRAW_SCOPE(POCKET_GRAV_DRAW_PRESENT);
     SDL_RenderPresent(m_renderer);
+    POCKET_GRAV_DRAW_NEXT(POCKET_GRAV_DRAW_POST_CLEAR);
     graphics.clear();
 }
 

@@ -20,11 +20,12 @@
 SDL_Renderer *PR_SDL_CreateRenderer(SDL_Window *window, const char *name);
 
 /* The window's framebuffer, video.c's on the device. */
-static Uint16 frame_buffer[POCKET_SCREEN_W * POCKET_SCREEN_H];
+static Uint16 frame_buffer[(POCKET_SCREEN_W + 4) * POCKET_SCREEN_H];
+static int frame_pitch = POCKET_SCREEN_W;
 
 Uint16 *POCKET_FrameBuffer(int *pitch)
 {
-    *pitch = POCKET_SCREEN_W;
+    *pitch = frame_pitch;
     return frame_buffer;
 }
 
@@ -166,6 +167,10 @@ static void write_ppm(const char *dir, int index, const CaptureItem *a, const Ca
 int main(void)
 {
     static Capture sdl, pocket;
+    if (getenv("RENDER_TEST_PADDED") != NULL)
+        frame_pitch += 4;
+    for (size_t i = 0; i < sizeof(frame_buffer) / sizeof(frame_buffer[0]); i++)
+        frame_buffer[i] = 0xABCD;
 
     SDL_Surface *window = SDL_CreateSurface(320, 240, SDL_PIXELFORMAT_ARGB8888);
     SDL_Renderer *sdl_renderer = SDL_CreateSoftwareRenderer(window);
@@ -186,6 +191,13 @@ int main(void)
 
     const char *out = getenv("RENDER_TEST_OUT");
     int failures = 0;
+    for (int y = 0; y < POCKET_SCREEN_H; y++)
+        for (int x = POCKET_SCREEN_W; x < frame_pitch; x++)
+            if (frame_buffer[y * frame_pitch + x] != 0xABCD)
+            {
+                fprintf(stderr, "FAIL: framebuffer padding overwritten at %d,%d\n", x, y);
+                failures++;
+            }
     if (sdl.count != pocket.count)
     {
         printf("FAIL: %d captures from SDL, %d from the port\n", sdl.count, pocket.count);

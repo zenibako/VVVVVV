@@ -91,6 +91,8 @@ bool glyph_dimensions(uint32_t flags, uint8_t* glyph_w, uint8_t* glyph_h);
 
 int len(uint32_t flags, const char* text);
 int height(uint32_t flags);
+/* Changing numeric HUD values: retain glyphs instead of complete strings. */
+void print_clock(uint32_t flags, int x, int y, const char* text, uint8_t r, uint8_t g, uint8_t b);
 bool is_rtl(uint32_t flags);
 
 void print(

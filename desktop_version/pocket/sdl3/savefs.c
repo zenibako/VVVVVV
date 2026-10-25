@@ -27,7 +27,12 @@
  * card; before the first save it finds the slot from the <name>_<N>.sav
  * pattern, N counting from the first save slot (id 10). */
 #ifndef POCKET_SAVE_FILE
+#ifdef POCKET_BENCH
+/* The benchmark core's own slot, so it never touches the game's save. */
+#define POCKET_SAVE_FILE "vvvvvv-bench_0.sav"
+#else
 #define POCKET_SAVE_FILE "vvvvvv_0.sav"
+#endif
 #endif
 
 #define SAVEFS_MAGIC 0x31565656u /* "VVV1" */
@@ -64,6 +69,12 @@ static const char *const roots[] = {"saves", "levels", "screenshots"};
  * SHOW_FPS overlay shows them. */
 int POCKET_saves_written;
 int POCKET_saves_failed;
+/* First-run settings can be written before the benchmark's first step. */
+#ifdef POCKET_BENCH
+bool POCKET_saves_volatile = true;
+#else
+bool POCKET_saves_volatile;
+#endif
 
 static SaveFile files[SAVEFS_MAX_FILES];
 static Uint32 file_count;
@@ -228,6 +239,10 @@ static bool store(void)
     if (load_failed)
     {
         return SDL_SetError("Saves: the save file could not be read, so it is not written over");
+    }
+    if (POCKET_saves_volatile)
+    {
+        return true;
     }
     for (i = 0; i < file_count; i++)
     {

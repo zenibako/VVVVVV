@@ -16,6 +16,7 @@
 #include "UtilityClass.h"
 #include "Vlogging.h"
 #include "Xoshiro.h"
+#include "../pocket/src/pocket_bench_profile.h"
 
 static int getgridpoint( int t )
 {
@@ -144,6 +145,7 @@ void entityclass::gravcreate( int ypos, int dir, int xoff /*= 0*/, int yoff /*= 
 
 void entityclass::generateswnwave( int t )
 {
+    POCKET_GRAV_SCOPE(POCKET_GRAV_ENEMY_SPAWN, t == 0);
     //generate a wave for the SWN game
     if(game.swndelay<=0)
     {
@@ -4815,6 +4817,7 @@ void entityclass::collisioncheck(int i, int j, bool scm /*= false*/)
         return;
     }
 
+    POCKET_GRAV_SCOPE(POCKET_GRAV_ENEMY_COLLIDE, entities[j].type == EntityType_GRAVITRON_ENEMY);
     switch (entities[j].rule)
     {
     case 1:

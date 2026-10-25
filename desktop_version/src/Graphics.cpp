@@ -786,8 +786,26 @@ void Graphics::draw_flipsprite(const int x, const int y, const int t, const SDL_
     draw_grid_tile(grphx.im_flipsprites, t, x, y, sprites_rect.w, sprites_rect.h, color);
 }
 
+#ifdef VVV_POCKET
+extern "C" bool POCKET_ScrollTexture(SDL_Texture* texture, int dx, int dy);
+#ifdef POCKET_BENCH
+extern "C" bool POCKET_scroll_fast;
+#else
+#define POCKET_scroll_fast true
+#endif
+#endif
+
 void Graphics::scroll_texture(SDL_Texture* texture, SDL_Texture* temp, const int x, const int y)
 {
+#ifdef VVV_POCKET
+    /* The renderer shares validation and alias handling for both axes,
+     * avoiding the full temporary-texture round trip. */
+    if (POCKET_scroll_fast && SDL_GetRenderTarget(gameScreen.m_renderer) == texture
+        && POCKET_ScrollTexture(texture, x, y))
+    {
+        return;
+    }
+#endif
     SDL_Texture* target = SDL_GetRenderTarget(gameScreen.m_renderer);
     SDL_Rect texture_rect = {0, 0, 0, 0};
     query_texture(texture, NULL, NULL, &texture_rect.w, &texture_rect.h);
@@ -844,8 +862,21 @@ void Graphics::drawtile2(int x, int y, int t)
     }
 }
 
+#ifdef POCKET_BENCH
+#include "of_timer.h"
+/* For the benchmark: time spent updating the tower's background, and the
+ * tiles it and drawtile3 drew. */
+Uint32 POCKET_bg_us, POCKET_bg_tiles, POCKET_bg_full, POCKET_bg_scroll;
+#define COUNT_BG_TILE() (POCKET_bg_tiles++)
+#define COUNT_BG_TILES(n) (POCKET_bg_tiles += (n))
+#else
+#define COUNT_BG_TILE() ((void) 0)
+#define COUNT_BG_TILES(n) ((void) 0)
+#endif
+
 void Graphics::drawtile3(int x, int y, int t, int off, int height_subtract /*= 0*/)
 {
+    COUNT_BG_TILE();
     t += off * 30;
 
     // Can't use drawgridtile because we want to draw a slice of the tile,
@@ -2063,6 +2094,8 @@ void Graphics::drawentities(void)
     }
 }
 
+#include "../pocket/src/pocket_bench_profile.h"
+
 void Graphics::drawentity(const int i, const int yoff)
 {
     if (!INBOUNDS_VEC(i, obj.entities))
@@ -2075,6 +2108,8 @@ void Graphics::drawentity(const int i, const int yoff)
     {
         return;
     }
+
+    POCKET_GRAV_SCOPE(POCKET_GRAV_ENEMY_DRAW, obj.entities[i].type == EntityType_GRAVITRON_ENEMY);
 
     SDL_Point tpoint;
 
@@ -2370,6 +2405,45 @@ void Graphics::drawentity(const int i, const int yoff)
 
 void Graphics::drawbackground( int t )
 {
+    POCKET_GRAV_SCOPE(POCKET_GRAV_BG_DRAW, true);
+#ifdef VVV_POCKET
+    /* The Pocket draws each tile on the CPU, so a tower hallway's 1200
+     * unscrolling tiles are drawn once into a texture and copied from it
+     * after that. */
+    static SDL_Texture* hallway = NULL;
+    static int hallway_background = -1;
+    static SDL_Texture* hallway_tiles = NULL;
+    static bool filling_hallway = false;
+    if (t >= 7 && t <= 9 && !filling_hallway)
+    {
+        if (hallway == NULL)
+        {
+            hallway = SDL_CreateTexture(
+                gameScreen.m_renderer,
+                SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_TARGET,
+                SCREEN_WIDTH_PIXELS, SCREEN_HEIGHT_PIXELS
+            );
+        }
+        if (hallway != NULL)
+        {
+            if (hallway_background != t || hallway_tiles != grphx.im_tiles3)
+            {
+                SDL_Texture* target = SDL_GetRenderTarget(gameScreen.m_renderer);
+                set_render_target(hallway);
+                clear();
+                filling_hallway = true;
+                drawbackground(t);
+                filling_hallway = false;
+                set_render_target(target);
+                hallway_background = t;
+                hallway_tiles = grphx.im_tiles3;
+            }
+            copy_texture(hallway, NULL, NULL);
+            return;
+        }
+    }
+#endif
+
     switch(t)
     {
     case 1:
@@ -2617,6 +2691,32 @@ void Graphics::drawbackground( int t )
             warpfcol = getRGB(0xFF, 0xFF, 0xFF);
         }
 
+#ifdef VVV_POCKET
+        /* The Pocket fills every pixel of a rectangle on the CPU, so each
+         * square is drawn as just the ring the next one in leaves showing:
+         * one screen of fill instead of about five. */
+        for (int i = 10; i >= 0; i--)
+        {
+            const int temp = (i * 16) + backoffset;
+            const SDL_Color col = i % 2 == warpskip ? warpbcol : warpfcol;
+            if (i == 0)
+            {
+                const SDL_FRect centre = {160.0f - temp, 120.0f - temp, temp * 2.0f, temp * 2.0f};
+                fill_rect(&centre, col);
+                continue;
+            }
+            const SDL_FRect ring[4] = {
+                {160.0f - temp, 120.0f - temp, temp * 2.0f, 16.0f},
+                {160.0f - temp, 120.0f + temp - 16, temp * 2.0f, 16.0f},
+                {160.0f - temp, 120.0f - temp + 16, 16.0f, temp * 2.0f - 32},
+                {160.0f + temp - 16, 120.0f - temp + 16, 16.0f, temp * 2.0f - 32}
+            };
+            for (int k = 0; k < 4; k++)
+            {
+                fill_rect(&ring[k], col);
+            }
+        }
+#else
         for (int i = 10; i >= 0; i--)
         {
             const int temp = (i * 16) + backoffset;
@@ -2635,6 +2735,7 @@ void Graphics::drawbackground( int t )
                 fill_rect(&warprect, warpfcol);
             }
         }
+#endif
         break;
     }
     case 6:
@@ -2691,8 +2792,42 @@ void Graphics::drawbackground( int t )
     }
 }
 
+#ifdef VVV_POCKET
+extern "C" bool POCKET_RepeatTexture(SDL_Renderer*, SDL_Texture*, const SDL_Rect*, const SDL_Rect*);
+#ifdef POCKET_BENCH
+extern "C" bool POCKET_warp_tiles_fast;
+#else
+#define POCKET_warp_tiles_fast true
+#endif
+#endif
+
+/* Both warp directions use the same four-tile pattern and repaint band. */
+static void draw_warp_tiles(Graphics& g, int first, int x, int y, int columns, int rows)
+{
+#ifdef VVV_POCKET
+    int width;
+    if (POCKET_warp_tiles_fast && g.query_texture(g.grphx.im_tiles2, NULL, NULL, &width, NULL)
+        && width == 320 && first % 40 < 39)
+    {
+        const SDL_Rect source = {(first % 40) * 8, (first / 40) * 8, 16, 16};
+        const SDL_Rect area = {x, y, columns * 16, rows * 16};
+        if (POCKET_RepeatTexture(gameScreen.m_renderer, g.grphx.im_tiles2, &source, &area))
+            return;
+    }
+#endif
+    for (int j = 0; j < rows; j++)
+        for (int i = 0; i < columns; i++)
+        {
+            g.drawtile2(x + i * 16, y + j * 16, first);
+            g.drawtile2(x + i * 16 + 8, y + j * 16, first + 1);
+            g.drawtile2(x + i * 16, y + j * 16 + 8, first + 40);
+            g.drawtile2(x + i * 16 + 8, y + j * 16 + 8, first + 41);
+        }
+}
+
 void Graphics::updatebackground(int t)
 {
+    POCKET_GRAV_SCOPE(POCKET_GRAV_BG_UPDATE, true);
     switch (t)
     {
     case 1:
@@ -2759,32 +2894,14 @@ void Graphics::updatebackground(int t)
         if (backgrounddrawn)
         {
             scroll_texture(backgroundTexture, tempScrollingTexture, -3, 0);
-            for (int j = 0; j < 15; j++)
-            {
-                for (int i = 0; i < 2; i++)
-                {
-                    drawtile2(317 - backoffset + (i * 16), (j * 16), temp + 40);  // 20*16 = 320
-                    drawtile2(317 - backoffset + (i * 16) + 8, (j * 16), temp + 41);
-                    drawtile2(317 - backoffset + (i * 16), (j * 16) + 8, temp + 80);
-                    drawtile2(317 - backoffset + (i * 16) + 8, (j * 16) + 8, temp + 81);
-                }
-            }
+            draw_warp_tiles(*this, temp + 40, 317 - backoffset, 0, 2, 15);
         }
         else
         {
             // draw the whole thing for the first time!
             backoffset = 0;
             clear();
-            for (int j = 0; j < 15; j++)
-            {
-                for (int i = 0; i < 21; i++)
-                {
-                    drawtile2((i * 16) - backoffset - 3, (j * 16), temp + 40);
-                    drawtile2((i * 16) - backoffset + 8 - 3, (j * 16), temp + 41);
-                    drawtile2((i * 16) - backoffset - 3, (j * 16) + 8, temp + 80);
-                    drawtile2((i * 16) - backoffset + 8 - 3, (j * 16) + 8, temp + 81);
-                }
-            }
+            draw_warp_tiles(*this, temp + 40, -3, 0, 21, 15);
             backgrounddrawn = true;
         }
         set_render_target(target);
@@ -2802,32 +2919,14 @@ void Graphics::updatebackground(int t)
         if (backgrounddrawn)
         {
             scroll_texture(backgroundTexture, tempScrollingTexture, 0, -3);
-            for (int j = 0; j < 2; j++)
-            {
-                for (int i = 0; i < 21; i++)
-                {
-                    drawtile2((i * 16), 237 - backoffset + (j * 16), temp + 40); // 14*17=240 - 3
-                    drawtile2((i * 16) + 8, 237 - backoffset + (j * 16), temp + 41);
-                    drawtile2((i * 16), 237 - backoffset + (j * 16) + 8, temp + 80);
-                    drawtile2((i * 16) + 8, 237 - backoffset + (j * 16) + 8, temp + 81);
-                }
-            }
+            draw_warp_tiles(*this, temp + 40, 0, 237 - backoffset, 21, 2);
         }
         else
         {
             // draw the whole thing for the first time!
             backoffset = 0;
             clear();
-            for (int j = 0; j < 16; j++)
-            {
-                for (int i = 0; i < 21; i++)
-                {
-                    drawtile2((i * 16), (j * 16) - backoffset - 3, temp + 40);
-                    drawtile2((i * 16) + 8, (j * 16) - backoffset - 3, temp + 41);
-                    drawtile2((i * 16), (j * 16) - backoffset + 8 - 3, temp + 80);
-                    drawtile2((i * 16) + 8, (j * 16) - backoffset + 8 - 3, temp + 81);
-                }
-            }
+            draw_warp_tiles(*this, temp + 40, 0, -3, 21, 16);
             backgrounddrawn = true;
         }
         set_render_target(target);
@@ -2943,9 +3042,212 @@ void Graphics::drawfinalmap(void)
     copy_texture(foregroundTexture, NULL, NULL);
 }
 
+#ifdef VVV_POCKET
+extern "C" bool POCKET_ShiftTextureRows(SDL_Texture* texture, int dy);
+extern "C" void POCKET_KeepTextureRuns(SDL_Texture* texture);
+extern "C" void POCKET_SkipPendingClear(SDL_Texture* texture);
+struct POCKET_TileLayer;
+extern "C" POCKET_TileLayer* POCKET_CreateTileLayer(int w, int h);
+extern "C" bool POCKET_TileSheetIsKeyed(SDL_Texture* sheet);
+extern "C" void POCKET_ShiftTileLayer(POCKET_TileLayer* layer, int dy);
+extern "C" void POCKET_ClearTileLayer(POCKET_TileLayer* layer);
+extern "C" void POCKET_PutTile(POCKET_TileLayer* layer, SDL_Texture* sheet, int sx, int sy, int x, int y, int w, int h);
+extern "C" bool POCKET_DrawTileLayer(SDL_Renderer* renderer, POCKET_TileLayer* layer, int src_y);
+extern "C" bool POCKET_CopyOpaqueTile(SDL_Renderer* renderer, SDL_Texture* sheet, int sx, int sy, int x, int y, int w, int h);
+extern "C" bool POCKET_CopyOpaqueGrid(SDL_Renderer*, SDL_Texture*, const Uint16*, int, int, int, int);
+#ifdef POCKET_BENCH
+extern "C" bool POCKET_tower_grid_fast;
+#else
+#define POCKET_tower_grid_fast true
+#endif
+
+
+static bool tower_texture_valid = false;
+
+/* The tower's tiles are wholly opaque or clear, so where the sheet allows
+ * they are kept in a tile layer (render.c) instead of a texture: half the
+ * memory to draw and blend, which a colour change, redrawing every tile,
+ * needs most. Rows are kept as in drawtowermap_cached. */
+static bool drawtowermap_layer(Graphics& g, const int yoff)
+{
+    static POCKET_TileLayer* layer = NULL;
+    static bool valid = false;
+    static int cached_top, cached_colstate, cached_roomx, cached_roomy;
+    static bool cached_minitower;
+    static SDL_Texture* cached_tiles = NULL;
+    const int rows = 31;
+    SDL_Texture* const sheet = g.grphx.im_tiles3;
+
+    if (yoff < 0 || sheet == NULL || !POCKET_TileSheetIsKeyed(sheet))
+    {
+        return false;
+    }
+    if (layer == NULL)
+    {
+        layer = POCKET_CreateTileLayer(SCREEN_WIDTH_PIXELS, rows * 8);
+        if (layer == NULL)
+        {
+            return false;
+        }
+    }
+    int width;
+    if (!g.query_texture(sheet, NULL, NULL, &width, NULL))
+    {
+        return false;
+    }
+
+    const int top = yoff / 8;
+    int first = 0;
+    int count = rows;
+    if (valid
+    && cached_colstate == g.towerbg.colstate
+    && cached_tiles == sheet
+    && cached_minitower == map.tower.minitowermode
+    && cached_roomx == game.roomx
+    && cached_roomy == game.roomy
+    && SDL_abs(top - cached_top) < rows)
+    {
+        const int moved = top - cached_top;
+        POCKET_ShiftTileLayer(layer, -moved * 8);
+        first = moved > 0 ? rows - moved : 0;
+        count = SDL_abs(moved);
+    }
+    else
+    {
+        POCKET_ClearTileLayer(layer);
+    }
+
+    for (int j = first; j < first + count; j++)
+    {
+        for (int i = 0; i < 40; i++)
+        {
+            const int temp = map.tower.at(i, j, top * 8);
+            if (temp > 0)
+            {
+                const int t = temp + g.towerbg.colstate * 30;
+                POCKET_PutTile(layer, sheet, (t % (width / 8)) * 8, (t / (width / 8)) * 8, i * 8, j * 8, 8, 8);
+            }
+        }
+    }
+
+    valid = true;
+    cached_top = top;
+    cached_colstate = g.towerbg.colstate;
+    cached_tiles = sheet;
+    cached_minitower = map.tower.minitowermode;
+    cached_roomx = game.roomx;
+    cached_roomy = game.roomy;
+
+    if (!POCKET_DrawTileLayer(gameScreen.m_renderer, layer, yoff - top * 8))
+    {
+        return false;
+    }
+    tower_texture_valid = false;
+    return true;
+}
+
+/* The Pocket draws each tile on the CPU, and a tower shows about 1200 of
+ * them. They are kept in a texture 31 tile rows tall, with the row
+ * yoff / 8 at the top: as the tower scrolls the texture is shifted and
+ * only the rows coming into view are drawn. Tiles are copied in without
+ * blending, and the texture is blended over the background as each tile
+ * would have been. */
+static bool drawtowermap_cached(Graphics& g, const int yoff)
+{
+    static SDL_Texture* cache = NULL;
+    bool& valid = tower_texture_valid;
+    static int cached_top, cached_colstate, cached_roomx, cached_roomy;
+    static bool cached_minitower;
+    static SDL_Texture* cached_tiles = NULL;
+    const int rows = 31;
+
+    if (yoff < 0)
+    {
+        return false;
+    }
+    if (cache == NULL)
+    {
+        cache = SDL_CreateTexture(gameScreen.m_renderer, SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_TARGET, SCREEN_WIDTH_PIXELS, rows * 8);
+        if (cache == NULL)
+        {
+            return false;
+        }
+        g.set_blendmode(cache, SDL_BLENDMODE_BLEND);
+        /* Copied every frame, so worth its runs even right after it is
+         * drawn again. */
+        POCKET_KeepTextureRuns(cache);
+    }
+
+    const int top = yoff / 8;
+    int first = 0;
+    int count = rows;
+    if (valid
+    && cached_colstate == g.towerbg.colstate
+    && cached_tiles == g.grphx.im_tiles3
+    && cached_minitower == map.tower.minitowermode
+    && cached_roomx == game.roomx
+    && cached_roomy == game.roomy
+    && SDL_abs(top - cached_top) < rows)
+    {
+        const int moved = top - cached_top;
+        POCKET_ShiftTextureRows(cache, -moved * 8);
+        first = moved > 0 ? rows - moved : 0;
+        count = SDL_abs(moved);
+    }
+
+    if (count > 0)
+    {
+        SDL_Texture* target = SDL_GetRenderTarget(gameScreen.m_renderer);
+        g.set_render_target(cache);
+        if (count == rows)
+        {
+            g.clear(0, 0, 0, 0);
+        }
+        g.set_blendmode(g.grphx.im_tiles3, SDL_BLENDMODE_NONE);
+        for (int j = first; j < first + count; j++)
+        {
+            for (int i = 0; i < 40; i++)
+            {
+                const int temp = map.tower.at(i, j, top * 8);
+                if (temp > 0)
+                {
+                    g.drawtile3(i * 8, j * 8, temp, g.towerbg.colstate);
+                }
+            }
+        }
+        g.set_blendmode(g.grphx.im_tiles3, SDL_BLENDMODE_BLEND);
+        g.set_render_target(target);
+        g.set_color(0, 0, 0, 255);
+    }
+
+    valid = true;
+    cached_top = top;
+    cached_colstate = g.towerbg.colstate;
+    cached_tiles = g.grphx.im_tiles3;
+    cached_minitower = map.tower.minitowermode;
+    cached_roomx = game.roomx;
+    cached_roomy = game.roomy;
+
+    const SDL_FRect src = {
+        0.0f,
+        static_cast<float>(yoff - top * 8),
+        static_cast<float>(SCREEN_WIDTH_PIXELS),
+        static_cast<float>(SCREEN_HEIGHT_PIXELS)
+    };
+    g.copy_texture(cache, &src, NULL);
+    return true;
+}
+#endif
+
 void Graphics::drawtowermap(void)
 {
     const int yoff = lerp(map.oldypos, map.ypos);
+#ifdef VVV_POCKET
+    if (drawtowermap_layer(*this, yoff) || drawtowermap_cached(*this, yoff))
+    {
+        return;
+    }
+#endif
     for (int j = 0; j < 31; j++)
     {
         for (int i = 0; i < 40; i++)
@@ -2985,8 +3287,51 @@ void Graphics::drawtowerbackground(const TowerBG& bg_obj)
     copy_texture(bg_obj.texture, &srcRect, NULL);
 }
 
+#ifdef VVV_POCKET
+/* tiles3 blended onto opaque black, made again when the sheet changes. */
+SDL_Texture* Graphics::tiles3_on_black(void)
+{
+    static SDL_Texture* sheet = NULL;
+    static SDL_Texture* made_from = NULL;
+    if (made_from == grphx.im_tiles3 && sheet != NULL)
+    {
+        return sheet;
+    }
+    VVV_freefunc(SDL_DestroyTexture, sheet);
+    made_from = NULL;
+    int w, h;
+    if (grphx.im_tiles3 == NULL || !query_texture(grphx.im_tiles3, NULL, NULL, &w, &h))
+    {
+        return NULL;
+    }
+    sheet = SDL_CreateTexture(gameScreen.m_renderer, SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_TARGET, w, h);
+    if (sheet == NULL)
+    {
+        return NULL;
+    }
+    SDL_Texture* target = SDL_GetRenderTarget(gameScreen.m_renderer);
+    set_render_target(sheet);
+    clear();
+    copy_texture(grphx.im_tiles3, NULL, NULL);
+    set_render_target(target);
+    made_from = grphx.im_tiles3;
+    return sheet;
+}
+#endif
+
 void Graphics::updatetowerbackground(TowerBG& bg_obj)
 {
+#ifdef POCKET_BENCH
+    const Uint32 bench_start = of_time_us();
+    if (bg_obj.tdrawback) POCKET_bg_full++;
+    else POCKET_bg_scroll++;
+    update_tower_background(bg_obj);
+    POCKET_bg_us += of_time_us() - bench_start;
+}
+
+void Graphics::update_tower_background(TowerBG& bg_obj)
+{
+#endif
     if (bg_obj.bypos < 0) bg_obj.bypos += 120 * 8;
 
     SDL_Texture* target = SDL_GetRenderTarget(gameScreen.m_renderer);
@@ -2997,6 +3342,62 @@ void Graphics::updatetowerbackground(TowerBG& bg_obj)
         int off = bg_obj.scrolldir == 0 ? 0 : bg_obj.bscroll;
         //Draw the whole thing; needed for every colour cycle!
         clear();
+#ifdef VVV_POCKET
+        /* Every tile here lands on the black just cleared, so it is copied
+         * from the tile sheet already blended onto black: a plain copy
+         * instead of the Pocket blending each pixel. */
+        SDL_Texture* sheet = tiles3_on_black();
+        if (sheet != NULL)
+        {
+            int width;
+            query_texture(sheet, NULL, NULL, &width, NULL);
+            /* The tiles cover every pixel from row -1's top to row 31's
+             * bottom, left of x = 320; only the rest needs the clear. */
+            int texture_w, texture_h;
+            query_texture(bg_obj.texture, NULL, NULL, &texture_w, &texture_h);
+            const int band_top = -8 - (bg_obj.bypos % 8) - off;
+            const int band_bottom = 32 * 8 - (bg_obj.bypos % 8) - off;
+            POCKET_SkipPendingClear(bg_obj.texture);
+            fill_rect(0, 0, texture_w, SDL_max(band_top, 0), 0, 0, 0, 255);
+            fill_rect(0, band_bottom, texture_w, texture_h - band_bottom, 0, 0, 0, 255);
+            fill_rect(40 * 8, band_top, texture_w - 40 * 8, band_bottom - band_top, 0, 0, 0, 255);
+            bool copied = false;
+            if (POCKET_tower_grid_fast)
+            {
+                static Uint16 tiles[40 * 33];
+                bool valid = true;
+                for (int j = -1; j < 32; j++)
+                    for (int i = 0; i < 40; i++)
+                    {
+                        const int t = map.tower.backat(i, j, bg_obj.bypos) + bg_obj.colstate * 30;
+                        if (t < 0 || t > 65535) valid = false;
+                        tiles[(j + 1) * 40 + i] = (Uint16) t;
+                    }
+                copied = valid && POCKET_CopyOpaqueGrid(gameScreen.m_renderer, sheet, tiles, 40, 33, 0, band_top);
+                if (copied) COUNT_BG_TILES(40 * 33);
+            }
+            if (!copied)
+            {
+                for (int j = -1; j < 32; j++)
+                {
+                    for (int i = 0; i < 40; i++)
+                    {
+                        const int t = map.tower.backat(i, j, bg_obj.bypos) + bg_obj.colstate * 30;
+                        const int x = i * 8;
+                        const int y = (j * 8) - (bg_obj.bypos % 8) - off;
+                        const int sx = (t % (width / 8)) * 8;
+                        const int sy = (t / (width / 8)) * 8;
+                        COUNT_BG_TILE();
+                        if (!POCKET_CopyOpaqueTile(gameScreen.m_renderer, sheet, sx, sy, x, y, 8, 8))
+                        {
+                            draw_texture_part(sheet, x, y, sx, sy, 8, 8, 1, 1);
+                        }
+                    }
+                }
+            }
+        }
+        else
+#endif
         for (int j = -1; j < 32; j++)
         {
             for (int i = 0; i < 40; i++)
