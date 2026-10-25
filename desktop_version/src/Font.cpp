@@ -29,6 +29,9 @@ namespace font
 
 #define GLYPH_EXISTS 0x1
 #define GLYPH_COLOR 0x2
+#ifdef VVV_POCKET
+#define GLYPH_BINARY_ALPHA 0x4
+#endif
 
 struct GlyphInfo
 {
@@ -261,30 +264,51 @@ static bool decode_xml_range(tinyxml2::XMLElement* elem, unsigned* start, unsign
 }
 
 #ifdef VVV_POCKET
-/* Grouping black border passes is exact only for binary alpha. Check the
- * clock's own glyphs, so a replacement font can safely retain the old path. */
-static bool binary_clock_mask(const Font* f, const SDL_Surface* image)
+/* Straight-alpha glyphs can be cached on transparent black only when their
+ * coverage is binary; otherwise copying the cache applies alpha twice. */
+static bool binary_glyph_mask(const Font* f, const GlyphInfo* glyph, const SDL_Surface* image)
 {
-    if (image == NULL || image->w < f->glyph_w)
+    if (image == NULL || f->glyph_w == 0 || f->glyph_h == 0 || image->w < f->glyph_w)
         return false;
     const int columns = image->w / f->glyph_w;
+    const int x = glyph->image_idx % columns * f->glyph_w;
+    const int y = glyph->image_idx / columns * f->glyph_h;
+    if (y + f->glyph_h > image->h)
+        return false;
+    for (int dy = 0; dy < f->glyph_h; dy++)
+        for (int dx = 0; dx < f->glyph_w; dx++)
+        {
+            const Uint8 alpha = ReadPixel(image, x + dx, y + dy).a;
+            if (alpha != 0 && alpha != 255)
+                return false;
+        }
+    return true;
+}
+
+static void mark_binary_glyphs(Font* f, const SDL_Surface* image)
+{
+    for (int page = 0; page < FONT_N_PAGES; page++)
+    {
+        if (f->glyph_page[page] == NULL)
+            continue;
+        for (int i = 0; i < FONT_PAGE_SIZE; i++)
+        {
+            GlyphInfo* glyph = &f->glyph_page[page][i];
+            if (glyph_is_valid(glyph) && binary_glyph_mask(f, glyph, image))
+                glyph->flags |= GLYPH_BINARY_ALPHA;
+        }
+    }
+}
+
+/* Grouping black clock borders has the same binary-alpha requirement. */
+static bool binary_clock_mask(const Font* f)
+{
     const char* digits = "0123456789.:";
     for (const char* c = digits; *c; c++)
     {
         const GlyphInfo* glyph = get_glyphinfo(f, *c);
-        if (glyph == NULL || !(glyph->flags & GLYPH_EXISTS))
+        if (glyph == NULL || !(glyph->flags & GLYPH_BINARY_ALPHA))
             return false;
-        const int x = glyph->image_idx % columns * f->glyph_w;
-        const int y = glyph->image_idx / columns * f->glyph_h;
-        if (y + f->glyph_h > image->h)
-            return false;
-        for (int dy = 0; dy < f->glyph_h; dy++)
-            for (int dx = 0; dx < f->glyph_w; dx++)
-            {
-                const Uint8 alpha = ReadPixel(image, x + dx, y + dy).a;
-                if (alpha != 0 && alpha != 255)
-                    return false;
-            }
     }
     return true;
 }
@@ -536,11 +560,12 @@ static uint8_t load_font(FontContainer* container, const char* name)
     }
 
 #ifdef VVV_POCKET
+    SDL_Surface* mask = LoadImageSurface(name_png);
+    mark_binary_glyphs(f, mask);
+    VVV_freefunc(SDL_DestroySurface, mask);
     if (SDL_strcmp(name, "font") == 0 && f->glyph_w == 8 && f->glyph_h == 8)
     {
-        SDL_Surface* mask = LoadImageSurface(name_png);
-        f->clock_border_safe = binary_clock_mask(f, mask);
-        VVV_freefunc(SDL_DestroySurface, mask);
+        f->clock_border_safe = binary_clock_mask(f);
     }
 #endif
     return f_idx;
@@ -1442,6 +1467,20 @@ static bool has_colour_glyph(const Font* f, const char* text)
     return false;
 }
 
+static bool cacheable_glyphs(const Font* f, const char* text)
+{
+    uint32_t codepoint;
+    while ((codepoint = UTF8_next(&text)))
+    {
+        const Font* f_glyph;
+        const GlyphInfo* glyph = find_glyphinfo(f, codepoint, &f_glyph);
+        /* find_glyphinfo also resolves fallback and replacement glyphs. */
+        if (glyph != NULL && !(glyph->flags & GLYPH_BINARY_ALPHA))
+            return false;
+    }
+    return true;
+}
+
 void print(uint32_t flags, int x, int y, const char* text, uint8_t r, uint8_t g, uint8_t b);
 
 /* Draws text, its x already aligned, from a texture; false if it is not
@@ -1459,7 +1498,10 @@ static bool print_cached(
     const bool border_only = false
 )
 {
-    if (!POCKET_text_cache || drawing_cached_text)
+    /* Shaping can substitute other glyphs after this point. Keep bidi text
+     * on the direct path rather than validate the unshaped codepoints. */
+    if (!POCKET_text_cache || drawing_cached_text
+        || bidi_should_transform(pf.rtl, text) || !cacheable_glyphs(pf.font_sel, text))
     {
         return false;
     }
