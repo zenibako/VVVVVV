@@ -16,6 +16,7 @@
 #include "../../src/Font.h"
 #include "../../src/Game.h"
 #include "../../src/Graphics.h"
+#include "../../src/Localization.h"
 #include "../../src/Map.h"
 #include "../../src/Entity.h"
 #include "../../src/Screen.h"
@@ -228,6 +229,13 @@ void POCKET_BenchStep(void)
     steps_this_loop++;
     if (part < 0)
     {
+        /* The benchmark keeps a save of its own, which starts out empty,
+         * so the game first asks for a language: take the one shown. */
+        if (loc::pre_title_lang_menu)
+        {
+            POCKET_bench_keys = step++ % 2 == 0 ? KEY_FLIP : 0;
+            return;
+        }
         if (game.gamestate != TITLEMODE)
         {
             return;
