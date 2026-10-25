@@ -12,18 +12,18 @@
 
 #include "of_timer.h"
 
-#include "../../src/Enums.h"
-#include "../../src/Font.h"
-#include "../../src/Game.h"
-#include "../../src/Graphics.h"
-#include "../../src/Localization.h"
-#include "../../src/Map.h"
-#include "../../src/Entity.h"
-#include "../../src/Screen.h"
-#include "../../src/Script.h"
-#include "../../src/UtilityClass.h"
-#include "../../src/KeyPoll.h"
-#include "../../src/Xoshiro.h"
+#include "src/Enums.h"
+#include "src/Font.h"
+#include "src/Game.h"
+#include "src/Graphics.h"
+#include "src/Localization.h"
+#include "src/Map.h"
+#include "src/Entity.h"
+#include "src/Screen.h"
+#include "src/Script.h"
+#include "src/UtilityClass.h"
+#include "src/KeyPoll.h"
+#include "src/Xoshiro.h"
 
 extern "C" Uint32 POCKET_bench_keys;
 extern "C" bool POCKET_saves_volatile;

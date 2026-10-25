@@ -2,7 +2,7 @@
 
 This directory builds VVVVVV as an [openfpgaOS](https://github.com/zenibako/openfpgaCore)
 app for the Analogue Pocket. It is an altered version of the game: see the
-[licence](../../LICENSE.md). VVVVVV is copyright Terry Cavanagh, and this
+[licence](../LICENSE.md). VVVVVV is copyright Terry Cavanagh, and this
 port is based on the VVVVVV source code.
 
 The port is in progress. The plan and its phases are tracked in
@@ -24,15 +24,15 @@ No game data is included. You need your own `data.zip`.
 | `fonts/` | The game's button fonts with Pocket glyphs added (generated) |
 | `tests/` | Host checks for the compat headers, the save archive, the renderer and the sound player |
 
-The game sources in `../src` build with the same C++98 flags as the desktop
+The game sources in `../desktop_version/src` build with the same C++98 flags as the desktop
 build. The few changes they need are guarded by `VVV_POCKET`.
 
 ## Build
 
 ```sh
 git submodule update --init       # physfs, tinyxml2, lodepng, c-hashmap, SheenBidi, FAudio
-make -C desktop_version/pocket deps
-make -C desktop_version/pocket    # build/app.elf
+make -C pocket deps
+make -C pocket    # build/app.elf
 ```
 
 By default `make` compiles in the SDK's `openfpgaos-firmware` container, as
@@ -192,7 +192,7 @@ without music.
 48 kHz, see `src/music_pack.h`) from the card, loops them at the points the
 game reads from the Ogg comments, and mixes them with the sound effects,
 which load from the WAV files in `data.zip`. It replaces only the two
-FAudio classes in `../src/Music.cpp`; the game's own music logic (fades,
+FAudio classes in `../desktop_version/src/Music.cpp`; the game's own music logic (fades,
 pausing, track changes, volume settings) is unchanged.
 
 ## Controls and saves
@@ -223,7 +223,7 @@ face-button diamond with the pressed button marked, the row of three small
 buttons below the screen, and the shoulder pair. They live in Pocket copies
 of the game's button fonts in `fonts/`, at U+EB37 to U+EB3E, which the
 packaged core ships in place of the originals. `make button-fonts`
-regenerates them from `../fonts` with `scripts/make-button-fonts.py`
+regenerates them from `../desktop_version/fonts` with `scripts/make-button-fonts.py`
 (Python 3 and Pillow).
 
 openfpgaOS has no writable directory, so everything the game writes under
@@ -239,6 +239,10 @@ broken name.
 same compat headers, on desktop SDL3 and FAudio. Use it to debug game logic
 off the device: run `build/host/vvvvvv -assets <path to data.zip>`. Saves
 go to your desktop VVVVVV folder unless you also pass `-basedir <folder>/`.
+The host targets link the shared fonts and language directories beside
+their executables, so resource discovery works from root `pocket/`.
+Pass `-translator` to enable the upstream developer translation tools;
+executable-adjacent resources do not enable that menu automatically.
 
 ## Drawing
 

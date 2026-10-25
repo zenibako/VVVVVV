@@ -39,6 +39,8 @@ static void clock_pixel_case(uint32_t flags, int x, int y, const char* text,
 
 static void check_clock_pixels(void)
 {
+    /* This check must exercise repository fonts, not only data.zip's font. */
+    assert(font::font_idx_options_n > 1);
     SDL_Texture* target = SDL_GetRenderTarget(gameScreen.m_renderer);
     graphics.set_render_target(graphics.tempShakeTexture);
     const bool flip = graphics.flipmode, no_outline = graphics.notextoutline;

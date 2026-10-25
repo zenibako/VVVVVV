@@ -11,7 +11,7 @@
 set -euo pipefail
 
 POCKET_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-GAME_ROOT="$(cd "$POCKET_ROOT/.." && pwd)"
+GAME_ROOT="$(cd "$POCKET_ROOT/../desktop_version" && pwd)"
 RUNTIME_DIR="$POCKET_ROOT/.deps/pocket-runtime"
 ELF="$POCKET_ROOT/build/app.elf"
 OUT="$POCKET_ROOT/build/sd"

@@ -16,7 +16,7 @@
 #include "UtilityClass.h"
 #include "Vlogging.h"
 #include "Xoshiro.h"
-#include "../pocket/src/pocket_bench_profile.h"
+#include "pocket_bench_profile.h"
 
 static int getgridpoint( int t )
 {

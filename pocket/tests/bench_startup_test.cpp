@@ -1,7 +1,7 @@
 /* The benchmark must reach the title without a first-run language prompt,
  * including when the save archive is absent or rejected as truncated. */
 #include "../src/pocket_bench.h"
-#include "../../src/Localization.h"
+#include "src/Localization.h"
 #include <assert.h>
 #include <stdio.h>
 

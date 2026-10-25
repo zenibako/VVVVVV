@@ -26,7 +26,7 @@
 #include "Screen.h"
 #include "Script.h"
 #include "UtilityClass.h"
-#include "../pocket/src/pocket_bench_profile.h"
+#include "pocket_bench_profile.h"
 #include "VFormat.h"
 
 static int tr;

@@ -1,3 +1,22 @@
+# VVVVVV for Analogue Pocket
+
+This fork adds an [openfpgaOS](https://github.com/zenibako/openfpgaCore) port
+of VVVVVV. The Pocket platform code, builds, benchmarks and packaging live
+in [`pocket/`](pocket/). The shared C++ engine and game resources remain in
+[`desktop_version/`](desktop_version/) to follow upstream's layout.
+
+- [Build, test and install the Pocket port](pocket/README.md)
+- [Port plan and progress](https://github.com/zenibako/VVVVVV/issues/1)
+- [Upstream VVVVVV](https://github.com/TerryCavanagh/VVVVVV)
+
+You must supply your own `data.zip`; no commercial game data is included.
+This is an altered version of VVVVVV, copyright Terry Cavanagh. See
+[LICENSE.md](LICENSE.md) for the terms and required attribution.
+
+---
+
+## Upstream README
+
 ![logo](logo.gif "VVVVVV")
 
 This is the source code to VVVVVV, the 2010 indie game by [Terry Cavanagh](http://distractionware.com/), with music by [Magnus Pålsson](http://souleye.madtracker.net/). You can read the [announcement](http://distractionware.com/blog/2020/01/vvvvvv-is-now-open-source/) of the source code release on Terry's blog!

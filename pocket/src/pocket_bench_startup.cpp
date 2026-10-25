@@ -1,7 +1,7 @@
 #include "pocket_bench.h"
 
 #ifdef POCKET_BENCH
-#include "../../src/Localization.h"
+#include "src/Localization.h"
 
 void POCKET_BenchPrepare(void)
 {

@@ -19,7 +19,7 @@
 #include "Map.h"
 #include "Render.h"
 #include "Vlogging.h"
-#include "../pocket/src/pocket_bench_profile.h"
+#include "pocket_bench_profile.h"
 
 void ScreenSettings_default(struct ScreenSettings* _this)
 {

@@ -12,14 +12,14 @@
 #   make render-test compare the port's renderer with desktop SDL3's
 #                    software renderer (SDL3_PREFIX)
 #
-# The game sources build unchanged from ../src with the C++98 flags the
+# The game sources build unchanged from ../desktop_version/src with the C++98 flags the
 # desktop CMake build uses.  The SDK has no C++ standard library, so
 # compat/cxx supplies the small part of it the game needs, and sdl3/
 # implements the SDL3 calls the game makes on top of the of_* API.
 
 APP          := vvvvvv
 POCKET_ROOT  := $(abspath $(dir $(lastword $(MAKEFILE_LIST))))
-GAME_ROOT    := $(abspath $(POCKET_ROOT)/..)
+GAME_ROOT    := $(abspath $(POCKET_ROOT)/../desktop_version)
 THIRD_PARTY  := $(abspath $(GAME_ROOT)/../third_party)
 SDK_ROOT     ?= $(POCKET_ROOT)/.deps/openfpgaos-sdk
 SDL3_ROOT    ?= $(POCKET_ROOT)/.deps/sdl3
@@ -75,7 +75,7 @@ endif
 ifeq ($(BENCH),1)
 POCKET_DEFS += -DPOCKET_BENCH
 endif
-POCKET_INCLUDES := -I$(POCKET_ROOT)/src -I$(SDL3_ROOT)/include \
+POCKET_INCLUDES := -I$(GAME_ROOT) -I$(POCKET_ROOT)/src -I$(SDL3_ROOT)/include \
 	-I$(THIRD_PARTY)/tinyxml2 -I$(THIRD_PARTY)/physfs/src \
 	-I$(THIRD_PARTY)/physfs/extras -I$(THIRD_PARTY)/lodepng \
 	-I$(THIRD_PARTY) -I$(THIRD_PARTY)/SheenBidi/Headers
@@ -164,7 +164,7 @@ $(BENCH_STARTUP_TEST_BIN): $(POCKET_ROOT)/tests/bench_startup_test.cpp \
 		$(GAME_ROOT)/src/Localization.h $(wildcard $(POCKET_ROOT)/compat/cxx/*)
 	@mkdir -p $(dir $@)
 	$(HOST_CXX) -std=c++98 -nostdinc++ -fno-exceptions -fno-rtti -Wall -Wextra -g \
-		$(HOST_SANITIZE) -DPOCKET_BENCH -I$(POCKET_ROOT)/compat/cxx \
+		$(HOST_SANITIZE) -DPOCKET_BENCH -I$(GAME_ROOT) -I$(POCKET_ROOT)/compat/cxx \
 		$(POCKET_ROOT)/tests/bench_startup_test.cpp $(POCKET_ROOT)/src/pocket_bench_startup.cpp \
 		$(POCKET_ROOT)/compat/cxx/compat.cpp -o $@
 
@@ -257,7 +257,7 @@ else
 HOST_LIBS ?= $(SDL3_PREFIX)/lib/libSDL3.a -lsupc++ -lm -lpthread -ldl
 endif
 
-$(HOST_BIN): $(HOST_OBJS)
+$(HOST_BIN): $(HOST_OBJS) | $(HOST_DIR)/fonts $(HOST_DIR)/lang
 	$(HOST_CC) $(HOST_SANITIZE) -o $@ $^ $(HOST_LIBS)
 
 host: $(HOST_BIN)
@@ -331,10 +331,17 @@ $(HOST_RENDER_DIR)/obj/present.o: $(POCKET_ROOT)/host/present.c $(POCKET_ROOT)/s
 	@mkdir -p $(dir $@)
 	$(HOST_CC) -std=gnu99 -g -O1 $(HOST_SANITIZE) -I$(SDL3_PREFIX)/include -I$(POCKET_ROOT)/sdl3 -c -o $@ $<
 
-$(HOST_RENDER_BIN): $(HOST_RENDER_OBJS)
+$(HOST_RENDER_BIN): $(HOST_RENDER_OBJS) | $(HOST_RENDER_DIR)/fonts $(HOST_RENDER_DIR)/lang
 	$(HOST_CC) $(HOST_SANITIZE) -o $@ $^ $(HOST_LIBS)
 
 host-render: $(HOST_RENDER_BIN)
+
+# Upstream discovers resources beside the executable. Keep host builds
+# independent of the platform directory's location without copying assets.
+HOST_RESOURCE_LINKS := $(sort $(HOST_DIR)/fonts $(HOST_DIR)/lang $(HOST_RENDER_DIR)/fonts $(HOST_RENDER_DIR)/lang)
+$(HOST_RESOURCE_LINKS):
+	@mkdir -p $(dir $@)
+	ln -s "$(GAME_ROOT)/$(notdir $@)" "$@"
 
 clean: sdk-clean
 	rm -rf $(BUILD_DIR)
