@@ -26,6 +26,7 @@
 #include "Screen.h"
 #include "Script.h"
 #include "UtilityClass.h"
+#include "../pocket/src/pocket_bench_profile.h"
 #include "VFormat.h"
 
 static int tr;
@@ -2382,9 +2383,11 @@ static void mode_indicator_text(const int alpha)
 
 void gamerender(void)
 {
+    POCKET_GRAV_DRAW_SCOPE(POCKET_GRAV_DRAW_SETUP);
     graphics.set_render_target(graphics.gameplayTexture);
     graphics.set_color(0, 0, 0, 255);
 
+    POCKET_GRAV_DRAW_NEXT(POCKET_GRAV_DRAW_BACKGROUND);
     if(!game.blackout)
     {
         if (map.towermode)
@@ -2397,6 +2400,7 @@ void gamerender(void)
             {
                 graphics.clear();
             }
+            POCKET_GRAV_DRAW_NEXT(POCKET_GRAV_DRAW_MAP);
             graphics.drawtowermap();
         }
         else
@@ -2409,6 +2413,7 @@ void gamerender(void)
             {
                 graphics.clear();
             }
+            POCKET_GRAV_DRAW_NEXT(POCKET_GRAV_DRAW_MAP);
             if ((map.finalmode || map.custommode) && map.final_colormode)
             {
                 graphics.drawfinalmap();
@@ -2420,6 +2425,7 @@ void gamerender(void)
         }
 
 
+        POCKET_GRAV_DRAW_NEXT(POCKET_GRAV_DRAW_ENTITIES);
         graphics.drawentities();
         if (map.towermode)
         {
@@ -2427,6 +2433,7 @@ void gamerender(void)
         }
     }
 
+    POCKET_GRAV_DRAW_NEXT(POCKET_GRAV_DRAW_HUD);
     int return_editor_alpha = 0;
     bool draw_return_editor_text = false;
     if (map.custommode && !map.custommodeforreal && !game.advancetext)
@@ -2523,9 +2530,10 @@ void gamerender(void)
         mode_indicator_text(mode_indicator_alpha);
     }
 
+    POCKET_GRAV_DRAW_NEXT(POCKET_GRAV_DRAW_COPY);
     graphics.set_render_target(graphics.gameTexture);
-
     graphics.copy_texture(graphics.gameplayTexture, NULL, NULL);
+    POCKET_GRAV_DRAW_NEXT(POCKET_GRAV_DRAW_HUD);
 
     if (game.advancetext)
     {
@@ -2834,6 +2842,7 @@ void gamerender(void)
 
     level_debugger::render();
 
+    POCKET_GRAV_DRAW_NEXT(POCKET_GRAV_DRAW_EFFECTS);
     graphics.renderwithscreeneffects();
 }
 

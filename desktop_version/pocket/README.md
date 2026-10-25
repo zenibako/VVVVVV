@@ -74,6 +74,17 @@ are already included in the main frame totals. Animation counts both its
 physics probes and colour pass. Wave-spawn calls include delay checks.
 Invincibility keeps the run reproducible and skips harmful pixel collisions.
 
+The detailed Gravitron draw breakdown partitions clear/setup, background,
+map/foreground, all entities, HUD/overlays, gameplay copying, final window
+copy/effects, presentation, and the post-present clear. Its sum plus
+`other` reconciles with the existing draw total; `overlap` should be zero.
+Existing text, enemy and background counters are nested diagnostics.
+Framebuffer flip and audio servicing are shown separately inside presentation,
+so their times must not be added to the flat draw sum. The flip queues a
+frame; this is not a measurement of physical scanout latency. Deferred clears
+are charged to whichever later drawing call actually writes their pixels.
+The report now spans three pages; press A and capture every page.
+
 The Pocket's story countdown reuses digit textures instead of caching each
 changing time string. It preserves the font's spacing, glow and border order;
 localized numerals and RTL text use the existing renderer. Results include
@@ -111,6 +122,11 @@ actual software renderer, build `host-render` with the same
 seven Gravitron phases. They also compare host wall time for old/new clock
 drawing using the real performance counter; that comparison is independent
 of the accelerated game clock and is still not Pocket performance.
+
+The host check verifies draw accounting, continued presentation at the end
+of the countdown, all report pages, and unchanged counters on results screens.
+Native flip/audio paths are covered by C timer checks and the device build;
+the host presentation adapter does not emulate their hardware timing.
 
 The Pocket-renderer host check also compares 560 full warp-background
 textures against the original path (both axes, seven colours, 40 updates),

@@ -25,7 +25,10 @@ unsigned int of_time_ms(void) { return of_time_us() / 1000; }
 }
 
 static bool saw_enemy, saw_active, captured_room;
-static int max_enemies, renders, result_frames;
+static int max_enemies, renders, result_frames, captured_pages;
+static PocketBenchProfile results_profile;
+static bool near_end_sampled;
+static Uint32 near_end_present_calls;
 static Uint32 sent_keys;
 static bool save_capture(SDL_Surface* surface, const char* path);
 
@@ -62,6 +65,14 @@ static bool smoke_present(SDL_Renderer* renderer)
             enemies += obj.entities[i].type == EntityType_GRAVITRON_ENEMY;
         saw_enemy |= enemies > 0;
         if (enemies > max_enemies) max_enemies = enemies;
+        if (game.swntimer <= 30)
+        {
+            const Uint32 present_calls = POCKET_grav_profile.calls[POCKET_GRAV_DRAW_PRESENT];
+            if (near_end_sampled)
+                assert(present_calls > near_end_present_calls);
+            near_end_present_calls = present_calls;
+            near_end_sampled = true;
+        }
         if (!captured_room && game.swntimer < 900)
         {
             SDL_Surface* screen = SDL_RenderReadPixels(renderer, NULL);
@@ -76,32 +87,50 @@ static bool smoke_present(SDL_Renderer* renderer)
         const PartTimes& gravitron = times[PART_COUNT - 1];
         assert(gravitron.frames > 0);
         assert(gravitron.room[0] == 53 && gravitron.room[1] == 50);
-        for (int i = 0; i < POCKET_GRAV_PHASES; i++)
+        for (int i = 0; i < POCKET_GRAV_DRAW_END; i++)
         {
             assert(gravitron.grav.calls[i] > 0);
             assert(gravitron.grav.us[i] > 0);
         }
+        assert(near_end_sampled);
+        assert(gravitron.draw_overlap == 0);
+        assert(POCKET_GravDrawTime(&gravitron.grav) + gravitron.draw_other == gravitron.sum.draw);
+        assert(!POCKET_grav_draw_active);
+        if (result_frames == 0)
+            results_profile = POCKET_grav_profile;
+        else
+            for (int i = 0; i < POCKET_GRAV_PHASES; i++)
+            {
+                assert(POCKET_grav_profile.us[i] == results_profile.us[i]);
+                assert(POCKET_grav_profile.calls[i] == results_profile.calls[i]);
+            }
         assert(game.swntimer <= 1);
-        if (result_frames == 0 || result_frames == 3)
+        if (result_frames % 3 == 0)
         {
+            assert(report.page() == captured_pages);
             SDL_Surface* screen = SDL_RenderReadPixels(renderer, NULL);
             assert(screen != NULL);
-            assert(save_capture(screen, result_frames == 0 ? "results-1.bmp" : "results-2.bmp"));
+            char path[32];
+            SDL_snprintf(path, sizeof(path), "results-%d.bmp", ++captured_pages);
+            assert(save_capture(screen, path));
             SDL_DestroySurface(screen);
         }
-        if (result_frames == 0)
+        if ((result_frames % 3 == 0 && captured_pages < report.pages()) || result_frames % 3 == 1)
         {
             SDL_Event event;
             SDL_zero(event);
-            event.type = SDL_EVENT_KEY_DOWN;
+            event.type = result_frames % 3 == 0 ? SDL_EVENT_KEY_DOWN : SDL_EVENT_KEY_UP;
             event.key.key = SDLK_SPACE;
-            event.key.down = true;
+            event.key.down = event.type == SDL_EVENT_KEY_DOWN;
             SDL_PushEvent(&event);
         }
-        if (++result_frames == 4)
+        if (++result_frames == report.pages() * 3)
         {
+            assert(captured_pages == report.pages());
             check_clock_pixels();
             check_background_pixels();
+            printf("Draw accounting passed: %d rows, %d pages, no overlap; results do not change counters\n",
+                report.size(), report.pages());
             printf("Gravitron smoke passed: %d frames, max %d enemies, timer %d, room %d,%d\n",
                 gravitron.frames, max_enemies, game.swntimer, game.roomx, game.roomy);
             exit(0);

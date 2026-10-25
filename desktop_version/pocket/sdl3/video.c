@@ -10,6 +10,7 @@
 #include "of_video.h"
 #include "render_internal.h"
 #include "pocket_audio.h"
+#include "pocket_bench_profile.h"
 
 #ifdef POCKET_SHOW_FPS
 #include "of_timer.h"
@@ -230,11 +231,15 @@ void POCKET_PresentFrame(void)
     const Uint32 present_start = of_time_us();
     draw_profile(of_video_surface(), video_mode.stride ? video_mode.stride : POCKET_SCREEN_W * 2);
 #endif
+    POCKET_GRAV_TIMER_START(flip_start);
     of_video_flip();
+    POCKET_GRAV_TIMER_END(flip_start, POCKET_GRAV_VIDEO_FLIP);
 #ifdef POCKET_SHOW_FPS
     present_us += of_time_us() - present_start;
 #endif
+    POCKET_GRAV_TIMER_START(audio_start);
     pocket_audio_update();
+    POCKET_GRAV_TIMER_END(audio_start, POCKET_GRAV_AUDIO);
 }
 
 SDL_Window *SDL_CreateWindow(const char *title, int w, int h, SDL_WindowFlags flags)

@@ -41,6 +41,7 @@
 #ifdef POCKET_BENCH
 #include "pocket_bench.h"
 #endif
+#include "../pocket/src/pocket_bench_profile.h"
 
 scriptclass script;
 
@@ -975,9 +976,11 @@ static void inline deltaloop(void)
 #ifdef POCKET_BENCH
             POCKET_BenchDrawStart();
 #endif
-            graphics.clear();
-
-            graphics.set_render_target(graphics.gameTexture);
+            {
+                POCKET_GRAV_DRAW_SCOPE(POCKET_GRAV_DRAW_SETUP);
+                graphics.clear();
+                graphics.set_render_target(graphics.gameTexture);
+            }
 
             implfunc->func();
 

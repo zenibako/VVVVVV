@@ -93,6 +93,9 @@ override OF_SDL2_SRC := $(POCKET_ROOT)/sdl3/no_sdl2.c
 ifneq ($(wildcard $(SDK_DIR)/sdk.mk),)
 include $(SDK_DIR)/sdk.mk
 
+# Profiling's shared layout is used by C and C++ translation units.
+$(foreach src,$(SRCS) $(SRCS_CXX),$(call sdk_app_object,$(src))): $(POCKET_ROOT)/src/pocket_bench_profile.h
+
 # The SDK's C++ ABI shim is C++11.
 $(call sdk_app_object,$(SDK_DIR)/of_cxxabi.cpp): CXXFLAGS += -std=gnu++17
 else
@@ -122,7 +125,8 @@ BENCH_STARTUP_TEST_BIN := $(BUILD_DIR)/host/bench_startup_test
 BENCH_SAVEFS_TEST_BIN := $(BUILD_DIR)/host/bench_savefs_test
 BENCH_REPORT_TEST_BIN := $(BUILD_DIR)/host/bench_report_test
 BENCH_PROFILE_TEST_BIN := $(BUILD_DIR)/host/bench_profile_test
-test: $(TEST_BIN) $(SAVEFS_TEST_BIN) $(AUDIO_TEST_BIN) $(BENCH_STARTUP_TEST_BIN) $(BENCH_SAVEFS_TEST_BIN) $(BENCH_REPORT_TEST_BIN) $(BENCH_PROFILE_TEST_BIN)
+BENCH_PROFILE_C_TEST_BIN := $(BUILD_DIR)/host/bench_profile_c_test
+test: $(TEST_BIN) $(SAVEFS_TEST_BIN) $(AUDIO_TEST_BIN) $(BENCH_STARTUP_TEST_BIN) $(BENCH_SAVEFS_TEST_BIN) $(BENCH_REPORT_TEST_BIN) $(BENCH_PROFILE_TEST_BIN) $(BENCH_PROFILE_C_TEST_BIN)
 	$(TEST_BIN)
 	$(SAVEFS_TEST_BIN)
 	$(AUDIO_TEST_BIN)
@@ -130,6 +134,12 @@ test: $(TEST_BIN) $(SAVEFS_TEST_BIN) $(AUDIO_TEST_BIN) $(BENCH_STARTUP_TEST_BIN)
 	$(BENCH_SAVEFS_TEST_BIN)
 	$(BENCH_REPORT_TEST_BIN)
 	$(BENCH_PROFILE_TEST_BIN)
+	$(BENCH_PROFILE_C_TEST_BIN)
+
+$(BENCH_PROFILE_C_TEST_BIN): $(POCKET_ROOT)/tests/bench_profile_c_test.c $(POCKET_ROOT)/src/pocket_bench_profile.h
+	@mkdir -p $(dir $@)
+	$(HOST_CC) -std=gnu99 -Wall -Wextra -g $(HOST_SANITIZE) -DPOCKET_BENCH -DOF_PC \
+		-I$(SDK_DIR)/include $< -o $@
 
 $(BENCH_PROFILE_TEST_BIN): $(POCKET_ROOT)/tests/bench_profile_test.cpp $(POCKET_ROOT)/src/pocket_bench_profile.h
 	@mkdir -p $(dir $@)
@@ -223,14 +233,14 @@ $(call host_object,$(POCKET_ROOT)/tests/bench_smoke.cpp): \
 endif
 
 define HOST_C_RULE
-$(call host_object,$(1)): $(1)
+$(call host_object,$(1)): $(1) $(POCKET_ROOT)/src/pocket_bench_profile.h
 	@mkdir -p $$(dir $$@)
 	$$(HOST_CC) -std=gnu99 -g -O1 $$(HOST_SANITIZE) $$(HOST_DEFS) $$(HOST_INCLUDES) -c -o $$@ $$<
 endef
 $(foreach src,$(HOST_C_SRCS),$(eval $(call HOST_C_RULE,$(src))))
 
 define HOST_CXX_RULE
-$(call host_object,$(1)): $(1) $(wildcard $(POCKET_ROOT)/compat/cxx/*)
+$(call host_object,$(1)): $(1) $(wildcard $(POCKET_ROOT)/compat/cxx/*) $(POCKET_ROOT)/src/pocket_bench_profile.h
 	@mkdir -p $$(dir $$@)
 	$$(HOST_CXX) -std=c++98 -nostdinc++ -I$(POCKET_ROOT)/compat/cxx -fno-exceptions -fno-rtti \
 		-g -O1 $$(HOST_SANITIZE) $$(HOST_DEFS) $$(HOST_INCLUDES) -c -o $$@ $$<
@@ -303,14 +313,14 @@ endif
 HOST_RENDER_FLAGS = -include $(RENDER_RENAME) -I$(POCKET_ROOT)/sdl3
 
 define HOST_RENDER_C_RULE
-$(call host_render_object,$(1)): $(1) $(RENDER_RENAME) $(POCKET_ROOT)/sdl3/render_internal.h
+$(call host_render_object,$(1)): $(1) $(RENDER_RENAME) $(POCKET_ROOT)/sdl3/render_internal.h $(POCKET_ROOT)/src/pocket_bench_profile.h
 	@mkdir -p $$(dir $$@)
 	$$(HOST_CC) -std=gnu99 -g -O1 $$(HOST_SANITIZE) $$(HOST_DEFS) $$(HOST_RENDER_FLAGS) $$(HOST_INCLUDES) -c -o $$@ $$<
 endef
 $(foreach src,$(HOST_RENDER_C_SRCS),$(eval $(call HOST_RENDER_C_RULE,$(src))))
 
 define HOST_RENDER_CXX_RULE
-$(call host_render_object,$(1)): $(1) $(RENDER_RENAME) $(wildcard $(POCKET_ROOT)/compat/cxx/*)
+$(call host_render_object,$(1)): $(1) $(RENDER_RENAME) $(wildcard $(POCKET_ROOT)/compat/cxx/*) $(POCKET_ROOT)/src/pocket_bench_profile.h
 	@mkdir -p $$(dir $$@)
 	$$(HOST_CXX) -std=c++98 -nostdinc++ -I$(POCKET_ROOT)/compat/cxx -fno-exceptions -fno-rtti \
 		-g -O1 $$(HOST_SANITIZE) $$(HOST_DEFS) $$(HOST_RENDER_FLAGS) $$(HOST_INCLUDES) -c -o $$@ $$<

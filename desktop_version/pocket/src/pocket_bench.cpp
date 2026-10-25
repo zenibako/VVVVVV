@@ -34,6 +34,7 @@ extern char POCKET_last_kept[48];
 extern Uint32 POCKET_bg_us, POCKET_bg_tiles;
 extern "C" void POCKET_CountSeeThrough(SDL_Texture* texture, int x, int y, int w, int h, int* clear, int* partial);
 PocketBenchProfile POCKET_grav_profile;
+bool POCKET_grav_draw_active;
 
 /* Keys held down, as input.c sends them (bit order there). */
 enum
@@ -90,6 +91,7 @@ parts[] = {
 static int part = -1;     /* -1 until the title screen is up */
 static int step;          /* steps into the part */
 static bool finished;
+static PocketBenchReport report;
 
 /* Microseconds per frame in game logic, in drawing (the game's drawing
  * and the renderer's, then showing the frame) and in all of the frame. */
@@ -110,6 +112,7 @@ typedef struct
     Uint32 text_us, prints, text_hits, text_kept; /* font::print's, summed */
     Uint32 bg_us, bg_tiles; /* the tower background's update, summed */
     PocketBenchProfile grav;
+    Uint32 draw_other, draw_overlap;
     char last_kept[48];
 }
 PartTimes;
@@ -252,17 +255,20 @@ void POCKET_BenchStepEnd(void)
 
 void POCKET_BenchDrawStart(void)
 {
+    POCKET_grav_draw_active = !finished && part == PART_COUNT - 1;
     draw_start = of_time_us();
 }
 
 void POCKET_BenchDrawEnd(void)
 {
     frame_us.draw += of_time_us() - draw_start;
+    POCKET_grav_draw_active = false;
 }
 
 void POCKET_BenchLoopStart(void)
 {
     loop_start = of_time_us();
+    POCKET_grav_draw_active = false;
     SDL_zero(frame_us);
     colstate_start = graphics.towerbg.colstate;
     print_us_start = POCKET_print_us;
@@ -310,11 +316,17 @@ void POCKET_BenchLoopEnd(void)
     t->text_kept += POCKET_text_kept - kept_start;
     t->bg_us += POCKET_bg_us - bg_us_start;
     t->bg_tiles += POCKET_bg_tiles - bg_tiles_start;
+    const Uint32 draw_before = POCKET_GravDrawTime(&t->grav);
     for (int i = 0; i < POCKET_GRAV_PHASES; i++)
     {
         t->grav.us[i] += POCKET_grav_profile.us[i] - grav_start.us[i];
         t->grav.calls[i] += POCKET_grav_profile.calls[i] - grav_start.calls[i];
     }
+    const Uint32 draw_accounted = POCKET_GravDrawTime(&t->grav) - draw_before;
+    if (draw_accounted <= frame_us.draw)
+        t->draw_other += frame_us.draw - draw_accounted;
+    else
+        t->draw_overlap += draw_accounted - frame_us.draw;
     if (POCKET_text_kept != kept_start)
     {
         SDL_strlcpy(t->last_kept, POCKET_last_kept, sizeof(t->last_kept));
@@ -488,7 +500,6 @@ void POCKET_BenchDraw(void)
     {
         return;
     }
-    static PocketBenchReport report;
     if (report.size() == 0)
     {
         report.add("VVVVVV benchmark, ms a frame");
@@ -544,7 +555,7 @@ void POCKET_BenchDraw(void)
             "enemy collide", "enemy animate", "enemy draw"
         };
         const PartTimes* grav = &times[PART_COUNT - 1];
-        for (int i = 0; i < POCKET_GRAV_PHASES; i++)
+        for (int i = 0; i < POCKET_GRAV_DETAIL_PHASES; i++)
         {
             char elapsed[8];
             ms(elapsed, sizeof(elapsed), grav->grav.us[i], grav->frames);
@@ -552,6 +563,28 @@ void POCKET_BenchDraw(void)
             report.add("%-14s %s %3u.%u", phase_names[i], elapsed, calls / 10, calls % 10);
         }
         report.add("split times are included in frame totals");
+        report.add("Gravitron draw: ms/frame, no overlap");
+        static const char* draw_names[] = {
+            "clear/setup", "background", "map/foreground", "all entities",
+            "HUD/overlays", "gameplay copy", "window/effects", "present API", "post clear"
+        };
+        for (int i = POCKET_GRAV_DRAW_SETUP; i < POCKET_GRAV_DRAW_END; i++)
+        {
+            char elapsed[8];
+            ms(elapsed, sizeof(elapsed), grav->grav.us[i], grav->frames);
+            report.add("%-15s %s", draw_names[i - POCKET_GRAV_DRAW_SETUP], elapsed);
+        }
+        char accounted[8], total_draw[8], other[8], overlap[8], flip[8], audio[8];
+        ms(accounted, sizeof(accounted), POCKET_GravDrawTime(&grav->grav), grav->frames);
+        ms(total_draw, sizeof(total_draw), grav->sum.draw, grav->frames);
+        ms(other, sizeof(other), grav->draw_other, grav->frames);
+        ms(overlap, sizeof(overlap), grav->draw_overlap, grav->frames);
+        ms(flip, sizeof(flip), grav->grav.us[POCKET_GRAV_VIDEO_FLIP], grav->frames);
+        ms(audio, sizeof(audio), grav->grav.us[POCKET_GRAV_AUDIO], grav->frames);
+        report.add("draw sum %s / total %s", accounted, total_draw);
+        report.add("other %s overlap %s", other, overlap);
+        report.add("in present: flip %s audio %s", flip, audio);
+        report.add("flip/audio are inside present API");
         report.add("slowest:   frame logic draw colour");
         for (int i = 0; i < slow_count; i++)
         {

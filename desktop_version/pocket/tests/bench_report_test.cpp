@@ -22,6 +22,15 @@ int main(void)
     for (int i = 0; i < 100; i++) report.add("extra %d", i);
     assert(report.size() == 64);
     assert(report.pages() == 3);
+    report.next(false);
+    report.next(true);
+    report.next(false);
+    report.next(true);
+    assert(report.page() == 2 && report.first() == 54 && report.end() == 64);
+    assert(strcmp(report.line(63), "extra 32") == 0);
+    report.next(false);
+    report.next(true);
+    assert(report.page() == 0);
     puts("Benchmark report: page boundaries, held input and capacity pass");
     return 0;
 }
