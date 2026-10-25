@@ -238,10 +238,11 @@ Select. Start and Select are given their defaults whenever no action has
 them, which includes saves made before they had any. Saved A-to-flip,
 B-to-pause defaults migrate to the new layout; custom gameplay bindings are retained.
 Menu navigation always uses A to confirm and B or Start to go back.
-The title uses a white `Press START to continue` prompt instead of a tinted
-button glyph, and Start opens the menu regardless of custom action bindings.
+The title uses a white `Press any button to continue` prompt instead of a tinted
+button glyph. Face buttons, shoulders, Start, Select and the D-pad all open
+the menu regardless of custom gameplay bindings.
 The host smoke's `POCKET_TEST_CONTROLS=1` mode checks both face buttons,
-held-button releases, saved/default/custom layouts and Start on the title,
+held-button releases, saved/default/custom layouts and all 12 title buttons,
 then saves `title-controls.bmp` with the title colour set to black.
 
 Button prompts use Pocket glyphs in the style of Butterscotch Pocket's: the

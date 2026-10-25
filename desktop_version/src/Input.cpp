@@ -2403,8 +2403,8 @@ void titleinput(void)
     }
     if (key.isDown(KEYBOARD_z) || key.isDown(KEYBOARD_SPACE) || key.isDown(KEYBOARD_v) || (game.menustart ? key.controllerWantsMenuAccept() : key.isDown(game.controllerButton_flip))) game.press_action = true;
 #ifdef VVV_POCKET
-    /* The title names Start explicitly, independent of rebound actions. */
-    if (!game.menustart && key.isDown(SDL_GAMEPAD_BUTTON_START)) game.press_action = true;
+    /* Any game button continues; menu actions only apply after the title. */
+    if (!game.menustart && key.controllerButtonDown(true)) game.press_action = true;
 #endif
     //|| key.isDown(KEYBOARD_UP) || key.isDown(KEYBOARD_DOWN)) game.press_action = true; //on menus, up and down don't work as action
     if (key.isDown(KEYBOARD_ENTER)) game.press_map = true;

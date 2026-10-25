@@ -600,11 +600,12 @@ bool KeyPoll::isDown(SDL_GamepadButton button)
     return buttonmap[button];
 }
 
-bool KeyPoll::controllerButtonDown(void)
+bool KeyPoll::controllerButtonDown(bool include_dpad)
 {
+    const SDL_GamepadButton end = include_dpad ? SDL_GAMEPAD_BUTTON_COUNT : SDL_GAMEPAD_BUTTON_DPAD_UP;
     for (
         SDL_GamepadButton button = SDL_GAMEPAD_BUTTON_SOUTH;
-        button < SDL_GAMEPAD_BUTTON_DPAD_UP;
+        button < end;
         button = (SDL_GamepadButton) (button + 1)
     ) {
         if (isDown(button))

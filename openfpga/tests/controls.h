@@ -159,12 +159,27 @@ static void check_controls(void)
     SDL_DestroySurface(image);
     graphics.set_render_target(NULL);
     assert(bright_pixels > 100); /* Visible even during a black title colour. */
-    control_button(SDL_GAMEPAD_BUTTON_START, true);
-    titleinput();
-    assert(game.menustart); /* The named button works even with custom bindings. */
-    const Menu::MenuName menu = game.currentmenuname;
-    titleinput();
-    assert(game.menustart && game.currentmenuname == menu);
-    control_button(SDL_GAMEPAD_BUTTON_START, false);
-    puts("Pocket controls: both face buttons, held release, saved defaults, custom bindings and title Start pass");
+    const SDL_GamepadButton title_buttons[] = {
+        SDL_GAMEPAD_BUTTON_SOUTH, SDL_GAMEPAD_BUTTON_EAST,
+        SDL_GAMEPAD_BUTTON_WEST, SDL_GAMEPAD_BUTTON_NORTH,
+        SDL_GAMEPAD_BUTTON_START, SDL_GAMEPAD_BUTTON_BACK,
+        SDL_GAMEPAD_BUTTON_LEFT_SHOULDER, SDL_GAMEPAD_BUTTON_RIGHT_SHOULDER,
+        SDL_GAMEPAD_BUTTON_DPAD_UP, SDL_GAMEPAD_BUTTON_DPAD_DOWN,
+        SDL_GAMEPAD_BUTTON_DPAD_LEFT, SDL_GAMEPAD_BUTTON_DPAD_RIGHT
+    };
+    for (size_t i = 0; i < SDL_arraysize(title_buttons); i++)
+    {
+        game.createmenu(Menu::mainmenu);
+        game.menustart = false;
+        game.jumpheld = false;
+        control_button(title_buttons[i], true);
+        titleinput();
+        assert(game.menustart); /* Every game button continues, regardless of bindings. */
+        const Menu::MenuName menu = game.currentmenuname;
+        titleinput();
+        assert(game.menustart && game.currentmenuname == menu);
+        control_button(title_buttons[i], false);
+        titleinput();
+    }
+    puts("Pocket controls: both face buttons, held release, saved defaults, custom bindings and all 12 title buttons pass");
 }

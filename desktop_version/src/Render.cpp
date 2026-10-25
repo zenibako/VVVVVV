@@ -1958,7 +1958,7 @@ void titlerender(void)
 
 #ifdef VVV_POCKET
         /* Plain, high-contrast text stays legible throughout the colour cycle. */
-        font::print_wrap(PR_CEN, -1, 175, loc::gettext("[ Press START to continue ]"), 255, 255, 255);
+        font::print_wrap(PR_CEN, -1, 175, loc::gettext("[ Press any button to continue ]"), 255, 255, 255);
 #else
         char buffer[SCREEN_WIDTH_CHARS*2 + 1];
         vformat_buf(
