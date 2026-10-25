@@ -69,8 +69,12 @@ static const char *const roots[] = {"saves", "levels", "screenshots"};
  * SHOW_FPS overlay shows them. */
 int POCKET_saves_written;
 int POCKET_saves_failed;
-/* Set by the benchmark (pocket_bench.cpp): saves stay in memory. */
+/* First-run settings can be written before the benchmark's first step. */
+#ifdef POCKET_BENCH
+bool POCKET_saves_volatile = true;
+#else
 bool POCKET_saves_volatile;
+#endif
 
 static SaveFile files[SAVEFS_MAX_FILES];
 static Uint32 file_count;

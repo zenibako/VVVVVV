@@ -679,6 +679,9 @@ int main(int argc, char *argv[])
         ScreenSettings_default(&screen_settings);
         game.loadstats(&screen_settings);
         game.loadsettings(&screen_settings);
+#ifdef POCKET_BENCH
+        POCKET_BenchPrepare();
+#endif
         gameScreen.init(&screen_settings);
     }
 

@@ -8,6 +8,9 @@
 
 #ifdef POCKET_BENCH
 
+/* After settings are read, before loading fonts and localized resources. */
+void POCKET_BenchPrepare(void);
+
 /* main.cpp: once a pass of the main loop, around its work (not the wait
  * for the next frame), and before each step of game logic. */
 void POCKET_BenchLoopStart(void);

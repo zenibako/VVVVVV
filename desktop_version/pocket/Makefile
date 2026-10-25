@@ -118,10 +118,32 @@ button-fonts:
 TEST_BIN := $(BUILD_DIR)/host/compat_test
 SAVEFS_TEST_BIN := $(BUILD_DIR)/host/savefs_test
 AUDIO_TEST_BIN := $(BUILD_DIR)/host/audio_test
-test: $(TEST_BIN) $(SAVEFS_TEST_BIN) $(AUDIO_TEST_BIN)
+BENCH_STARTUP_TEST_BIN := $(BUILD_DIR)/host/bench_startup_test
+BENCH_SAVEFS_TEST_BIN := $(BUILD_DIR)/host/bench_savefs_test
+test: $(TEST_BIN) $(SAVEFS_TEST_BIN) $(AUDIO_TEST_BIN) $(BENCH_STARTUP_TEST_BIN) $(BENCH_SAVEFS_TEST_BIN)
 	$(TEST_BIN)
 	$(SAVEFS_TEST_BIN)
 	$(AUDIO_TEST_BIN)
+	$(BENCH_STARTUP_TEST_BIN)
+	$(BENCH_SAVEFS_TEST_BIN)
+
+$(BENCH_SAVEFS_TEST_BIN): $(POCKET_ROOT)/tests/bench_savefs_test.c \
+		$(addprefix $(POCKET_ROOT)/sdl3/, savefs.c savefs.h io.c stdinc.c)
+	@mkdir -p $(dir $@)
+	$(HOST_CC) -std=gnu99 -Wall -Wextra -g $(HOST_SANITIZE) -D_GNU_SOURCE -DPOCKET_BENCH \
+		-DPOCKET_SAVE_FILE='"$(BUILD_DIR)/host/bench_savefs_test.sav"' \
+		-I$(SDL3_ROOT)/include -I$(POCKET_ROOT)/sdl3 \
+		$(POCKET_ROOT)/tests/bench_savefs_test.c $(POCKET_ROOT)/sdl3/io.c \
+		$(POCKET_ROOT)/sdl3/stdinc.c -lm -o $@
+
+$(BENCH_STARTUP_TEST_BIN): $(POCKET_ROOT)/tests/bench_startup_test.cpp \
+		$(POCKET_ROOT)/src/pocket_bench_startup.cpp $(POCKET_ROOT)/src/pocket_bench.h \
+		$(GAME_ROOT)/src/Localization.h $(wildcard $(POCKET_ROOT)/compat/cxx/*)
+	@mkdir -p $(dir $@)
+	$(HOST_CXX) -std=c++98 -nostdinc++ -fno-exceptions -fno-rtti -Wall -Wextra -g \
+		$(HOST_SANITIZE) -DPOCKET_BENCH -I$(POCKET_ROOT)/compat/cxx \
+		$(POCKET_ROOT)/tests/bench_startup_test.cpp $(POCKET_ROOT)/src/pocket_bench_startup.cpp \
+		$(POCKET_ROOT)/compat/cxx/compat.cpp -o $@
 
 # The sound player against a stand-in for the OS audio output.
 $(AUDIO_TEST_BIN): $(POCKET_ROOT)/tests/audio_test.c $(POCKET_ROOT)/tests/stub/of_audio.h \

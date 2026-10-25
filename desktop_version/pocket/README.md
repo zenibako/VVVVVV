@@ -50,6 +50,14 @@ now the Chinese, Japanese and Korean fonts are left out to save memory.
 `make test` runs the compat-header, save-archive and sound checks on the
 host with AddressSanitizer and UBSan.
 
+`make BENCH=1` builds the scripted benchmark; `make BENCH=1 package`
+packages it as the separate `zenibako.vvvvvvbench` core. Use fresh object
+and build directories when switching between the game and benchmark.
+The benchmark always selects English before loading fonts and skips the
+first-run language prompt, including with an empty or unreadable benchmark
+save. Its save slot is separate from the game's, and benchmark writes stay
+in memory. The startup check is included in `make test`.
+
 ## Sound
 
 The Pocket can't decode the game's Ogg Vorbis music while it runs, so the
