@@ -81,6 +81,8 @@ typedef struct Texture
     /* Row y is kept at row (y + row0) % h, so that scrolling a texture up
      * or down moves no pixels (POCKET_ScrollTexture). */
     int row0;
+    /* RGB565 columns are circular too; ARGB storage always has col0 == 0. */
+    int col0;
 
     bool opaque;         /* every pixel's alpha is 255 */
     bool clear_pending;  /* every pixel is clear_color, not yet written */
@@ -147,6 +149,7 @@ static void resolve_clear(Texture *t)
     }
     PART_BEGIN();
     t->clear_pending = false;
+    t->col0 = 0;
     if (t->pixels565 != NULL)
     {
         const Uint16 color = POCKET_ToRGB565(t->clear_color);
@@ -178,6 +181,7 @@ static void copy_whole(Texture *to, const Texture *from)
 {
     const size_t count = (size_t) to->texture.w * to->texture.h;
     to->row0 = from->row0;
+    to->col0 = from->col0;
     if (to->pixels565 != NULL)
     {
         SDL_memcpy(to->pixels565, from->pixels565, count * 2);
@@ -199,6 +203,9 @@ static void swap_buffers(Texture *a, Texture *b)
     const int row0 = a->row0;
     a->row0 = b->row0;
     b->row0 = row0;
+    const int col0 = a->col0;
+    a->col0 = b->col0;
+    b->col0 = col0;
     if (a->pixels565 != NULL)
     {
         a->pixels565 = a->buffer565;
@@ -239,6 +246,7 @@ static void begin_change(Texture *t, bool covers_all)
     if (covers_all)
     {
         t->clear_pending = false;
+        t->col0 = 0;
     }
     else
     {
@@ -274,6 +282,51 @@ static inline size_t shown_row(const Texture *t, int y)
     return kept_row(t->alias_of != NULL ? t->alias_of : t, y);
 }
 
+static inline int kept_column(const Texture *t, int x)
+{
+    const int column = x + t->col0;
+    return column >= t->texture.w ? column - t->texture.w : column;
+}
+
+static inline int shown_column(const Texture *t, int x)
+{
+    return kept_column(t->alias_of != NULL ? t->alias_of : t, x);
+}
+
+/* Copy a logical packed span, splitting at either physical row end. */
+static void copy_packed_span(Uint16 *dst, int dw, int dx,
+    const Uint16 *src, int sw, int sx, int count)
+{
+    while (count > 0)
+    {
+        const int n = SDL_min(count, SDL_min(dw - dx, sw - sx));
+        SDL_memcpy(dst + dx, src + sx, (size_t) n * 2);
+        count -= n;
+        dx += n;
+        sx += n;
+        if (dx == dw) dx = 0;
+        if (sx == sw) sx = 0;
+    }
+}
+
+/* Cold paths use contiguous columns. The inactive ARGB buffer supplies a
+ * scratch row without allocation; aliases observe the same logical image. */
+static void normalize_columns(Texture *texture)
+{
+    Texture *t = texture->alias_of != NULL ? texture->alias_of : texture;
+    if (t->col0 == 0)
+        return;
+    Uint16 *scratch = (Uint16 *) t->pixels;
+    const int w = t->texture.w;
+    for (int y = 0; y < t->texture.h; y++)
+    {
+        Uint16 *row = t->pixels565 + (size_t) y * t->pitch565;
+        copy_packed_span(scratch, w, 0, row, w, t->col0, w);
+        SDL_memcpy(row, scratch, (size_t) w * 2);
+    }
+    t->col0 = 0;
+}
+
 /* After begin_change: t is about to be wholly replaced with opaque
  * pixels, so a render target can keep them in RGB565. */
 static void keep_565(Texture *t)
@@ -290,6 +343,8 @@ static void keep_565(Texture *t)
  * keep says whether its present pixels matter. */
 static void keep_argb(Texture *t, bool keep)
 {
+    if (keep) normalize_columns(t);
+    else t->col0 = 0;
     if (t->pixels == NULL || t->pixels565 == NULL)
     {
         return;
@@ -1037,6 +1092,7 @@ static void fill_rect(Texture *target, const SDL_Rect *rect, Uint8 r, Uint8 g, U
             target->opaque = false;
         }
     }
+    normalize_columns(target);
     if (target->pixels565 != NULL)
     {
         const Uint16 packed565 = POCKET_ToRGB565(packed);
@@ -1317,6 +1373,7 @@ bool POCKET_tint_runs = true;
 bool POCKET_scroll_fast = true;
 bool POCKET_warp_tiles_fast = true;
 bool POCKET_copy_fast = true;
+bool POCKET_column_ring = true;
 
 /* Counts a texture's pixels in a rectangle that are clear (alpha 0) and
  * that are partly see-through, for the benchmark to tell which tiles can
@@ -1348,6 +1405,7 @@ void POCKET_CountSeeThrough(SDL_Texture *texture, int x, int y, int w, int h, in
 #else
 #define POCKET_tint_runs true
 #define POCKET_copy_fast true
+#define POCKET_column_ring true
 #endif
 
 static bool copy_rows(SDL_Renderer *renderer, Texture *src, const SDL_FRect *srcrect, const SDL_FRect *dstrect, SDL_FlipMode flip)
@@ -1476,6 +1534,12 @@ static bool copy_rows(SDL_Renderer *renderer, Texture *src, const SDL_FRect *src
         }
     }
 
+    if (!raw || src->pixels565 == NULL || dst->pixels565 == NULL)
+    {
+        normalize_columns(src);
+        normalize_columns(dst);
+    }
+
     /* Transparent pixels change nothing when blending or adding; skip them
      * by run once a texture is drawn more than once unchanged. Building
      * runs also keeps an RGB565 copy, which raw copies onto RGB565 use. */
@@ -1502,7 +1566,8 @@ static bool copy_rows(SDL_Renderer *renderer, Texture *src, const SDL_FRect *src
         && src->pixels565 != NULL && dst->pixels565 != NULL
         && sr.x == 0 && dr.x == 0 && sr.w == clip.w
         && src->pitch565 == clip.w && dst->pitch565 == clip.w
-        && shown_row(src, 0) == 0 && dst->row0 == 0)
+        && shown_row(src, 0) == 0 && dst->row0 == 0
+        && shown_column(src, 0) == 0 && dst->col0 == 0)
     {
         SDL_memcpy(dst->pixels565 + (size_t) clip.y * dst->pitch565,
             texels565(src) + (size_t) (sr.y + clip.y - dr.y) * src->pitch565,
@@ -1527,7 +1592,9 @@ static bool copy_rows(SDL_Renderer *renderer, Texture *src, const SDL_FRect *src
             const Uint16 *row = texels565(src) + shown_row(src, sy) * src->pitch565;
             if (raw && dst->pixels565 != NULL)
             {
-                SDL_memcpy(dst->pixels565 + kept_row(dst, y) * dst->pitch565 + clip.x, row + sx0, (size_t) clip.w * 2);
+                copy_packed_span(dst->pixels565 + kept_row(dst, y) * dst->pitch565,
+                    dst->texture.w, kept_column(dst, clip.x), row,
+                    src->texture.w, shown_column(src, sx0), clip.w);
                 continue;
             }
             const int from = contiguous ? sx0 : 0;
@@ -1729,13 +1796,28 @@ static void shift_rows(Texture *t, int dy, Uint32 fill)
     }
 }
 
-/* Move columns within each physical row; the vertical row offset stays
- * valid. begin_change preserves shared snapshots and invalidates runs. */
+/* Packed columns move by origin; ARGB columns move within each physical
+ * row. begin_change preserves shared snapshots and invalidates runs. */
 static void shift_columns(Texture *t, int dx)
 {
     begin_change(t, false);
     const int exposed = dx > 0 ? dx : -dx;
-    const int kept = t->texture.w - exposed;
+    const int w = t->texture.w;
+    if (POCKET_column_ring && t->pixels565 != NULL)
+    {
+        t->col0 = exposed == w ? 0 : ((t->col0 - dx) % w + w) % w;
+        const int first = kept_column(t, dx > 0 ? 0 : w - exposed);
+        const int n = SDL_min(exposed, w - first);
+        for (int y = 0; y < t->texture.h; y++)
+        {
+            Uint16 *row = t->pixels565 + (size_t) y * t->pitch565;
+            SDL_memset(row + first, 0, (size_t) n * 2);
+            SDL_memset(row, 0, (size_t) (exposed - n) * 2);
+        }
+        return;
+    }
+    normalize_columns(t);
+    const int kept = w - exposed;
     const int from = dx > 0 ? 0 : exposed;
     const int to = dx > 0 ? exposed : 0;
     const int edge = dx > 0 ? 0 : kept;
@@ -1759,7 +1841,7 @@ static void shift_columns(Texture *t, int dx)
 /* Shared fast path for an opaque, unmodulated scroll in either direction.
  * Match clearing a temporary to black, offset-copying this texture there,
  * then copying back. Vertical movement retains the row-ring optimization;
- * horizontal movement uses one overlapping copy per row. */
+ * horizontal RGB565 movement changes the first stored column too. */
 bool POCKET_ScrollTexture(SDL_Texture *texture, int dx, int dy)
 {
     if (!check_texture(texture))
@@ -1857,10 +1939,10 @@ SDL_Surface *SDL_RenderReadPixels(SDL_Renderer *renderer, const SDL_Rect *rect)
         Uint32 *out = (Uint32 *) ((Uint8 *) surface->pixels + (size_t) y * surface->pitch);
         if (target->pixels565 != NULL)
         {
-            const Uint16 *row = texels565(target) + shown_row(target, r.y + y) * target->pitch565 + r.x;
+            const Uint16 *row = texels565(target) + shown_row(target, r.y + y) * target->pitch565;
             for (int x = 0; x < r.w; x++)
             {
-                out[x] = POCKET_FromRGB565(row[x]);
+                out[x] = POCKET_FromRGB565(row[shown_column(target, r.x + x)]);
             }
         }
         else
@@ -2122,6 +2204,7 @@ bool POCKET_DrawTileLayer(SDL_Renderer *renderer, POCKET_TileLayer *layer, int s
         return false;
     }
     PART_BEGIN();
+    normalize_columns(dst);
     for (int y = 0; y < rows; y++)
     {
         const int k = layer_row(layer, src_y + y);
@@ -2205,8 +2288,10 @@ bool POCKET_CopyOpaqueTile(SDL_Renderer *renderer, SDL_Texture *sheet, int sx, i
     const int pitch = src->alias_of != NULL ? src->alias_of->pitch565 : src->pitch565;
     for (int row = clip.y; row < clip.y + clip.h; row++)
     {
-        const Uint16 *s = pixels + shown_row(src, sy + row - y) * pitch + sx + (clip.x - x);
-        SDL_memcpy(dst->pixels565 + kept_row(dst, row) * dst->pitch565 + clip.x, s, (size_t) clip.w * 2);
+        const Uint16 *s = pixels + shown_row(src, sy + row - y) * pitch;
+        copy_packed_span(dst->pixels565 + kept_row(dst, row) * dst->pitch565,
+            dst->texture.w, kept_column(dst, clip.x), s, src->texture.w,
+            shown_column(src, sx + clip.x - x), clip.w);
     }
     PART_END(1);
     return true;
@@ -2270,7 +2355,7 @@ bool POCKET_RepeatTexture(SDL_Renderer *renderer, SDL_Texture *sheet,
             for (int x = 0; x < source->w; x++)
             {
                 const size_t row = shown_row(src, source->y + y);
-                const Uint32 pixel = packed != NULL ? POCKET_FromRGB565(packed[row * pitch + source->x + x])
+                const Uint32 pixel = packed != NULL ? POCKET_FromRGB565(packed[row * pitch + shown_column(src, source->x + x)])
                     : wide[row * src->texture.w + source->x + x];
                 const Uint32 alpha = pixel >> 24;
                 if (alpha != 0 && alpha != 255)
@@ -2323,11 +2408,12 @@ bool POCKET_RepeatTexture(SDL_Renderer *renderer, SDL_Texture *sheet,
     for (int y = clip.y; y < clip.y + clip.h; y++)
     {
         const int ty = (y - area->y) % source->h;
-        Uint16 *row = dst->pixels565 + kept_row(dst, y) * dst->pitch565 + clip.x;
+        Uint16 *row = dst->pixels565 + kept_row(dst, y) * dst->pitch565;
         for (int i = 0; i < repeat_sheet.count[ty]; i += 2)
         {
             const int x = repeat_sheet.runs[ty][i], n = repeat_sheet.runs[ty][i + 1];
-            SDL_memcpy(row + x, repeat_sheet.rows[ty] + x, (size_t) n * 2);
+            copy_packed_span(row, dst->texture.w, kept_column(dst, clip.x + x),
+                repeat_sheet.rows[ty], clip.w, x, n);
         }
     }
     PART_END(2);

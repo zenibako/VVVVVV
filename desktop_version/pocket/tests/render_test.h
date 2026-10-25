@@ -4,7 +4,7 @@
 
 #include <SDL3/SDL.h>
 
-#define CAPTURE_MAX 112
+#define CAPTURE_MAX 128
 
 typedef struct
 {

@@ -910,6 +910,108 @@ static void repeated_patterns(SDL_Renderer *renderer, Capture *capture)
     SDL_DestroyTexture(sheet);
 }
 
+/* Keep repainting for longer than a full wrap, without readback flattening
+ * storage; then exercise both packed spans and operations that normalize. */
+static void column_origins(SDL_Renderer *renderer, Capture *capture)
+{
+    SDL_Texture *image = SDL_CreateTexture(renderer, SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_TARGET, 336, 336);
+    SDL_Texture *temp = SDL_CreateTexture(renderer, SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_TARGET, 336, 336);
+    SDL_Texture *other = SDL_CreateTexture(renderer, SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_TARGET, 336, 336);
+    Uint32 pixels[16 * 16];
+    SDL_Texture *stamp = SDL_CreateTexture(renderer, SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_STATIC, 16, 16);
+    SDL_SetTextureBlendMode(image, SDL_BLENDMODE_NONE);
+    SDL_SetTextureBlendMode(temp, SDL_BLENDMODE_NONE);
+    SDL_SetTextureBlendMode(other, SDL_BLENDMODE_NONE);
+    SDL_SetTextureBlendMode(stamp, SDL_BLENDMODE_NONE);
+    scroll_pattern(renderer, image);
+    const SDL_Rect tile = {0, 0, 16, 16}, edge = {320, 0, 16, 336};
+    for (int frame = 0; frame < 160; frame++)
+    {
+        for (int i = 0; i < 16 * 16; i++)
+            pixels[i] = 0xFF000000u | ((frame + i) % 3 == 0 ? 0xFF0000u : (frame + i) % 3 == 1 ? 0xFF00u : 0xFFu);
+        SDL_UpdateTexture(stamp, NULL, pixels, 16 * 4);
+        scroll_offset(renderer, image, temp, -3, 0);
+        SDL_SetRenderTarget(renderer, image);
+        repeat_tiles(renderer, stamp, &tile, &edge, true);
+    }
+    exact_target(renderer, capture, "column wrap with repaint");
+    for (int i = 0; i < 16 * 16; i += 3) pixels[i] &= 0x00FFFFFFu;
+    SDL_UpdateTexture(stamp, NULL, pixels, 16 * 4);
+    SDL_SetTextureBlendMode(stamp, SDL_BLENDMODE_BLEND);
+    const SDL_Rect across = {184, 19, 32, 32};
+    repeat_tiles(renderer, stamp, &tile, &across, true);
+    exact_target(renderer, capture, "column keyed spans wrap");
+    scroll_pattern(renderer, other);
+    scroll_offset(renderer, other, temp, -7, 0);
+    SDL_SetRenderTarget(renderer, other);
+    const SDL_FRect from = {2, 11, 320, 240}, to = {5, 9, 320, 240};
+    SDL_RenderTexture(renderer, image, &from, &to);
+    exact_target(renderer, capture, "both column origins");
+    SDL_SetRenderTarget(renderer, NULL);
+    const SDL_FRect window = {8, 0, 320, 240};
+    SDL_RenderTexture(renderer, image, &window, NULL);
+    exact_target(renderer, capture, "column origin to window");
+    SDL_SetRenderTarget(renderer, other);
+    SDL_RenderTexture(renderer, image, NULL, NULL);
+    SDL_SetRenderTarget(renderer, image);
+    repeat_tiles(renderer, stamp, &tile, &edge, true);
+    exact_target(renderer, capture, "column source detached");
+    SDL_SetRenderTarget(renderer, other);
+    exact_target(renderer, capture, "column snapshot retained");
+    SDL_RenderTexture(renderer, image, NULL, NULL);
+    SDL_SetRenderTarget(renderer, image);
+    SDL_SetRenderDrawColor(renderer, 0, 255, 0, 255);
+    SDL_RenderClear(renderer);
+    exact_target(renderer, capture, "column source cleared");
+    SDL_SetRenderTarget(renderer, other);
+    exact_target(renderer, capture, "column snapshot after clear");
+    SDL_SetRenderTarget(renderer, image);
+    SDL_RenderTextureRotated(renderer, other, NULL, NULL, 0, NULL, SDL_FLIP_VERTICAL);
+    exact_target(renderer, capture, "column vertical flip");
+    scroll_offset(renderer, image, temp, -3, 0);
+    SDL_RenderTextureRotated(renderer, other, NULL, NULL, 0, NULL, SDL_FLIP_HORIZONTAL);
+    exact_target(renderer, capture, "column horizontal flip");
+    scroll_offset(renderer, image, temp, -3, 0);
+    SDL_SetRenderDrawColor(renderer, 255, 0, 255, 255);
+    const SDL_FRect mark = {17, 21, 90, 80};
+    SDL_RenderFillRect(renderer, &mark);
+    SDL_RenderLine(renderer, 0, 0, 200, 150);
+    exact_target(renderer, capture, "column fill and line");
+    scroll_offset(renderer, image, temp, -3, 0);
+    SDL_Rect update = {13, 17, 16, 16};
+    /* Finish queued target draws before a direct texture update on SDL. */
+    SDL_SetRenderTarget(renderer, NULL);
+    SDL_UpdateTexture(image, &update, pixels, 16 * 4);
+    SDL_SetRenderTarget(renderer, image);
+    exact_target(renderer, capture, "column partial update");
+    scroll_pattern(renderer, image);
+    scroll_offset(renderer, image, temp, -13, -5);
+    SDL_SetRenderTarget(renderer, other);
+    SDL_SetRenderDrawColor(renderer, 0, 0, 0, 0);
+    SDL_RenderClear(renderer);
+    SDL_RenderTexture(renderer, image, &from, &to);
+    capture_target(renderer, capture, "column to ARGB");
+    SDL_SetRenderTarget(renderer, image);
+    scroll_offset(renderer, image, temp, -3, 0);
+    SDL_SetTextureColorMod(image, 128, 255, 255);
+    SDL_SetRenderTarget(renderer, other);
+    SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255);
+    SDL_RenderClear(renderer);
+    SDL_RenderTexture(renderer, image, NULL, NULL);
+    capture_target(renderer, capture, "column tinted source");
+    SDL_SetTextureColorMod(image, 255, 255, 255);
+    SDL_SetRenderTarget(renderer, image);
+    scroll_offset(renderer, image, temp, -3, 0);
+    SDL_SetRenderTarget(renderer, other);
+    SDL_RenderTexture(renderer, image, NULL, NULL);
+    SDL_DestroyTexture(image);
+    exact_target(renderer, capture, "column destroyed source");
+    SDL_SetRenderTarget(renderer, NULL);
+    SDL_DestroyTexture(other);
+    SDL_DestroyTexture(temp);
+    SDL_DestroyTexture(stamp);
+}
+
 static void surfaces(Capture *capture)
 {
     SDL_Surface *source = SDL_CreateSurface(8, 8, SDL_PIXELFORMAT_ARGB8888);
@@ -987,6 +1089,7 @@ void RENDER_OPS(SDL_Renderer *renderer, Capture *capture)
     frames(renderer, sprite, capture);
     window_copies(renderer, capture);
     repeated_patterns(renderer, capture);
+    column_origins(renderer, capture);
     surfaces(capture);
     SDL_DestroyTexture(sprite);
 }

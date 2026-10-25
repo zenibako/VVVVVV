@@ -13,6 +13,7 @@ bool POCKET_tint_runs;
 bool POCKET_scroll_fast = true;
 bool POCKET_warp_tiles_fast = true;
 bool POCKET_copy_fast = true;
+bool POCKET_column_ring = true;
 /* Host rendering has no Pocket-only text cache or transparent-run index. */
 void POCKET_CountSeeThrough(SDL_Texture*, int, int, int, int, int* clear, int* partial)
 {
