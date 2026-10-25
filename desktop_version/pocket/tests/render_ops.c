@@ -776,6 +776,58 @@ static void frames(SDL_Renderer *renderer, SDL_Texture *sprite, Capture *capture
     SDL_DestroyTexture(foreground);
 }
 
+/* Full-width copies can be batched only while rows remain contiguous.
+ * Distinct row colours expose wrong source offsets, strides and flips. */
+static void window_copies(SDL_Renderer *renderer, Capture *capture)
+{
+    SDL_Texture *image = SDL_CreateTexture(renderer, SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_TARGET, 320, 240);
+    SDL_SetRenderTarget(renderer, image);
+    SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255);
+    SDL_RenderClear(renderer);
+    for (int y = 0; y < 240; y++)
+    {
+        const SDL_FRect row = {0, (float) y, 320, 1};
+        SDL_SetRenderDrawColor(renderer, (Uint8) y, (Uint8) (255 - y), (Uint8) (y * 3), 255);
+        SDL_RenderFillRect(renderer, &row);
+    }
+    SDL_SetTextureBlendMode(image, SDL_BLENDMODE_NONE);
+    SDL_SetRenderTarget(renderer, NULL);
+    SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255);
+    SDL_RenderClear(renderer);
+    SDL_RenderTexture(renderer, image, NULL, NULL);
+    capture_target(renderer, capture, "packed window copy");
+    const SDL_FRect source = {0, 37, 320, 91};
+    const SDL_FRect target = {0, 55, 320, 91};
+    SDL_RenderTexture(renderer, image, &source, &target);
+    capture_target(renderer, capture, "packed row slice");
+    const SDL_FRect clipped = {-9, 0, 320, 240};
+    SDL_RenderTexture(renderer, image, NULL, &clipped);
+    capture_target(renderer, capture, "clipped window copy");
+    SDL_RenderTextureRotated(renderer, image, NULL, NULL, 0, NULL, SDL_FLIP_VERTICAL);
+    capture_target(renderer, capture, "flipped window copy");
+    const SDL_FRect above = {0, -73, 320, 240};
+    const SDL_FRect below = {0, 211, 320, 240};
+    SDL_RenderTexture(renderer, image, NULL, &above);
+    SDL_RenderTexture(renderer, image, NULL, &below);
+    capture_target(renderer, capture, "vertically clipped copy");
+#ifdef SDL_RenderClear
+    assert(POCKET_ScrollTexture(image, 0, 13));
+#else
+    SDL_Texture *temp = SDL_CreateTexture(renderer, SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_TARGET, 320, 240);
+    SDL_SetRenderTarget(renderer, temp);
+    SDL_RenderClear(renderer);
+    const SDL_FRect shifted = {0, 13, 320, 240};
+    SDL_RenderTexture(renderer, image, NULL, &shifted);
+    SDL_SetRenderTarget(renderer, image);
+    SDL_RenderTexture(renderer, temp, NULL, NULL);
+    SDL_DestroyTexture(temp);
+#endif
+    SDL_SetRenderTarget(renderer, NULL);
+    SDL_RenderTexture(renderer, image, NULL, NULL);
+    capture_target(renderer, capture, "row ring window copy");
+    SDL_DestroyTexture(image);
+}
+
 static void surfaces(Capture *capture)
 {
     SDL_Surface *source = SDL_CreateSurface(8, 8, SDL_PIXELFORMAT_ARGB8888);
@@ -851,6 +903,7 @@ void RENDER_OPS(SDL_Renderer *renderer, Capture *capture)
     tile_layer(renderer, capture);
     opaque_tiles(renderer, sprite, capture);
     frames(renderer, sprite, capture);
+    window_copies(renderer, capture);
     surfaces(capture);
     SDL_DestroyTexture(sprite);
 }

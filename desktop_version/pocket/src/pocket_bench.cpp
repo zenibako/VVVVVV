@@ -28,6 +28,7 @@ extern "C" Uint32 POCKET_bench_keys;
 extern "C" bool POCKET_saves_volatile;
 extern "C" bool POCKET_tint_runs;
 extern "C" bool POCKET_scroll_fast;
+extern "C" bool POCKET_copy_fast;
 extern bool POCKET_text_cache;
 extern Uint32 POCKET_print_us, POCKET_print_calls, POCKET_text_hits, POCKET_text_kept;
 extern char POCKET_last_kept[48];
@@ -494,6 +495,13 @@ static void cached_clock(void)
 
 static void warp_background(void) { graphics.updatebackground(3); }
 
+static void window_copy(void)
+{
+    graphics.set_render_target(NULL);
+    graphics.draw_window_background();
+    graphics.copy_texture(graphics.gameTexture, NULL, NULL);
+}
+
 void POCKET_BenchDraw(void)
 {
     if (!finished)
@@ -627,6 +635,11 @@ void POCKET_BenchDraw(void)
         graphics.backgrounddrawn = false;
         const Uint32 background_new = text_us(warp_background, 60, 1);
         report.add("warp bg us: old %u new %u", (unsigned) background_old, (unsigned) background_new);
+        POCKET_copy_fast = false;
+        const Uint32 copy_old = text_us(window_copy, 100, 1);
+        POCKET_copy_fast = true;
+        const Uint32 copy_new = text_us(window_copy, 100, 1);
+        report.add("window copy us: old %u new %u", (unsigned) copy_old, (unsigned) copy_new);
         /* Whether the tower's background tiles could be copied as they
          * are, needing nothing under them. */
         int tiles = 0, clear_tiles = 0, partial_tiles = 0;

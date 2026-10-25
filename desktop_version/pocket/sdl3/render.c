@@ -1313,6 +1313,7 @@ static int src_line_size;
 /* The benchmark compares these shortcuts with the general paths. */
 bool POCKET_tint_runs = true;
 bool POCKET_scroll_fast = true;
+bool POCKET_copy_fast = true;
 
 /* Counts a texture's pixels in a rectangle that are clear (alpha 0) and
  * that are partly see-through, for the benchmark to tell which tiles can
@@ -1343,6 +1344,7 @@ void POCKET_CountSeeThrough(SDL_Texture *texture, int x, int y, int w, int h, in
 }
 #else
 #define POCKET_tint_runs true
+#define POCKET_copy_fast true
 #endif
 
 static bool copy_rows(SDL_Renderer *renderer, Texture *src, const SDL_FRect *srcrect, const SDL_FRect *dstrect, SDL_FlipMode flip)
@@ -1491,6 +1493,20 @@ static bool copy_rows(SDL_Renderer *renderer, Texture *src, const SDL_FRect *src
     const bool by_runs = !raw && skips_clear && contiguous && src->runs_valid;
 
     PART_SAMPLE_BEGIN();
+    /* Packed, unscaled rows need one transfer, as when presenting the
+     * game image. Keep the row path for flips, row rings and padded pitch. */
+    if (POCKET_copy_fast && raw && !flip_v && sr.h == dr.h
+        && src->pixels565 != NULL && dst->pixels565 != NULL
+        && sr.x == 0 && dr.x == 0 && sr.w == clip.w
+        && src->pitch565 == clip.w && dst->pitch565 == clip.w
+        && shown_row(src, 0) == 0 && dst->row0 == 0)
+    {
+        SDL_memcpy(dst->pixels565 + (size_t) clip.y * dst->pitch565,
+            texels565(src) + (size_t) (sr.y + clip.y - dr.y) * src->pitch565,
+            (size_t) clip.w * clip.h * 2);
+        PART_END(1);
+        return true;
+    }
     for (int y = clip.y; y < clip.y + clip.h; y++)
     {
         int v = y - dr.y;

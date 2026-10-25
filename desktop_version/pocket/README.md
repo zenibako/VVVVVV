@@ -85,6 +85,11 @@ frame; this is not a measurement of physical scanout latency. Deferred clears
 are charged to whichever later drawing call actually writes their pixels.
 The report now spans three pages; press A and capture every page.
 
+The final window copy batches tightly packed, unscaled RGB565 rows into
+one transfer. Flips, scrolling row storage, padded pitch and horizontal
+clipping retain the existing row path. `window copy us: old ... new ...`
+compares both paths on the device, including the deferred window clear.
+
 The Pocket's story countdown reuses digit textures instead of caching each
 changing time string. It preserves the font's spacing, glow and border order;
 localized numerals and RTL text use the existing renderer. Results include
@@ -132,6 +137,9 @@ The Pocket-renderer host check also compares 560 full warp-background
 textures against the original path (both axes, seven colours, 40 updates),
 then reports host wall time for background updates. Renderer tests cover
 shared snapshots, pending clears, both pixel formats and extreme shifts.
+Window-copy checks compare the packed transfer with the original rows.
+Run `RENDER_TEST_PADDED=1 make render-test` as well to check framebuffer
+padding and its sentinel pixels.
 
 ## Sound
 

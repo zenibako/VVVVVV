@@ -11,6 +11,7 @@ bool POCKET_saves_volatile;
 #ifndef POCKET_SMOKE_RENDER
 bool POCKET_tint_runs;
 bool POCKET_scroll_fast = true;
+bool POCKET_copy_fast = true;
 /* Host rendering has no Pocket-only text cache or transparent-run index. */
 void POCKET_CountSeeThrough(SDL_Texture*, int, int, int, int, int* clear, int* partial)
 {
@@ -34,6 +35,33 @@ static bool save_capture(SDL_Surface* surface, const char* path);
 
 #include "clock_pixels.h"
 #include "background_pixels.h"
+
+static void check_window_copy(void)
+{
+#ifdef POCKET_SMOKE_RENDER
+    const bool enabled = POCKET_copy_fast;
+    POCKET_copy_fast = false;
+    window_copy();
+    SDL_Surface* original = SDL_RenderReadPixels(gameScreen.m_renderer, NULL);
+    POCKET_copy_fast = true;
+    window_copy();
+    SDL_Surface* optimized = SDL_RenderReadPixels(gameScreen.m_renderer, NULL);
+    assert(original && optimized && same_pixels(original, optimized));
+    SDL_DestroySurface(original);
+    SDL_DestroySurface(optimized);
+    Uint64 elapsed[2];
+    for (int mode = 0; mode < 2; mode++)
+    {
+        POCKET_copy_fast = mode != 0;
+        const Uint64 start = SDL_GetPerformanceCounter();
+        for (int i = 0; i < 1000; i++) window_copy();
+        elapsed[mode] = (SDL_GetPerformanceCounter() - start) * 1000000 / SDL_GetPerformanceFrequency() / 1000;
+    }
+    POCKET_copy_fast = enabled;
+    printf("Window copy pixels passed; host wall time us/copy: rows %llu, packed %llu (not Pocket timing)\n",
+        (unsigned long long) elapsed[0], (unsigned long long) elapsed[1]);
+#endif
+}
 
 static bool smoke_present(SDL_Renderer* renderer)
 {
@@ -129,6 +157,7 @@ static bool smoke_present(SDL_Renderer* renderer)
             assert(captured_pages == report.pages());
             check_clock_pixels();
             check_background_pixels();
+            check_window_copy();
             printf("Draw accounting passed: %d rows, %d pages, no overlap; results do not change counters\n",
                 report.size(), report.pages());
             printf("Gravitron smoke passed: %d frames, max %d enemies, timer %d, room %d,%d\n",
