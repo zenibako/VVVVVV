@@ -46,7 +46,7 @@ func TestInputRejectsLeafReplacementBeforeOpen(t *testing.T) {
 			if opened == nil {
 				t.Fatal("test did not reach open")
 			}
-			if _, err := opened.Stat(); !errors.Is(err, os.ErrClosed) {
+			if err := opened.Close(); !errors.Is(err, os.ErrClosed) {
 				t.Fatalf("opened replacement descriptor not closed: %v", err)
 			}
 		})
