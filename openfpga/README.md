@@ -193,6 +193,26 @@ remain visible. Larger tile ranges and allocation failures retain individual
 tile copies. Clipped edges, ring destinations, source changes and wider-palette
 fallbacks are compared against SDL; background checks include changing colours.
 
+Device checks during development used the same focused 14-case preset (240
+frames per ordinary room, 360 per scrolling tower case, after warmup). These
+are measured Pocket results; v3 already included earlier foreground work, so
+this comparison covers the later incremental optimizations.
+
+| Stabilizer off unless marked | v3 mean / peak (ms) | v7 mean / peak (ms) |
+| --- | --- | --- |
+| The Villi People | 35.1 / 51.3 | 28.4 / 38.4 |
+| Party Time! | 32.7 / 49.0 | 25.8 / 36.4 |
+| The Final Challenge | 31.8 / 56.0 | 29.5 / 38.1 |
+| The Final Challenge, stabilizer on | 31.8 / 58.7 | 29.5 / 38.0 |
+| Panic Room | 31.6 / 58.5 | 29.0 / 38.8 |
+| Panic Room, stabilizer on | 32.0 / 58.5 | 29.5 / 46.0 |
+
+All selected room/state averages in v7 are below the 34 ms frame budget.
+Peak frames still exceed it, including a 46.0 ms Panic Room result. Background
+cost on The Final Challenge's peak frame fell from 10.1 ms in v6 to 6.8 ms in
+v7; the strip marker confirms that the new path ran on that frame. Timing
+variation and this controlled fixture limit conclusions about a full playthrough.
+
 The Gravitron split reports background update/drawing and enemy spawning,
 movement (including physics and wall collisions), pair collisions,
 animation/colour updates, and drawing (including warning indicators).
