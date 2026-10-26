@@ -90,6 +90,12 @@ from its per-frame copy; `final rebuilds` counts rebuilds during the segment.
 `final redraw us: old ... new ...` forces 60 redraws on each path before
 Gravitron starts, outside the timed route. This comparison uses a regular
 animation colour so it cannot consume random variants and change later rooms.
+The final foreground also enables its existing opaque-span cache on its first
+copy after each rebuild. `final copy us: old ... new ...` compares the two
+copy policies over 60 rebuild-and-retain pairs. Its per-copy average includes
+building the spans, excludes foreground rebuilding, and uses the same batched
+grid renderer for both policies. Host checks compare composed pixels on both
+the first and retained copies as well as the foreground texture and RNG.
 
 The benchmark forces 30 Hz rendering, independent of saved settings. This
 keeps one presentation per logic timestep; faster render-only iterations

@@ -869,6 +869,7 @@ void Graphics::drawtile2(int x, int y, int t)
 Uint32 POCKET_bg_us, POCKET_bg_tiles, POCKET_bg_full, POCKET_bg_scroll;
 Uint32 POCKET_final_rebuild_us, POCKET_final_copy_us, POCKET_final_rebuilds, POCKET_final_grid_hits;
 bool POCKET_final_grid_fast = true;
+bool POCKET_final_copy_fast = true;
 #define COUNT_BG_TILE() (POCKET_bg_tiles++)
 #define COUNT_BG_TILES(n) (POCKET_bg_tiles += (n))
 #else
@@ -3014,8 +3015,10 @@ void Graphics::drawmap(void)
 
 #ifdef VVV_POCKET
 extern "C" bool POCKET_CopyKeyedGrid(SDL_Renderer*, SDL_Texture*, const int*, int, int);
+extern "C" void POCKET_SetTextureRuns(SDL_Texture*, bool);
 #ifndef POCKET_BENCH
 #define POCKET_final_grid_fast true
+#define POCKET_final_copy_fast true
 #endif
 #endif
 
@@ -3071,6 +3074,12 @@ void Graphics::drawfinalmap(void)
         POCKET_final_grid_hits += batched;
 #endif
     }
+#ifdef VVV_POCKET
+    /* This texture is copied every frame but changes every two steps.
+     * Build opaque spans immediately instead of spending its first copy
+     * blending the whole ARGB foreground pixel by pixel. */
+    POCKET_SetTextureRuns(foregroundTexture, POCKET_final_copy_fast);
+#endif
 #ifdef POCKET_BENCH
     const Uint32 copy_start = of_time_us();
 #endif

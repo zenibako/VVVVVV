@@ -87,16 +87,19 @@ static void check_final_pixels(void)
                     map.final_aniframe = phase;
                     game.noflashingmode = reduced != 0;
                     SDL_Surface* images[2];
+                    SDL_Surface* composed[2];
                     Uint32 next[2];
                     for (int mode = 0; mode < 2; mode++)
                     {
                         POCKET_final_grid_fast = mode != 0;
+                        POCKET_final_copy_fast = mode != 0;
                         graphics.foregrounddrawn = false;
                         srand(17 + cases); /* finalat uses the C RNG. */
                         graphics.set_render_target(graphics.tempShakeTexture);
                         graphics.fill_rect(17, 39, 89);
                         graphics.drawfinalmap();
                         next[mode] = rand();
+                        composed[mode] = SDL_RenderReadPixels(gameScreen.m_renderer, NULL);
                         graphics.set_render_target(graphics.foregroundTexture);
                         images[mode] = SDL_RenderReadPixels(gameScreen.m_renderer, NULL);
                         const Uint32 rebuilds = POCKET_final_rebuilds;
@@ -104,8 +107,12 @@ static void check_final_pixels(void)
                         const int expected = rand();
                         srand(71);
                         graphics.set_render_target(graphics.tempShakeTexture);
+                        graphics.fill_rect(17, 39, 89);
                         graphics.drawfinalmap(); /* The retained foreground must not reroll. */
                         assert(rand() == expected && POCKET_final_rebuilds == rebuilds);
+                        SDL_Surface* cached = SDL_RenderReadPixels(gameScreen.m_renderer, NULL);
+                        assert(same_pixels(composed[mode], cached));
+                        SDL_DestroySurface(cached);
                     }
                     if (!same_pixels(images[0], images[1]))
                     {
@@ -115,9 +122,12 @@ static void check_final_pixels(void)
                         assert(save_capture(images[1], "final-new.bmp"));
                     }
                     assert(same_pixels(images[0], images[1]));
+                    assert(same_pixels(composed[0], composed[1]));
                     assert(next[0] == next[1]);
                     SDL_DestroySurface(images[0]);
                     SDL_DestroySurface(images[1]);
+                    SDL_DestroySurface(composed[0]);
+                    SDL_DestroySurface(composed[1]);
                     cases++;
                 }
     }
@@ -145,12 +155,13 @@ static void check_final_pixels(void)
     for (int mode = 0; mode < 2; mode++)
     {
         POCKET_final_grid_fast = mode != 0;
+        POCKET_final_copy_fast = mode != 0;
         graphics.foregrounddrawn = false;
         srand(91);
         graphics.set_render_target(graphics.tempShakeTexture);
+        graphics.fill_rect(17, 39, 89);
         graphics.drawfinalmap();
         following[mode] = rand();
-        graphics.set_render_target(graphics.foregroundTexture);
         fallback[mode] = SDL_RenderReadPixels(gameScreen.m_renderer, NULL);
     }
     assert(POCKET_final_grid_hits == before_fallback);
@@ -169,12 +180,13 @@ static void check_final_pixels(void)
             SDL_SetTextureAlphaMod(sheet, style == 1 ? 128 : 255);
             SDL_SetTextureBlendMode(sheet, style == 2 ? SDL_BLENDMODE_NONE : SDL_BLENDMODE_BLEND);
             POCKET_final_grid_fast = mode != 0;
+            POCKET_final_copy_fast = mode != 0;
             graphics.foregrounddrawn = false;
             srand(91);
             graphics.set_render_target(graphics.tempShakeTexture);
+            graphics.fill_rect(17, 39, 89);
             graphics.drawfinalmap();
             following[mode] = rand();
-            graphics.set_render_target(graphics.foregroundTexture);
             fallback[mode] = SDL_RenderReadPixels(gameScreen.m_renderer, NULL);
         }
         assert(same_pixels(fallback[0], fallback[1]) && following[0] == following[1]);
@@ -191,6 +203,7 @@ static void check_final_pixels(void)
     for (int mode = 0; mode < 2; mode++)
     {
         POCKET_final_grid_fast = mode != 0;
+        POCKET_final_copy_fast = mode != 0;
         graphics.set_render_target(graphics.tempShakeTexture);
         const Uint64 start = SDL_GetPerformanceCounter();
         for (int i = 0; i < 120; i++)
@@ -201,6 +214,7 @@ static void check_final_pixels(void)
         elapsed[mode] = (SDL_GetPerformanceCounter() - start) * 1000000 / SDL_GetPerformanceFrequency() / 120;
     }
     POCKET_final_grid_fast = true;
+    POCKET_final_copy_fast = true;
     graphics.set_render_target(target);
     printf("Final foreground pixels and RNG passed: %d cases, three rooms/all colours/phases/reduced flashing\n", cases);
     printf("Final partial-alpha/modulated fallback pixels/RNG passed; host redraw us: old %llu new %llu (not Pocket timing)\n",

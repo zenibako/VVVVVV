@@ -13,6 +13,7 @@ bool POCKET_ScrollTexture(SDL_Texture *texture, int dx, int dy);
 bool POCKET_RepeatTexture(SDL_Renderer*, SDL_Texture*, const SDL_Rect*, const SDL_Rect*);
 bool POCKET_CopyOpaqueGrid(SDL_Renderer*, SDL_Texture*, const Uint16*, int, int, int, int);
 bool POCKET_CopyKeyedGrid(SDL_Renderer*, SDL_Texture*, const int*, int, int);
+void POCKET_SetTextureRuns(SDL_Texture*, bool);
 bool POCKET_ShiftTextureRows(SDL_Texture *texture, int dy);
 typedef struct POCKET_TileLayer POCKET_TileLayer;
 POCKET_TileLayer *POCKET_CreateTileLayer(int w, int h);
@@ -1207,6 +1208,17 @@ void RENDER_OPS(SDL_Renderer *renderer, Capture *capture)
     /* As Screen.cpp does; SDL's default is linear. */
     SDL_SetDefaultTextureScaleMode(renderer, SDL_SCALEMODE_NEAREST);
     SDL_Texture *sprite = make_sprite(renderer);
+#ifdef SDL_RenderClear
+    POCKET_SetTextureRuns(sprite, true);
+#endif
+    SDL_SetRenderTarget(renderer, NULL);
+    SDL_SetRenderDrawColor(renderer, 40, 60, 90, 255);
+    SDL_RenderClear(renderer);
+    draw_sprite(renderer, sprite, 15, 25, 16, 16, SDL_FLIP_NONE);
+    capture_target(renderer, capture, "first copy with run cache");
+#ifdef SDL_RenderClear
+    POCKET_SetTextureRuns(sprite, false);
+#endif
     /* On a target texture, exactly as SDL; then on the window. */
     SDL_Texture *canvas = SDL_CreateTexture(renderer, SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_TARGET, 320, 240);
     SDL_SetRenderTarget(renderer, canvas);

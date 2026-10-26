@@ -40,6 +40,7 @@ extern char POCKET_last_kept[48];
 extern Uint32 POCKET_bg_us, POCKET_bg_tiles, POCKET_bg_full, POCKET_bg_scroll;
 extern Uint32 POCKET_final_rebuild_us, POCKET_final_copy_us, POCKET_final_rebuilds, POCKET_final_grid_hits;
 extern bool POCKET_final_grid_fast;
+extern bool POCKET_final_copy_fast;
 extern "C" void POCKET_CountSeeThrough(SDL_Texture* texture, int x, int y, int w, int h, int* clear, int* partial);
 PocketBenchProfile POCKET_grav_profile;
 bool POCKET_grav_draw_active;
@@ -154,6 +155,7 @@ static PocketBenchProfile grav_start;
 static int steps_this_loop;
 static Uint32 final_rebuild_start, final_copy_start, final_count_start;
 static Uint32 final_redraw_us[2];
+static Uint32 final_copy_us[2];
 static void measure_final_redraw(void);
 
 static void place_player(int x, int y)
@@ -565,6 +567,22 @@ static void measure_final_redraw(void)
         final_redraw_us[mode] = (of_time_us() - start) / 60;
     }
     POCKET_final_grid_fast = true;
+    /* Include both copies in a two-frame lifetime, including the cost of
+     * constructing runs. Rebuilding stays outside the copy-only counter. */
+    for (int mode = 0; mode < 2; mode++)
+    {
+        POCKET_final_copy_fast = mode != 0;
+        const Uint32 start = POCKET_final_copy_us;
+        for (int i = 0; i < 60; i++)
+        {
+            graphics.fill_rect(0, 0, 0);
+            graphics.foregrounddrawn = false;
+            graphics.drawfinalmap();
+            graphics.drawfinalmap();
+        }
+        final_copy_us[mode] = (POCKET_final_copy_us - start) / 120;
+    }
+    POCKET_final_copy_fast = true;
     map.final_mapcol = colour;
     graphics.set_render_target(target);
 }
@@ -768,6 +786,7 @@ void POCKET_BenchDraw(void)
         const Uint32 tower_new = text_us(redraw_tower, 60, 1);
         report.add("tower redraw us: old %u new %u", (unsigned) tower_old, (unsigned) tower_new);
         report.add("final redraw us: old %u new %u", (unsigned) final_redraw_us[0], (unsigned) final_redraw_us[1]);
+        report.add("final copy us: old %u new %u", (unsigned) final_copy_us[0], (unsigned) final_copy_us[1]);
         /* Whether the tower's background tiles could be copied as they
          * are, needing nothing under them. */
         int tiles = 0, clear_tiles = 0, partial_tiles = 0;

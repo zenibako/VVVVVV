@@ -1870,12 +1870,17 @@ bool POCKET_ScrollTexture(SDL_Texture *texture, int dx, int dy)
     return true;
 }
 
-void POCKET_KeepTextureRuns(SDL_Texture *texture)
+void POCKET_SetTextureRuns(SDL_Texture *texture, bool enabled)
 {
     if (check_texture(texture))
     {
-        texture_data(texture)->always_runs = true;
+        texture_data(texture)->always_runs = enabled;
     }
+}
+
+void POCKET_KeepTextureRuns(SDL_Texture *texture)
+{
+    POCKET_SetTextureRuns(texture, true);
 }
 
 /* The same for any texture, filling the rows it exposes with transparent
