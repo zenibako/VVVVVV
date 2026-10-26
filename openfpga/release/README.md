@@ -37,23 +37,24 @@ that commit's committer timestamp in UTC. ZIP timestamps, gzip timestamps, file
 ordering, ownership and modes are normalized for byte reproducibility with the
 same inputs/toolchain. Compression output may differ across Python/zlib versions.
 
-The tools directory must contain these nine regular files:
+The tools directory must contain these ten regular files:
 
 - `prepare-data-darwin-amd64`, `prepare-data-darwin-arm64`
 - `prepare-data-linux-amd64`, `prepare-data-linux-arm64`
 - `prepare-data-windows-amd64.exe`, `prepare-data-windows-arm64.exe`
-- `plugin.wasm`, `prepare-data.wasm`, `plugin.json`
+- `plugin.wasm`, `prepare-data.wasm`, `plugin.json`, `plugin_icon.png`
 
 Both WASM files must have the WebAssembly v1 header. The manifest must be valid
 JSON with `allowed_hosts: []`. This checks artifact identity and manifest scope;
 it does not replace the native/WASI/Extism execution tests in the tools build.
 Native files are packaged as supplied; run the target builds before assembly.
 
-Only 16 explicit SD paths are read: seven JSON files, LICENSE.txt, os20.rbf_r and
+Only 17 explicit SD paths are read: seven JSON files, LICENSE.txt, os20.rbf_r and
 loader.bin in `Cores/zenibako.vvvvvv/`; os.bin, vvvvvv.elf, vvvvvv.ini and
 vvvvvv-repo.zip in `Assets/vvvvvv/common/`; the game instance JSON and platform
-JSON. Symlinks in those paths are rejected. The three runtime files must match
-`runtime.lock.json`. The ELF must identify itself as a 32-bit little-endian RISC-V
+JSON, plus `Platforms/_images/vvvvvv.bin`. Symlinks in those paths are rejected.
+The three runtime files must match `runtime.lock.json`. The ELF must identify
+itself as a 32-bit little-endian RISC-V
 executable. The core JSON version/date are updated in memory; IDs, framework and
 other SD inputs are preserved. Generated info.txt and updaters.json acknowledge
 the altered port, licensing, hardware limits and AI assistance.
@@ -63,8 +64,9 @@ converted music, source staging, saves, logs, benchmark files and local metadata
 are excluded. Game resources already included in the source repository (the
 fonts/language repo ZIP) remain in the game package.
 
-The candidate contains the core ZIP, three loose plugin/WASI assets, six native
-`.tar.gz` bundles, `GAME-DATA.md`, `runtime.lock.json`, `PROVENANCE.json`,
+The candidate contains the core ZIP, four loose plugin/WASI assets (including
+`plugin_icon.png`), six native `.tar.gz` bundles, `GAME-DATA.md`,
+`runtime.lock.json`, `PROVENANCE.json`,
 `SOURCE-AVAILABILITY.json`, `RUNTIME-SOURCE.md`, `source.tar.gz`,
 `licenses.tar.gz`, and `SHA256SUMS`. The core ZIP has the SD directories at its
 root. Each native bundle has `prepare-data` (mode 0755) or `prepare-data.exe`,

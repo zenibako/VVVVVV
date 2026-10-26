@@ -35,3 +35,4 @@ plugin:
 	$(TINYGO) build -p 2 -trimpath -target wasip1 -buildmode=c-shared \
 		-o $(BUILD)/plugin.wasm ./cmd/pocket-plugin
 	cp plugin.json $(BUILD)/plugin.json
+	cp plugin_icon.png $(BUILD)/plugin_icon.png

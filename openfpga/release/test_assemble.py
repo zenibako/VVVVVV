@@ -19,7 +19,8 @@ FILES = [CORE + name for name in (
     "audio.json", "core.json", "data.json", "input.json", "interact.json",
     "variants.json", "video.json", "LICENSE.txt", "os20.rbf_r", "loader.bin")]
 FILES += [COMMON + name for name in ("os.bin", "vvvvvv.elf", "vvvvvv.ini", "vvvvvv-repo.zip")]
-FILES += ["Assets/vvvvvv/zenibako.vvvvvv/vvvvvv.json", "Platforms/vvvvvv.json"]
+FILES += ["Assets/vvvvvv/zenibako.vvvvvv/vvvvvv.json", "Platforms/vvvvvv.json",
+          "Platforms/_images/vvvvvv.bin"]
 NATIVES = [f"prepare-data-{system}-{arch}" + (".exe" if system == "windows" else "")
            for system in ("darwin", "linux", "windows") for arch in ("amd64", "arm64")]
 
@@ -68,6 +69,7 @@ class ReleaseTests(unittest.TestCase):
         for name in ("plugin.wasm", "prepare-data.wasm"):
             (self.tools / name).write_bytes(b"\0asm\x01\0\0\0")
         (self.tools / "plugin.json").write_text('{"name":"VVVVVV", "allowed_hosts":[]}')
+        (self.tools / "plugin_icon.png").write_bytes(b"fixture icon")
         self.repo = self.root / "repo"
         self.repo.mkdir()
         self.git(self.repo, "init", "-q")
@@ -162,7 +164,7 @@ class ReleaseTests(unittest.TestCase):
 
     def test_release_has_complete_checksums_sources_and_executable_bundles(self):
         out = self.release()
-        expected = {"vvvvvv-openfpga.zip", "plugin.wasm", "plugin.json", "prepare-data.wasm",
+        expected = {"vvvvvv-openfpga.zip", "plugin.wasm", "plugin.json", "plugin_icon.png", "prepare-data.wasm",
                     "SHA256SUMS", "runtime.lock.json", "PROVENANCE.json", "source.tar.gz",
                     "licenses.tar.gz", "GAME-DATA.md", "RUNTIME-SOURCE.md", "SOURCE-AVAILABILITY.json"}
         expected.update(name.removesuffix(".exe") + ".tar.gz" for name in NATIVES)
@@ -173,7 +175,11 @@ class ReleaseTests(unittest.TestCase):
             self.assertEqual(hashlib.sha256((out / name).read_bytes()).hexdigest(), digest)
         with zipfile.ZipFile(out / "vvvvvv-openfpga.zip") as archive:
             self.assertIn(CORE + "core.json", archive.namelist())
+            self.assertEqual(archive.read("Platforms/_images/vvvvvv.bin"),
+                             (self.sd / "Platforms/_images/vvvvvv.bin").read_bytes())
             self.assertNotIn("sd/", archive.namelist())
+        self.assertEqual((out / "plugin_icon.png").read_bytes(),
+                         (self.tools / "plugin_icon.png").read_bytes())
         for name in NATIVES:
             with tarfile.open(out / (name.removesuffix(".exe") + ".tar.gz")) as archive:
                 executable = "prepare-data.exe" if name.endswith(".exe") else "prepare-data"

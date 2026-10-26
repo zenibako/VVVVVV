@@ -31,7 +31,8 @@ depots or store installer executables. They never download purchased assets.
    is sufficient when it contains the original soundtrack.
 3. In Pocket Sync, install the plugin from `https://github.com/zenibako/VVVVVV`.
    The repository's latest stable release must contain `plugin.wasm` and
-   `plugin.json`; a source checkout, draft or prerelease is not sufficient.
+   `plugin.json`, plus `plugin_icon.png` for its Captain Viridian icon; a source
+   checkout, draft or prerelease is not sufficient.
 4. Run **VVVVVV Game Data** and choose installation while keeping originals
    (the first/default choice). The plugin installs `data.zip` and
    `vvvvvv-music.bin` directly into `Assets/vvvvvv/common/`.
@@ -107,6 +108,9 @@ the core or add it to the catalog.
 ## Licenses and attribution
 
 The preparation/plugin application code is MIT licensed (see `LICENSE`).
+The plugin icon is the original checked-in VVVVVV app artwork, copied unchanged;
+it retains the game's copyright and source license. See the
+[artwork provenance](../assets/branding/README.md).
 Pinned pocket-music and its patched decoders retain their original MIT
 licenses and patch notes under `third_party/`. This tool is an altered companion
 to VVVVVV, copyright Terry Cavanagh; the game's code and assets retain the
