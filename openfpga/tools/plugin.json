@@ -1,0 +1,5 @@
+{
+  "name": "VVVVVV Game Data",
+  "description": "Copy owned data.zip into Assets/vvvvvv/common/source on your SD card. Music can be inside the ZIP; copy separate vvvvvvmusic.vvv or mmmmmm.vvv files too if supplied. Keep originals by default or discard them after successful installation.",
+  "allowed_hosts": []
+}

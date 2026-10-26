@@ -1,0 +1,48 @@
+name: openfpga preparation tools
+
+on:
+  push:
+    paths: ['openfpga/tools/**', 'openfpga/release/**', '.github/workflows/openfpga-tools.yml', '.github/workflows/openfpga-release.yml']
+  pull_request:
+    paths: ['openfpga/tools/**', 'openfpga/release/**', '.github/workflows/openfpga-tools.yml', '.github/workflows/openfpga-release.yml']
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.25.0'
+          cache-dependency-path: openfpga/tools/go.sum
+      - name: Install verified TinyGo and Binaryen
+        run: bash openfpga/tools/scripts/install-ci-toolchain.sh "$RUNNER_TEMP/plugin-toolchain"
+      - name: Test native, WASI and real Pocket Sync exports
+        working-directory: openfpga/tools
+        env:
+          REQUIRE_PLUGIN_TESTS: '1'
+        run: make test
+      - name: Test release assembly
+        run: python3 -m unittest discover -s openfpga/release -p 'test_*.py'
+  windows-input:
+    name: Windows preparation checks
+    runs-on: windows-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.25.0'
+          cache-dependency-path: openfpga/tools/go.sum
+      - name: Test Windows file identities and preparation
+        working-directory: openfpga/tools
+        run: go test ./prep

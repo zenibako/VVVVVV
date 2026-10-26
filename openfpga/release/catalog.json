@@ -1,0 +1,7 @@
+{
+  "repository": "zenibako/VVVVVV",
+  "zip_filter": "^vvvvvv-openfpga\\.zip$",
+  "plugin_artifacts": ["plugin.wasm", "plugin.json"],
+  "instructions": "GAME-DATA.md",
+  "submission_status": "candidate; review and explicit version/tag approval required"
+}

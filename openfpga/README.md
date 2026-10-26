@@ -194,18 +194,17 @@ and Gravitron captures allow whole-frame comparisons with earlier builds.
 
 ## Sound
 
-The Pocket can't decode the game's Ogg Vorbis music while it runs, so the
-music is converted once, on a computer, with
-[pocket-music](https://github.com/zenibako/pocket-music):
+The preparation tools and Pocket Sync plugin in [`tools/`](tools/README.md)
+verify your owned `data.zip` and convert the soundtrack to
+`vvvvvv-music.bin`. Music blobs can be inside `data.zip` or supplied beside
+it; the optional `mmmmmm.vvv` soundtrack is supported too. See the tools
+instructions for native preparation and the SD-card plugin workflow.
 
-```sh
-pocket-music vvvvvv vvvvvvmusic.vvv vvvvvv-music.bin
-```
-
-`vvvvvvmusic.vvv` is next to `data.zip` in the game's install folder; add
-`-mmmmmm mmmmmm.vvv` for the MMMMMM soundtrack too. Copy
-`vvvvvv-music.bin` to `Assets/vvvvvv/common/`. Without it the game runs
-without music.
+The device cannot decode Ogg Vorbis during gameplay. Conversion uses the
+pinned [pocket-music](https://github.com/zenibako/pocket-music) implementation
+and happens once on the computer. Install `data.zip` and
+`vvvvvv-music.bin` in `Assets/vvvvvv/common/`. Without the converted pack,
+the game runs without music.
 
 `src/pocket_audio.c` streams the converted tracks (mono IMA ADPCM at
 48 kHz, see `src/music_pack.h`) from the card, loops them at the points the
