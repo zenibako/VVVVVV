@@ -1,0 +1,11 @@
+{
+  "schema": 1,
+  "runtime": {"repository": "zenibako/openfpgaCore", "commit": "902a8adc11309c50c8954af2864ddf893c8b1b0c", "variant": "os20"},
+  "sdk": {"repository": "openfpgaOS/Diablo", "commit": "8cb3198d50618696e07f5b49ad086a369dc57706"},
+  "music": {"repository": "zenibako/pocket-music", "commit": "9cc67a266e2b9faea62ea89a3216d2dc3ee3134d"},
+  "sha256": {
+    "Cores/zenibako.vvvvvv/os20.rbf_r": "e2d5300df191ec73a72ae1255008d9f43d36815fb49e4c732403abf36c742327",
+    "Cores/zenibako.vvvvvv/loader.bin": "fc1f8d37eb0fb322006b4428f0b59d2801c9b74978bd3f24103f5f9bbfca3c99",
+    "Assets/vvvvvv/common/os.bin": "cc299efffc0f8fcafaaa265e329439806e061bd4cceb0ab6a96f16f8b2b7fe27"
+  }
+}
