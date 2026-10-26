@@ -57,7 +57,9 @@ enum Start
     START_TOWER,
     HIDE_TRIAL,
     GO_TO_TOWER,
-    START_GRAVITRON
+    START_GRAVITRON,
+    START_FINAL,
+    GO_TO_PARTY
 };
 
 enum Keys
@@ -87,6 +89,10 @@ parts[] = {
     {"tower", 600, GO_TO_TOWER, KEYS_NONE},
     {"map", 480, START_NONE, KEYS_MAP},
     {"climb", 600, START_NONE, KEYS_CLIMB},
+    /* Use the real stabilizer-off transition, then measure the animated
+     * obstacles in the next room after the flash and shake have settled. */
+    {NULL, 90, START_FINAL, KEYS_NONE},
+    {"final", 600, GO_TO_PARTY, KEYS_NONE},
     /* Wait for the real introduction to finish, then time the complete
      * story-room countdown, including its increasingly dense waves. */
     {NULL, 0, START_GRAVITRON, KEYS_NONE},
@@ -144,6 +150,18 @@ static Uint32 bg_us_start, bg_tiles_start, bg_full_start, bg_scroll_start;
 static PocketBenchProfile grav_start;
 static int steps_this_loop;
 
+static void place_player(int x, int y)
+{
+    const int player = obj.getplayer();
+    if (INBOUNDS_VEC(player, obj.entities))
+    {
+        entclass& p = obj.entities[player];
+        p.xp = p.lerpoldxp = x;
+        p.yp = p.lerpoldyp = y;
+        p.vx = p.vy = p.ax = p.ay = 0;
+    }
+}
+
 static void start_part(void)
 {
     step = 0;
@@ -175,6 +193,29 @@ static void start_part(void)
         map.gotoroom(109, 109);
         break;
     }
+    case START_FINAL:
+        game.intimetrial = game.inintermission = game.swnmode = false;
+        game.swngame = SWN_NONE;
+        game.gravitycontrol = 0;
+        game.hascontrol = true;
+        game.startscript = script.running = false;
+        game.noflashingmode = game.colourblindmode = false;
+        map.invincibility = map.finalmode = true;
+        map.finalstretch = map.final_colormode = false;
+        map.final_mapcol = map.final_colorframe = map.final_colorframedelay = 0;
+        map.final_aniframe = 0;
+        map.final_aniframedelay = 2;
+        obj.flags[72] = false;
+        map.gotoroom(41, 52); /* DIY V Repair: the stabilizer terminal. */
+        place_player(260, 160);
+        xoshiro_seed(7);
+        game.setstate(85); /* Native terminal activation, without dialogue. */
+        game.setstatedelay(0);
+        break;
+    case GO_TO_PARTY:
+        map.gotoroom(42, 52); /* Party Time!: 496 changing obstacle tiles. */
+        place_player(150, 130);
+        break;
     case START_GRAVITRON:
     {
         game.intimetrial = false;
@@ -187,14 +228,7 @@ static void start_part(void)
         map.final_colormode = false;
         map.final_mapcol = 0;
         map.gotoroom(53, 50);
-        const int player = obj.getplayer();
-        if (INBOUNDS_VEC(player, obj.entities))
-        {
-            entclass& p = obj.entities[player];
-            p.xp = p.lerpoldxp = 148;
-            p.yp = p.lerpoldyp = 100;
-            p.vx = p.vy = p.ax = p.ay = 0;
-        }
+        place_player(148, 100);
         xoshiro_seed(7);
         game.setstate(10); /* Ordinary Gravitron: lines, intro and 60s clock. */
         game.setstatedelay(0);

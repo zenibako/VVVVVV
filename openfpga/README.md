@@ -60,12 +60,22 @@ save. Its save slot is separate from the game's, and benchmark writes stay
 in memory. The startup check is included in `make test`.
 
 The timed route covers Teleporter Divot (with and without the time-trial
-HUD), Tower, map, climbing, and the story Gravitron. Gravitron uses its
+HUD), Tower, map, climbing, the stabilizer-off final stretch, and the story Gravitron. Gravitron uses its
 normal introduction and complete 60-second countdown, including the denser
 late waves, with a fixed random seed and invincibility to prevent resets.
 The introduction is excluded from timing. Results include average frame,
 logic, drawing and text costs; press A to switch between results pages and
 take a screenshot of each page.
+
+The `final` segment runs Party Time! (42,52), immediately after the stabilizer
+terminal, for 600 logic steps (20 seconds). It invokes the real terminal
+transition in DIY V Repair, excludes its flash/shake prelude, then keeps
+normal colour cycling and the changing obstacle shapes enabled. A fixed seed
+and invincibility make the run reproducible; reduced-flashing and colourblind
+settings are disabled for this segment so saved preferences cannot remove
+the workload. The host smoke captures two room frames and verifies that
+obstacle pixels change at the same map colour, plus multiple colours and all
+four animation phases. It leaves Gravitron last, with its existing profiling.
 
 The benchmark forces 30 Hz rendering, independent of saved settings. This
 keeps one presentation per logic timestep; faster render-only iterations

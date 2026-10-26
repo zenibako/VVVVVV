@@ -7,7 +7,7 @@
 /* Keep results within the 240-pixel display, with room for a page footer. */
 class PocketBenchReport
 {
-    enum { CAPACITY = 64, WIDTH = 48, PAGE_LINES = 27 };
+    enum { CAPACITY = 80, WIDTH = 48, PAGE_LINES = 27 };
     char rows[CAPACITY][WIDTH];
     int count, current;
     bool held;

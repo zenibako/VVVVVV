@@ -41,6 +41,7 @@ static bool save_capture(SDL_Surface* surface, const char* path);
 #include "tower_pixels.h"
 #include "font_alpha_pixels.h"
 #include "controls.h"
+#include "final_room.h"
 
 static void check_window_copy(void)
 {
@@ -98,6 +99,7 @@ static bool smoke_present(SDL_Renderer* renderer)
         }
     }
     sent_keys = POCKET_bench_keys;
+    observe_final_room(renderer);
     if (!captured_tower && part >= 0 && part < PART_COUNT && parts[part].name != NULL
         && SDL_strcmp(parts[part].name, "tower") == 0 && step >= 300)
     {
@@ -179,6 +181,7 @@ static bool smoke_present(SDL_Renderer* renderer)
         }
         if (++result_frames == report.pages() * 3)
         {
+            check_final_room();
             assert(captured_pages == report.pages());
             check_clock_pixels();
             check_background_pixels();
