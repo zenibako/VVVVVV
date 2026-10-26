@@ -131,7 +131,7 @@ animation. Both mini-towers run from both entrances at cameras 0, 192, 384 and
 directions. There are 104 cases and 25,920 measured frames. Allow roughly
 15–25 minutes on Pocket; slow frames may make it longer.
 
-The `Sweep v4` counter shows the current case, stabilizer state and frame
+The `Sweep v5` counter shows the current case, stabilizer state and frame
 progress while running. Its overlay drawing cost is excluded from frame/draw
 timings. Results are drawn directly onto the presented window; A advances
 through the pages (one focused page, three exhaustive pages). The focused
@@ -150,14 +150,27 @@ part of the 34-room final level; the existing route still covers Gravitron.
 
 Results rank each selected room/state by its slowest viewport's average frame
 time, alongside its worst single frame across all views. Logic/draw timings
-are included for the top three cases and for both states of The Final Challenge.
-`+` means the stabilizer is off; `-` means on. Capture each result page.
+are included for the top three cases. The tower detail rows split each tower's
+worst frame (across both states/entrances) into background-update (`B`) and
+foreground (`F`) time. `C` marks a colour change, `R` a full background rebuild;
+`-` means that event did not occur. These costs are already inside the frame's
+logic/draw totals: the fixed update renders the background, so its work appears
+under logic. `+` means the stabilizer is off; `-` means on. Capture each result page.
 Host coverage uses `make host-render HOST_BENCH_SMOKE=1 FINAL_SWEEP=1
 SDL3_PREFIX=/opt/homebrew` (also add `FINAL_SWEEP_ALL=1` for the exhaustive
 regression), then the usual private assets/basedir launch. Host sweep timers
 use the real performance counter; the simulation clock is accelerated.
 `SWEEP_VIEW` and `SWEEP_RESULT` CSV lines report host microseconds, not Pocket
 timings. Run `python3 tests/final_sweep_roster_test.py` to check both presets.
+
+Tower grid rebuilds resolve vertical wrapping once per source row, shared by
+main-tower, mini-tower and background row access. The row lookup preserves the
+original truncation of negative pixel coordinates before positive wrapping.
+Opaque grids write directly to contiguous destination row spans, removing the
+scratch-row copy; horizontally wrapped spans retain their existing fallback.
+Renderer checks cover clipped/ring/padded destinations, and host gameplay
+checks compare batched row values with the original per-tile accessors across
+signed offsets and wrap boundaries.
 
 The Gravitron split reports background update/drawing and enemy spawning,
 movement (including physics and wall collisions), pair collisions,

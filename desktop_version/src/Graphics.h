@@ -348,6 +348,9 @@ public:
     void drawmap(void);
 
     void drawtowermap(void);
+#ifdef POCKET_BENCH
+    void draw_tower_map(void);
+#endif
 
     void drawtowerspikes(void);
 

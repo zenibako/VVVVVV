@@ -20,7 +20,7 @@
 
 extern "C" Uint32 POCKET_bench_keys;
 extern "C" bool POCKET_saves_volatile;
-extern Uint32 POCKET_bg_scroll;
+extern Uint32 POCKET_bg_scroll, POCKET_bg_us, POCKET_bg_full, POCKET_tower_fg_us;
 PocketBenchProfile POCKET_grav_profile;
 bool POCKET_grav_draw_active;
 
@@ -29,7 +29,8 @@ enum { SWEEP_ROOMS = sizeof(final_rooms) / sizeof(final_rooms[0]),
 static const int sweep_cameras[] = {0, 192, 384, 568, -1};
 struct SweepResult
 {
-    Uint32 average, logic, draw, worst, peak_logic, peak_draw;
+    Uint32 average, logic, draw, worst, peak_logic, peak_draw, peak_bg, peak_fg;
+    bool peak_colour, peak_full;
     int camera, entry, views;
 };
 static SweepResult sweep_results[SWEEP_ROOMS * 2];
@@ -46,7 +47,10 @@ static bool sweep_started, sweep_done, sweep_failed, sweep_stepped;
 static Uint32 sweep_loop_start, sweep_logic_start, sweep_draw_start, sweep_logic_us, sweep_draw_us;
 static Uint32 sweep_overlay_us;
 static Uint64 sweep_sum, sweep_logic_sum, sweep_draw_sum;
-static Uint32 sweep_worst, sweep_peak_logic, sweep_peak_draw;
+static Uint32 sweep_worst, sweep_peak_logic, sweep_peak_draw, sweep_peak_bg, sweep_peak_fg;
+static Uint32 sweep_bg_start, sweep_fg_start, sweep_full_start;
+static int sweep_colour_start;
+static bool sweep_peak_colour, sweep_peak_full;
 static int sweep_frames;
 #ifdef POCKET_FINAL_SWEEP_ALL
 enum { SWEEP_CASES = 104, SWEEP_VIEWS_PER_TOWER = 10, SWEEP_REPORT_ROWS = 80 };
@@ -169,7 +173,8 @@ static void sweep_load(void)
     sweep_pin_player();
     sweep_tick = -1;
     sweep_sum = sweep_logic_sum = sweep_draw_sum = 0;
-    sweep_worst = sweep_peak_logic = sweep_peak_draw = 0;
+    sweep_worst = sweep_peak_logic = sweep_peak_draw = sweep_peak_bg = sweep_peak_fg = 0;
+    sweep_peak_colour = sweep_peak_full = false;
     sweep_frames = 0;
     sweep_colours = sweep_phases = 0;
     sweep_scroll_frames = 0;
@@ -200,6 +205,10 @@ static void sweep_finish_case(void)
         result.worst = sweep_worst;
         result.peak_logic = sweep_peak_logic;
         result.peak_draw = sweep_peak_draw;
+        result.peak_bg = sweep_peak_bg;
+        result.peak_fg = sweep_peak_fg;
+        result.peak_colour = sweep_peak_colour;
+        result.peak_full = sweep_peak_full;
     }
     result.views++;
     sweep_cases++;
@@ -294,6 +303,10 @@ void POCKET_BenchLoopStart(void)
     sweep_stepped = false;
     sweep_logic_us = sweep_draw_us = 0;
     sweep_overlay_us = 0;
+    sweep_bg_start = POCKET_bg_us;
+    sweep_fg_start = POCKET_tower_fg_us;
+    sweep_full_start = POCKET_bg_full;
+    sweep_colour_start = graphics.towerbg.colstate;
 }
 void POCKET_BenchLoopEnd(void)
 {
@@ -307,6 +320,10 @@ void POCKET_BenchLoopEnd(void)
         sweep_worst = elapsed;
         sweep_peak_logic = sweep_logic_us;
         sweep_peak_draw = sweep_draw_us;
+        sweep_peak_bg = POCKET_bg_us - sweep_bg_start;
+        sweep_peak_fg = POCKET_tower_fg_us - sweep_fg_start;
+        sweep_peak_colour = graphics.towerbg.colstate != sweep_colour_start;
+        sweep_peak_full = POCKET_bg_full != sweep_full_start;
     }
     sweep_frames++;
     if (sweep_scrolling && graphics.towerbg.bscroll != 0) sweep_scroll_frames++;
@@ -322,7 +339,7 @@ void POCKET_BenchDraw(void)
         if (!sweep_started) return;
         const Uint32 overlay_start = of_time_us();
         const int progress = SDL_max(0,sweep_tick-SWEEP_WARMUP+1)/20*20;
-        SDL_snprintf(sweep_status,sizeof(sweep_status),"Sweep v4 %3d/%d %c %02d,%02d %3d/%d",
+        SDL_snprintf(sweep_status,sizeof(sweep_status),"Sweep v5 %3d/%d %c %02d,%02d %3d/%d",
             sweep_cases+1,SWEEP_CASES,sweep_mode?'+':'-',final_rooms[sweep_room].x,final_rooms[sweep_room].y,
             progress,sweep_duration());
         graphics.set_render_target(NULL);
@@ -335,7 +352,7 @@ void POCKET_BenchDraw(void)
     }
     if (sweep_report.size() == 0)
     {
-        sweep_report.add(SWEEP_CASES==104?"Full sweep v4: 34 rooms, worst view first":"Final focus v4: 8 problem rooms");
+        sweep_report.add(SWEEP_CASES==104?"Full sweep v5: 34 rooms, worst view first":"Final focus v5: 8 problem rooms");
         sweep_report.add("+ stabilizer off; - on; times in ms");
         sweep_report.add("room +/- mean peak name");
         if (sweep_failed) sweep_report.add("INVALID FIXTURE: no ranking available");
@@ -378,15 +395,16 @@ void POCKET_BenchDraw(void)
                     id >= SWEEP_ROOMS ? '+' : '-', r.peak_logic/1000.0, r.peak_draw/1000.0);
             }
 #endif
-            sweep_report.add("The Final Challenge: logic/draw ms");
-            for (int mode = 0; mode < 2; mode++)
-                for (int i = 0; i < SWEEP_ROOMS; i++)
-                    if (final_rooms[i].x == 51 && final_rooms[i].y == 53)
-                    {
-                        const SweepResult& r = sweep_results[mode * SWEEP_ROOMS + i];
-                        sweep_report.add("%c L%4.1f D%4.1f y%3d", mode ? '+' : '-',
-                            r.logic/1000.0, r.draw/1000.0, r.camera);
-                    }
+            sweep_report.add("Tower peak bg/fg ms; C:colour R:full");
+            for (int i = 0; i < SWEEP_ROOMS; i++)
+                if (final_rooms[i].tower)
+                {
+                    const int mode = sweep_results[SWEEP_ROOMS + i].worst > sweep_results[i].worst ? 1 : 0;
+                    const SweepResult& r = sweep_results[mode * SWEEP_ROOMS + i];
+                    sweep_report.add("%02d,%02d %c B%4.1f F%4.1f %c%c", final_rooms[i].x, final_rooms[i].y,
+                        mode ? '+' : '-', r.peak_bg/1000.0, r.peak_fg/1000.0,
+                        r.peak_colour ? 'C' : '-', r.peak_full ? 'R' : '-');
+                }
         }
         sweep_report.add(SWEEP_CASES==104?"both tower entrances; static + scroll views":"both towers/states/entrances; scrolling");
         sweep_report.add("240/360 frames/view; budget 34 ms; A: next");

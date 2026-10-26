@@ -1,7 +1,34 @@
+/* Row batching must preserve the original signed division and wrapping. */
+static void check_tower_rows(void)
+{
+    towerclass tower;
+    for (size_t i = 0; i < SDL_arraysize(tower.contents); i++) tower.contents[i] = (i * 37 + 11) % 32000;
+    for (size_t i = 0; i < SDL_arraysize(tower.minitower); i++) tower.minitower[i] = (i * 31 + 17) % 32000;
+    for (size_t i = 0; i < SDL_arraysize(tower.back); i++) tower.back[i] = (i * 29 + 23) % 32000;
+    const int offsets[] = {-5601, -960, -9, -8, -7, -1, 0, 1, 7, 8, 9, 568, 960, 5601};
+    for (int mini = 0; mini < 2; mini++)
+    {
+        tower.minitowermode = mini != 0;
+        for (int y = -701; y <= 701; y += 7)
+            for (size_t k = 0; k < SDL_arraysize(offsets); k++)
+            {
+                const short* foreground = tower.row(y, offsets[k]);
+                const short* background = tower.backrow(y, offsets[k]);
+                for (int x = 0; x < 40; x++)
+                {
+                    assert(foreground[x] == tower.at(x, y, offsets[k]));
+                    assert(background[x] == tower.backat(x, y, offsets[k]));
+                }
+            }
+    }
+    puts("Tower row lookup passed: main/mini/background, signed offsets and wrap boundaries");
+}
+
 /* Compare full 336-square Tower backgrounds, including hidden black bands. */
 static void check_tower_pixels(void)
 {
 #ifdef POCKET_SMOKE_RENDER
+    check_tower_rows();
     SDL_Texture* target = SDL_GetRenderTarget(gameScreen.m_renderer);
     const bool enabled = POCKET_tower_grid_fast;
     TowerBG bg[2] = {graphics.towerbg, graphics.towerbg};

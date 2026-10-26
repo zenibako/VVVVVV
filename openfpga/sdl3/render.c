@@ -2478,9 +2478,11 @@ bool POCKET_CopyOpaqueTile(SDL_Renderer *renderer, SDL_Texture *sheet, int sx, i
     return true;
 }
 
-/* Draw an indexed 8x8 opaque tile grid with one target mutation and one
- * destination copy per pixel row. Gather short tile spans into a scratch
- * row so the destination is written contiguously, including ring targets. */
+/* Direct writes avoid gathering a scratch row and copying it again. A
+ * horizontally wrapped destination still uses that scratch-row fallback. */
+bool POCKET_grid_direct = true;
+
+/* Draw an indexed 8x8 opaque tile grid with one target mutation. */
 bool POCKET_CopyOpaqueGrid(SDL_Renderer *renderer, SDL_Texture *sheet,
     const Uint16 *tiles, int columns, int rows, int x, int y)
 {
@@ -2520,6 +2522,8 @@ bool POCKET_CopyOpaqueGrid(SDL_Renderer *renderer, SDL_Texture *sheet,
     const int pitch = src->alias_of != NULL ? src->alias_of->pitch565 : src->pitch565;
     struct Span { const Uint16 *source; int destination, count; } spans[64];
     Uint16 line[POCKET_SCREEN_W + 16];
+    const int destination_x = kept_column(dst, clip.x);
+    const bool direct = POCKET_grid_direct && destination_x + clip.w <= dst->texture.w;
     const int first_column = (clip.x - x) / 8;
     const int last_column = (clip.x + clip.w - 1 - x) / 8;
     const int first_row = (clip.y - y) / 8;
@@ -2542,16 +2546,18 @@ bool POCKET_CopyOpaqueGrid(SDL_Renderer *renderer, SDL_Texture *sheet,
         for (int py = top; py < bottom; py++)
         {
             const size_t source_row = (size_t) (py - y - j * 8) * pitch;
+            Uint16 *target_row = dst->pixels565 + kept_row(dst, py) * dst->pitch565;
+            Uint16 *out = direct ? target_row + destination_x : line;
             for (int i = 0; i < count; i++)
             {
                 const struct Span *span = &spans[i];
                 if (span->count == 8)
-                    SDL_memcpy(line + span->destination, span->source + source_row, 8 * sizeof(Uint16));
+                    SDL_memcpy(out + span->destination, span->source + source_row, 8 * sizeof(Uint16));
                 else
-                    SDL_memcpy(line + span->destination, span->source + source_row, (size_t) span->count * 2);
+                    SDL_memcpy(out + span->destination, span->source + source_row, (size_t) span->count * 2);
             }
-            copy_packed_span(dst->pixels565 + kept_row(dst, py) * dst->pitch565,
-                dst->texture.w, kept_column(dst, clip.x), line, clip.w, 0, clip.w);
+            if (!direct)
+                copy_packed_span(target_row, dst->texture.w, destination_x, line, clip.w, 0, clip.w);
         }
     }
     PART_END(1);

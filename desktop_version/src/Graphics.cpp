@@ -867,6 +867,7 @@ void Graphics::drawtile2(int x, int y, int t)
 /* For the benchmark: time spent updating the tower's background, and the
  * tiles it and drawtile3 drew. */
 Uint32 POCKET_bg_us, POCKET_bg_tiles, POCKET_bg_full, POCKET_bg_scroll;
+Uint32 POCKET_tower_fg_us;
 Uint32 POCKET_final_rebuild_us, POCKET_final_copy_us, POCKET_final_rebuilds, POCKET_final_grid_hits;
 bool POCKET_final_grid_fast = true;
 bool POCKET_final_copy_fast = true;
@@ -3168,9 +3169,10 @@ static bool drawtowermap_layer(Graphics& g, const int yoff)
     int ids[40 * rows];
     for (int j = 0; j < count; j++)
     {
+        const short* row = map.tower.row(first + j, top * 8);
         for (int i = 0; i < 40; i++)
         {
-            const int temp = map.tower.at(i, first + j, top * 8);
+            const int temp = row[i];
             ids[j * 40 + i] = temp > 0 ? temp + g.towerbg.colstate * 30 : -1;
         }
     }
@@ -3299,6 +3301,15 @@ static bool drawtowermap_cached(Graphics& g, const int yoff)
 
 void Graphics::drawtowermap(void)
 {
+#ifdef POCKET_BENCH
+    const Uint32 bench_start = of_time_us();
+    draw_tower_map();
+    POCKET_tower_fg_us += of_time_us() - bench_start;
+}
+
+void Graphics::draw_tower_map(void)
+{
+#endif
     const int yoff = lerp(map.oldypos, map.ypos);
 #ifdef VVV_POCKET
     if (drawtowermap_layer(*this, yoff) || drawtowermap_cached(*this, yoff))
@@ -3425,12 +3436,15 @@ void Graphics::update_tower_background(TowerBG& bg_obj)
                 static Uint16 tiles[40 * 33];
                 bool valid = true;
                 for (int j = -1; j < 32; j++)
+                {
+                    const short* row = map.tower.backrow(j, bg_obj.bypos);
                     for (int i = 0; i < 40; i++)
                     {
-                        const int t = map.tower.backat(i, j, bg_obj.bypos) + bg_obj.colstate * 30;
+                        const int t = row[i] + bg_obj.colstate * 30;
                         if (t < 0 || t > 65535) valid = false;
                         tiles[(j + 1) * 40 + i] = (Uint16) t;
                     }
+                }
                 copied = valid && POCKET_CopyOpaqueGrid(gameScreen.m_renderer, sheet, tiles, 40, 33, 0, band_top);
                 if (copied) COUNT_BG_TILES(40 * 33);
             }

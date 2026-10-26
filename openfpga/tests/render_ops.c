@@ -15,6 +15,7 @@ bool POCKET_RepeatTexture(SDL_Renderer*, SDL_Texture*, const SDL_Rect*, const SD
 bool POCKET_CopyOpaqueGrid(SDL_Renderer*, SDL_Texture*, const Uint16*, int, int, int, int);
 bool POCKET_CopyKeyedGrid(SDL_Renderer*, SDL_Texture*, const int*, int, int);
 extern bool POCKET_keyed_spans_fast;
+extern bool POCKET_grid_direct;
 void POCKET_SetTextureRuns(SDL_Texture*, bool);
 bool POCKET_ShiftTextureRows(SDL_Texture *texture, int dy);
 typedef struct POCKET_TileLayer POCKET_TileLayer;
@@ -1361,6 +1362,36 @@ static void keyed_span_patterns(SDL_Renderer *renderer, Capture *capture)
 }
 
 #ifdef SDL_RenderClear
+static void opaque_grid_timing(SDL_Renderer *renderer)
+{
+    Uint16 ids[40 * 33];
+    for (int i = 0; i < 1320; i++) ids[i] = i % 4;
+    SDL_Texture *sheet = SDL_CreateTexture(renderer, SDL_PIXELFORMAT_ARGB8888,
+        SDL_TEXTUREACCESS_TARGET, 16, 16);
+    SDL_SetRenderTarget(renderer, sheet);
+    SDL_SetRenderDrawColor(renderer, 32, 64, 128, 255);
+    SDL_RenderClear(renderer);
+    SDL_Surface *materialized = SDL_RenderReadPixels(renderer, NULL);
+    assert(materialized);
+    SDL_DestroySurface(materialized);
+    SDL_SetRenderTarget(renderer, NULL);
+    SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255);
+    SDL_RenderClear(renderer);
+    Uint64 elapsed[2];
+    for (int mode = 0; mode < 2; mode++)
+    {
+        POCKET_grid_direct = mode != 0;
+        const Uint64 start = SDL_GetPerformanceCounter();
+        for (int i = 0; i < 100; i++)
+            assert(POCKET_CopyOpaqueGrid(renderer, sheet, ids, 40, 33, 0, -5));
+        elapsed[mode] = SDL_GetPerformanceCounter() - start;
+    }
+    POCKET_grid_direct = true;
+    const double scale = 1000000.0 / SDL_GetPerformanceFrequency() / 100;
+    fprintf(stderr, "HOST opaque grid us: scratch %.1f direct %.1f\n", elapsed[0] * scale, elapsed[1] * scale);
+    SDL_DestroyTexture(sheet);
+}
+
 /* Controlled rebuild+draw comparisons on the host, never Pocket estimates.
  * Reuse the same source pixels and IDs for both implementations. */
 static void keyed_span_timing(SDL_Renderer *renderer)
@@ -1415,6 +1446,7 @@ static void keyed_span_timing(SDL_Renderer *renderer)
 void RENDER_OPS(SDL_Renderer *renderer, Capture *capture)
 {
 #ifdef SDL_RenderClear
+    opaque_grid_timing(renderer);
     keyed_span_timing(renderer);
 #endif
     keyed_span_patterns(renderer, capture);
