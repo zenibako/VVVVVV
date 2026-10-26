@@ -2401,17 +2401,21 @@ void titleinput(void)
             game.press_right = true;
         }
     }
-    if (key.isDown(KEYBOARD_z) || key.isDown(KEYBOARD_SPACE) || key.isDown(KEYBOARD_v) || key.isDown(game.controllerButton_flip)) game.press_action = true;
+    if (key.isDown(KEYBOARD_z) || key.isDown(KEYBOARD_SPACE) || key.isDown(KEYBOARD_v) || (game.menustart ? key.controllerWantsMenuAccept() : key.isDown(game.controllerButton_flip))) game.press_action = true;
+#ifdef VVV_POCKET
+    /* Any game button continues; menu actions only apply after the title. */
+    if (!game.menustart && key.controllerButtonDown(true)) game.press_action = true;
+#endif
     //|| key.isDown(KEYBOARD_UP) || key.isDown(KEYBOARD_DOWN)) game.press_action = true; //on menus, up and down don't work as action
     if (key.isDown(KEYBOARD_ENTER)) game.press_map = true;
 
     //In the menu system, all keypresses are single taps rather than holds. Therefore this test has to be done for all presses
-    if (!game.press_action && !game.press_left && !game.press_right && !key.isDown(27) && !key.isDown(game.controllerButton_esc)) game.jumpheld = false;
+    if (!game.press_action && !game.press_left && !game.press_right && !key.isDown(27) && !key.controllerWantsMenuBack()) game.jumpheld = false;
     if (!game.press_map) game.mapheld = false;
 
     if (!game.jumpheld && graphics.fademode == FADE_NONE)
     {
-        if (game.press_action || game.press_left || game.press_right || game.press_map || key.isDown(27) || key.isDown(game.controllerButton_esc))
+        if (game.press_action || game.press_left || game.press_right || game.press_map || key.isDown(27) || key.controllerWantsMenuBack())
         {
             game.jumpheld = true;
         }
@@ -2439,7 +2443,7 @@ void titleinput(void)
 
         if (game.menustart
         && game.menucountdown <= 0
-        && (key.isDown(27) || key.isDown(game.controllerButton_esc)))
+        && (key.isDown(27) || key.controllerWantsMenuBack()))
         {
             if (game.currentmenuname == Menu::language && loc::pre_title_lang_menu)
             {
@@ -3058,6 +3062,11 @@ static void mapmenuactionpress(bool version2_2);
 
 void mapinput(void)
 {
+    const bool menu_back = key.isDown(27)
+#ifdef VVV_POCKET
+        || key.controllerWantsMenuBack()
+#endif
+        ;
     const bool version2_2 = GlitchrunnerMode_less_than_or_equal(Glitchrunner2_2);
 
     //TODO Mouse Input!
@@ -3167,7 +3176,7 @@ void mapinput(void)
         {
             game.press_right = true;
         }
-        if (key.isDown(KEYBOARD_z) || key.isDown(KEYBOARD_SPACE) || key.isDown(KEYBOARD_v) || key.isDown(game.controllerButton_flip))
+        if (key.isDown(KEYBOARD_z) || key.isDown(KEYBOARD_SPACE) || key.isDown(KEYBOARD_v) || key.controllerWantsMenuAccept())
         {
             game.press_action = true;
         }
@@ -3176,7 +3185,7 @@ void mapinput(void)
         || (game.menupage >= 30 && game.menupage <= 32))
         {
             if (key.isDown(KEYBOARD_ENTER) || key.isDown(game.controllerButton_map) ) game.press_map = true;
-            if (key.isDown(27) && !game.mapheld)
+            if (menu_back && !game.mapheld)
             {
                 game.mapheld = true;
                 if (game.menupage < 9
@@ -3197,7 +3206,7 @@ void mapinput(void)
         }
         else
         {
-            if (key.isDown(KEYBOARD_ENTER) || key.isDown(27)|| key.isDown(game.controllerButton_map) ) game.press_map = true;
+            if (key.isDown(KEYBOARD_ENTER) || menu_back|| key.isDown(game.controllerButton_map) ) game.press_map = true;
         }
 
         //In the menu system, all keypresses are single taps rather than holds. Therefore this test has to be done for all presses
@@ -3205,7 +3214,7 @@ void mapinput(void)
         {
             game.jumpheld = false;
         }
-        if (!game.press_map && !key.isDown(27))
+        if (!game.press_map && !menu_back)
         {
             game.mapheld = false;
         }
@@ -3401,7 +3410,7 @@ void teleporterinput(void)
         if (key.isDown(KEYBOARD_LEFT)|| key.isDown(KEYBOARD_a) || key.controllerWantsLeft(false) ) game.press_left = true;
         if (key.isDown(KEYBOARD_RIGHT) || key.isDown(KEYBOARD_d)|| key.controllerWantsRight(false) ) game.press_right = true;
         if (key.isDown(KEYBOARD_z) || key.isDown(KEYBOARD_SPACE) || key.isDown(KEYBOARD_v)
-                || key.isDown(KEYBOARD_UP) || key.isDown(KEYBOARD_DOWN)||  key.isDown(KEYBOARD_w)||  key.isDown(KEYBOARD_s) || key.isDown(game.controllerButton_flip)) game.press_action = true;
+                || key.isDown(KEYBOARD_UP) || key.isDown(KEYBOARD_DOWN)||  key.isDown(KEYBOARD_w)||  key.isDown(KEYBOARD_s) || key.controllerWantsMenuAccept()) game.press_action = true;
         if (!game.separate_interact && (key.isDown(KEYBOARD_ENTER) || key.isDown(game.controllerButton_map)))
         {
             game.press_map = true;
@@ -3415,7 +3424,19 @@ void teleporterinput(void)
         if (!game.press_action && !game.press_left && !game.press_right && !game.press_interact) game.jumpheld = false;
         if (!game.press_map) game.mapheld = false;
 
-        if (key.isDown(27))
+#ifdef VVV_POCKET
+        if (key.isDown(SDL_GAMEPAD_BUTTON_EAST))
+        {
+            graphics.resumegamemode = true;
+            music.playef(Sound_VIRIDIAN);
+            return;
+        }
+#endif
+        if (key.isDown(27)
+#ifdef VVV_POCKET
+            || key.controllerWantsMenuBack()
+#endif
+        )
         {
             if (!map.custommode || map.custommodeforreal)
             {

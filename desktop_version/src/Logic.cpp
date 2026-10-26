@@ -128,7 +128,7 @@ static void gotoroom_wrapper(const int rx, const int ry)
     map.gotoroom(rx, ry);
 }
 
-#include "../pocket/src/pocket_bench_profile.h"
+#include "pocket_bench_profile.h"
 
 void gamelogic(void)
 {

@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
 # Run a command in the openfpgaOS SDK toolchain container with the whole
 # VVVVVV checkout mounted at the same path, so the device build can read the
-# game sources in ../src and ../../third_party.  (The SDK's own
+# game sources in ../desktop_version/src and ../third_party.  (The SDK's own
 # sdk-container.sh mounts only the SDK.)
 set -euo pipefail
 
-POCKET_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-REPO_ROOT="$(cd "$POCKET_ROOT/../.." && pwd -P)"
-SDK_ROOT="${SDK_ROOT:-$POCKET_ROOT/.deps/openfpgaos-sdk}"
+OPENFPGA_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+REPO_ROOT="$(cd "$OPENFPGA_ROOT/.." && pwd -P)"
+SDK_ROOT="${SDK_ROOT:-$OPENFPGA_ROOT/.deps/openfpgaos-sdk}"
 IMG="${SDK_IMG:-openfpgaos-firmware}"
 DOCKERFILE="${SDK_DOCKERFILE:-$SDK_ROOT/tools/docker/Dockerfile.firmware}"
 

@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
-# Fetch the pinned build inputs for the Pocket port into pocket/.deps.
+# Fetch the pinned build inputs for the Pocket port into openfpga/.deps.
 # Nothing fetched here is committed; every input is pinned by commit ID.
 set -euo pipefail
 
-POCKET_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-DEPS_DIR="$POCKET_ROOT/.deps"
+OPENFPGA_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+DEPS_DIR="$OPENFPGA_ROOT/.deps"
 DIABLO_DIR="$DEPS_DIR/diablo"
 FORK_DIR="$DEPS_DIR/openfpgaCore"
 SDL_DIR="$DEPS_DIR/sdl3"

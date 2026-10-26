@@ -1,5 +1,5 @@
 /* Host test for the Pocket build's compat std headers.  Build with
- * `make -C pocket test`: it compiles against compat/cxx with -nostdinc++,
+ * `make -C openfpga test`: it compiles against compat/cxx with -nostdinc++,
  * the way the device build sees them. */
 #include <stdio.h>
 

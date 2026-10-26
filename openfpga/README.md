@@ -2,8 +2,9 @@
 
 This directory builds VVVVVV as an [openfpgaOS](https://github.com/zenibako/openfpgaCore)
 app for the Analogue Pocket. It is an altered version of the game: see the
-[licence](../../LICENSE.md). VVVVVV is copyright Terry Cavanagh, and this
-port is based on the VVVVVV source code.
+[licence](../LICENSE.md). VVVVVV is copyright Terry Cavanagh, and this
+port is based on the VVVVVV source code. The `openfpga/` directory names
+the port; its hardware target remains the Analogue Pocket.
 
 The port is in progress. The plan and its phases are tracked in
 [zenibako/VVVVVV#1](https://github.com/zenibako/VVVVVV/issues/1).
@@ -24,15 +25,15 @@ No game data is included. You need your own `data.zip`.
 | `fonts/` | The game's button fonts with Pocket glyphs added (generated) |
 | `tests/` | Host checks for the compat headers, the save archive, the renderer and the sound player |
 
-The game sources in `../src` build with the same C++98 flags as the desktop
+The game sources in `../desktop_version/src` build with the same C++98 flags as the desktop
 build. The few changes they need are guarded by `VVV_POCKET`.
 
 ## Build
 
 ```sh
 git submodule update --init       # physfs, tinyxml2, lodepng, c-hashmap, SheenBidi, FAudio
-make -C desktop_version/pocket deps
-make -C desktop_version/pocket    # build/app.elf
+make -C openfpga deps
+make -C openfpga    # build/app.elf
 ```
 
 By default `make` compiles in the SDK's `openfpgaos-firmware` container, as
@@ -210,14 +211,14 @@ without music.
 48 kHz, see `src/music_pack.h`) from the card, loops them at the points the
 game reads from the Ogg comments, and mixes them with the sound effects,
 which load from the WAV files in `data.zip`. It replaces only the two
-FAudio classes in `../src/Music.cpp`; the game's own music logic (fades,
+FAudio classes in `../desktop_version/src/Music.cpp`; the game's own music logic (fades,
 pausing, track changes, volume settings) is unchanged.
 
 ## Controls and saves
 
-The Pocket's controller is reported to the game as one SDL gamepad. A and
-B follow the Pocket's convention (A confirms, B goes back), so A is the
-gamepad's south button and B its east; X and Y map by position. The
+The Pocket's controller is reported to the game as one SDL gamepad. A
+(right) is the gamepad's south button and B (bottom) its east; both flip
+in gameplay, while menus use A to confirm and B to go back. X and Y map by position. The
 defaults, which the core's controls page in the Pocket's menu also lists
 (`dist/core/input.json`):
 
@@ -225,7 +226,7 @@ defaults, which the core's controls page in the Pocket's menu also lists
 |---|---|---|
 | D-pad | Move | Choose |
 | A | Flip | Confirm |
-| B | Pause menu | Back |
+| B | Flip | Back |
 | X | Map; also talk, unless the interact button is set apart | |
 | Y | Talk, when the interact button is set apart in the options | |
 | R | Restart from the checkpoint | |
@@ -234,14 +235,22 @@ defaults, which the core's controls page in the Pocket's menu also lists
 
 The game's own controller options can rebind A, B, X, Y, L, R, Start and
 Select. Start and Select are given their defaults whenever no action has
-them, which includes saves made before they had any.
+them, which includes saves made before they had any. Saved A-to-flip,
+B-to-pause defaults migrate to the new layout; custom gameplay bindings are retained.
+Menu navigation always uses A to confirm and B or Start to go back.
+The title uses a white `Press any button to continue` prompt instead of a tinted
+button glyph. Face buttons, shoulders, Start, Select and the D-pad all open
+the menu regardless of custom gameplay bindings.
+The host smoke's `POCKET_TEST_CONTROLS=1` mode checks both face buttons,
+held-button releases, saved/default/custom layouts and all 12 title buttons,
+then saves `title-controls.bmp` with the title colour set to black.
 
 Button prompts use Pocket glyphs in the style of Butterscotch Pocket's: the
 face-button diamond with the pressed button marked, the row of three small
 buttons below the screen, and the shoulder pair. They live in Pocket copies
 of the game's button fonts in `fonts/`, at U+EB37 to U+EB3E, which the
 packaged core ships in place of the originals. `make button-fonts`
-regenerates them from `../fonts` with `scripts/make-button-fonts.py`
+regenerates them from `../desktop_version/fonts` with `scripts/make-button-fonts.py`
 (Python 3 and Pillow).
 
 openfpgaOS has no writable directory, so everything the game writes under
@@ -257,6 +266,10 @@ broken name.
 same compat headers, on desktop SDL3 and FAudio. Use it to debug game logic
 off the device: run `build/host/vvvvvv -assets <path to data.zip>`. Saves
 go to your desktop VVVVVV folder unless you also pass `-basedir <folder>/`.
+The host targets link the shared fonts and language directories beside
+their executables, so resource discovery works from root `openfpga/`.
+Pass `-translator` to enable the upstream developer translation tools;
+executable-adjacent resources do not enable that menu automatically.
 
 ## Drawing
 

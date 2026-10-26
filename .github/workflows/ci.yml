@@ -6,6 +6,7 @@ on:
   push:
     paths:
       - "desktop_version/CMakeLists.txt"
+      - "openfpga/src/pocket_bench_profile.h"
       - "desktop_version/src/**.cpp"
       - "desktop_version/src/**.c"
       - "desktop_version/src/**.h"
@@ -14,6 +15,7 @@ on:
   pull_request:
     paths:
       - "desktop_version/CMakeLists.txt"
+      - "openfpga/src/pocket_bench_profile.h"
       - "desktop_version/src/**.cpp"
       - "desktop_version/src/**.c"
       - "desktop_version/src/**.h"

@@ -600,11 +600,12 @@ bool KeyPoll::isDown(SDL_GamepadButton button)
     return buttonmap[button];
 }
 
-bool KeyPoll::controllerButtonDown(void)
+bool KeyPoll::controllerButtonDown(bool include_dpad)
 {
+    const SDL_GamepadButton end = include_dpad ? SDL_GAMEPAD_BUTTON_COUNT : SDL_GAMEPAD_BUTTON_DPAD_UP;
     for (
         SDL_GamepadButton button = SDL_GAMEPAD_BUTTON_SOUTH;
-        button < SDL_GAMEPAD_BUTTON_DPAD_UP;
+        button < end;
         button = (SDL_GamepadButton) (button + 1)
     ) {
         if (isDown(button))
@@ -613,6 +614,25 @@ bool KeyPoll::controllerButtonDown(void)
         }
     }
     return false;
+}
+
+bool KeyPoll::controllerWantsMenuBack(void)
+{
+#ifdef VVV_POCKET
+    return isDown(SDL_GAMEPAD_BUTTON_EAST) || isDown(SDL_GAMEPAD_BUTTON_START);
+#else
+    return isDown(game.controllerButton_esc);
+#endif
+}
+
+bool KeyPoll::controllerWantsMenuAccept(void)
+{
+#ifdef VVV_POCKET
+    /* Menu controls stay usable even when gameplay actions are rebound. */
+    return isDown(SDL_GAMEPAD_BUTTON_SOUTH) && !controllerWantsMenuBack();
+#else
+    return isDown(game.controllerButton_flip);
+#endif
 }
 
 bool KeyPoll::controllerWantsLeft(bool includeVert)

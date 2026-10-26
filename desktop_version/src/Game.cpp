@@ -413,9 +413,30 @@ static bool button_is_bound(const Game& g, const SDL_GamepadButton button)
 
 void Game::setdefaultcontrollerbuttons(void)
 {
+#ifdef VVV_POCKET
+    /* Upgrade the old A-to-flip/B-to-pause defaults, including saves from
+     * before Start was bound. Leave other controller layouts as saved. */
+    if (controllerButton_flip.size() == 1
+    && controllerButton_flip[0] == SDL_GAMEPAD_BUTTON_SOUTH
+    && ((controllerButton_esc.size() == 1
+        && controllerButton_esc[0] == SDL_GAMEPAD_BUTTON_EAST
+        && !button_is_bound(*this, SDL_GAMEPAD_BUTTON_START))
+        || (controllerButton_esc.size() == 2
+            && ((controllerButton_esc[0] == SDL_GAMEPAD_BUTTON_EAST
+                && controllerButton_esc[1] == SDL_GAMEPAD_BUTTON_START)
+                || (controllerButton_esc[0] == SDL_GAMEPAD_BUTTON_START
+                    && controllerButton_esc[1] == SDL_GAMEPAD_BUTTON_EAST)))))
+    {
+        controllerButton_flip.push_back(SDL_GAMEPAD_BUTTON_EAST);
+        controllerButton_esc.clear();
+    }
+#endif
     if (controllerButton_flip.size() < 1)
     {
         controllerButton_flip.push_back(SDL_GAMEPAD_BUTTON_SOUTH);
+#ifdef VVV_POCKET
+        controllerButton_flip.push_back(SDL_GAMEPAD_BUTTON_EAST);
+#endif
     }
     if (controllerButton_map.size() < 1)
     {
@@ -423,7 +444,11 @@ void Game::setdefaultcontrollerbuttons(void)
     }
     if (controllerButton_esc.size() < 1)
     {
+#ifdef VVV_POCKET
+        controllerButton_esc.push_back(SDL_GAMEPAD_BUTTON_START);
+#else
         controllerButton_esc.push_back(SDL_GAMEPAD_BUTTON_EAST);
+#endif
     }
     if (controllerButton_restart.size() < 1)
     {

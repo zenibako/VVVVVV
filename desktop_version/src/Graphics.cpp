@@ -2094,7 +2094,7 @@ void Graphics::drawentities(void)
     }
 }
 
-#include "../pocket/src/pocket_bench_profile.h"
+#include "pocket_bench_profile.h"
 
 void Graphics::drawentity(const int i, const int yoff)
 {

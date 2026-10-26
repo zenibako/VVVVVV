@@ -41,7 +41,7 @@
 #ifdef POCKET_BENCH
 #include "pocket_bench.h"
 #endif
-#include "../pocket/src/pocket_bench_profile.h"
+#include "pocket_bench_profile.h"
 
 scriptclass script;
 

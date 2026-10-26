@@ -93,7 +93,7 @@ static std::vector<SoundTrack> soundTracks;
 static std::vector<MusicTrack> musicTracks;
 
 #ifdef VVV_POCKET
-/* openfpgaOS: pocket/src/pocket_audio.c plays the converted music pack and
+/* openfpgaOS: openfpga/src/pocket_audio.c plays the converted music pack and
  * the sound effects in place of FAudio and stb_vorbis. */
 class SoundTrack
 {
