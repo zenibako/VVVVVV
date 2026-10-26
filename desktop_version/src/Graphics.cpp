@@ -3098,6 +3098,7 @@ extern "C" POCKET_TileLayer* POCKET_CreateTileLayer(int w, int h);
 extern "C" bool POCKET_TileSheetIsKeyed(SDL_Texture* sheet);
 extern "C" void POCKET_ShiftTileLayer(POCKET_TileLayer* layer, int dy);
 extern "C" void POCKET_ClearTileLayer(POCKET_TileLayer* layer);
+extern "C" bool POCKET_PutTileGrid(POCKET_TileLayer* layer, SDL_Texture* sheet, const int* ids, int columns, int rows, int y);
 extern "C" void POCKET_PutTile(POCKET_TileLayer* layer, SDL_Texture* sheet, int sx, int sy, int x, int y, int w, int h);
 extern "C" bool POCKET_DrawTileLayer(SDL_Renderer* renderer, POCKET_TileLayer* layer, int src_y);
 extern "C" bool POCKET_CopyOpaqueTile(SDL_Renderer* renderer, SDL_Texture* sheet, int sx, int sy, int x, int y, int w, int h);
@@ -3164,15 +3165,25 @@ static bool drawtowermap_layer(Graphics& g, const int yoff)
         POCKET_ClearTileLayer(layer);
     }
 
-    for (int j = first; j < first + count; j++)
+    int ids[40 * rows];
+    for (int j = 0; j < count; j++)
     {
         for (int i = 0; i < 40; i++)
         {
-            const int temp = map.tower.at(i, j, top * 8);
-            if (temp > 0)
+            const int temp = map.tower.at(i, first + j, top * 8);
+            ids[j * 40 + i] = temp > 0 ? temp + g.towerbg.colstate * 30 : -1;
+        }
+    }
+    if (count > 0 && !POCKET_PutTileGrid(layer, sheet, ids, 40, count, first * 8))
+    {
+        for (int j = 0; j < count; j++)
+        {
+            for (int i = 0; i < 40; i++)
             {
-                const int t = temp + g.towerbg.colstate * 30;
-                POCKET_PutTile(layer, sheet, (t % (width / 8)) * 8, (t / (width / 8)) * 8, i * 8, j * 8, 8, 8);
+                const int t = ids[j * 40 + i];
+                if (t >= 0)
+                    POCKET_PutTile(layer, sheet, (t % (width / 8)) * 8, (t / (width / 8)) * 8,
+                        i * 8, (first + j) * 8, 8, 8);
             }
         }
     }

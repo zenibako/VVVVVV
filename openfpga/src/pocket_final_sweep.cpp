@@ -48,6 +48,25 @@ static Uint32 sweep_overlay_us;
 static Uint64 sweep_sum, sweep_logic_sum, sweep_draw_sum;
 static Uint32 sweep_worst;
 static int sweep_frames;
+#ifdef POCKET_FINAL_SWEEP_ALL
+enum { SWEEP_CASES = 104, SWEEP_VIEWS_PER_TOWER = 10, SWEEP_REPORT_ROWS = 80 };
+static bool sweep_selected(int, int) { return true; }
+#else
+enum { SWEEP_CASES = 14, SWEEP_VIEWS_PER_TOWER = 2, SWEEP_REPORT_ROWS = 22 };
+static bool sweep_selected(int room, int mode)
+{ return final_rooms[room].focus && (final_rooms[room].tower || mode == 1); }
+#endif
+
+static bool sweep_select_room(void)
+{
+    while (sweep_mode < 2 && !sweep_selected(sweep_room,sweep_mode))
+        if (++sweep_room == SWEEP_ROOMS) { sweep_room=0; sweep_mode++; }
+    if (sweep_mode == 2) { sweep_done=true; return false; }
+#ifndef POCKET_FINAL_SWEEP_ALL
+    if(final_rooms[sweep_room].tower) sweep_variant=4;
+#endif
+    return true;
+}
 
 static bool sweep_position_clear(int x, int y)
 {
@@ -200,13 +219,21 @@ void POCKET_BenchStep(void)
         if (game.gamestate != TITLEMODE) return;
         script.startgamemode(Start_TIMETRIAL_TOWER);
         sweep_started = true;
+        if(!sweep_select_room())return;
         sweep_load();
     }
     if (++sweep_tick == SWEEP_WARMUP + sweep_duration())
     {
         sweep_finish_case();
         if (sweep_failed) return;
-        if (++sweep_variant == (final_rooms[sweep_room].tower ? 10 : 1))
+        bool next_room;
+#ifdef POCKET_FINAL_SWEEP_ALL
+        next_room = ++sweep_variant == (final_rooms[sweep_room].tower ? 10 : 1);
+#else
+        next_room = !final_rooms[sweep_room].tower || sweep_variant == 9;
+        if(!next_room)sweep_variant=9;
+#endif
+        if (next_room)
         {
             sweep_variant = 0;
             if (++sweep_room == SWEEP_ROOMS)
@@ -214,6 +241,7 @@ void POCKET_BenchStep(void)
                 sweep_room = 0;
                 if (++sweep_mode == 2) { sweep_done = true; return; }
             }
+            if(!sweep_select_room())return;
         }
         sweep_load();
         sweep_tick = 0;
@@ -284,8 +312,8 @@ void POCKET_BenchDraw(void)
         if (!sweep_started) return;
         const Uint32 overlay_start = of_time_us();
         const int progress = SDL_max(0,sweep_tick-SWEEP_WARMUP+1)/20*20;
-        SDL_snprintf(sweep_status,sizeof(sweep_status),"Sweep v2 %3d/104 %c %02d,%02d %3d/%d",
-            sweep_cases+1,sweep_mode?'+':'-',final_rooms[sweep_room].x,final_rooms[sweep_room].y,
+        SDL_snprintf(sweep_status,sizeof(sweep_status),"Sweep v3 %3d/%d %c %02d,%02d %3d/%d",
+            sweep_cases+1,SWEEP_CASES,sweep_mode?'+':'-',final_rooms[sweep_room].x,final_rooms[sweep_room].y,
             progress,sweep_duration());
         graphics.set_render_target(NULL);
         SDL_SetRenderDrawColor(gameScreen.m_renderer,0,0,0,255);
@@ -297,21 +325,22 @@ void POCKET_BenchDraw(void)
     }
     if (sweep_report.size() == 0)
     {
-        sweep_report.add("Final sweep v2: 34 rooms, worst view first");
+        sweep_report.add(SWEEP_CASES==104?"Full sweep v3: 34 rooms, worst view first":"Final focus v3: 8 problem rooms");
         sweep_report.add("+ stabilizer off; - on; times in ms");
         sweep_report.add("room +/- mean peak name");
         if (sweep_failed) sweep_report.add("INVALID FIXTURE: no ranking available");
         else
         {
-            int order[SWEEP_ROOMS * 2];
+            int order[SWEEP_ROOMS * 2], count=0;
             for (int i = 0; i < SWEEP_ROOMS * 2; i++)
             {
-                int at = i;
+                if(sweep_results[i].views==0)continue;
+                int at = count++;
                 while (at > 0 && sweep_results[order[at-1]].average < sweep_results[i].average)
                 { order[at] = order[at-1]; at--; }
                 order[at] = i;
             }
-            for (int i = 0; i < SWEEP_ROOMS * 2; i++)
+            for (int i = 0; i < count; i++)
             {
                 const int id = order[i];
                 const FinalSweepRoom& room = final_rooms[id % SWEEP_ROOMS];
@@ -338,7 +367,7 @@ void POCKET_BenchDraw(void)
                             r.logic/1000.0, r.draw/1000.0, r.camera);
                     }
         }
-        sweep_report.add("both tower entrances; static + scroll views");
+        sweep_report.add(SWEEP_CASES==104?"both tower entrances; static + scroll views":"both towers/states/entrances; scrolling");
         sweep_report.add("240/360 frames/view; 34 ms budget; A: next");
     }
     sweep_report.next(key.isDown(SDL_GAMEPAD_BUTTON_SOUTH) || key.isDown(SDLK_SPACE));

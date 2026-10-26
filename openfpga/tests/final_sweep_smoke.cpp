@@ -95,36 +95,38 @@ static bool sweep_smoke_present(SDL_Renderer*)
         return true;
     }
     assert(!sweep_failed);
-    assert(sweep_cases == 104);
+    assert(sweep_cases == SWEEP_CASES);
     assert(sweep_scroll_cases == 8);
     for (int mode = 0; mode < 2; mode++)
         for (int i = 0; i < SWEEP_ROOMS; i++)
         {
             const SweepResult& r = sweep_results[mode * SWEEP_ROOMS + i];
-            assert(r.views == (final_rooms[i].tower ? 10 : 1));
+            if(!sweep_selected(i,mode)) { assert(r.views==0); continue; }
+            assert(r.views == (final_rooms[i].tower ? SWEEP_VIEWS_PER_TOWER : 1));
             printf("SWEEP_RESULT,%d,%d,%d,%d,%d,%u,%u,%u,%u,\"%s\"\n",mode,
                 final_rooms[i].x,final_rooms[i].y,r.entry,r.camera,r.average,r.logic,r.draw,r.worst,final_rooms[i].name);
         }
-    assert(sweep_report.size() == 80 && sweep_report.pages() == 3);
+    assert(sweep_report.size() == SWEEP_REPORT_ROWS);
     sweep_check_presented_report();
-    for(int page=1;page<=3;page++)
+    const int pages=sweep_report.pages();
+    for(int page=1;page<=pages;page++)
     {
         sweep_press_a(true);
         POCKET_BenchDraw();
-        assert(sweep_report.page()==page%3);
+        assert(sweep_report.page()==page%pages);
         sweep_check_presented_report();
         POCKET_BenchDraw();
-        assert(sweep_report.page()==page%3); /* Holding A advances only once. */
+        assert(sweep_report.page()==page%pages); /* Holding A advances only once. */
         sweep_press_a(false);
         POCKET_BenchDraw();
     }
     assert(checked_progress);
 #ifdef POCKET_SMOKE_RENDER
-    puts("Sweep display passed: progress and all three report pages match the presented window; gamepad A cycles pages");
+    puts("Sweep display passed: progress and all report pages match the presented window; gamepad A cycles pages");
 #else
     puts("Sweep native SDL presentation target and gamepad A paging passed");
 #endif
-    puts("Final sweep passed: all 34 rooms, both states, 104 views, 25920 timed frames; HOST wall time only");
+    printf("Final sweep passed: %d cases, %d scrolling cases; HOST wall time only\n",sweep_cases,sweep_scroll_cases);
     exit(0);
 }
 #ifdef POCKET_SMOKE_RENDER

@@ -101,21 +101,31 @@ The benchmark forces 30 Hz rendering, independent of saved settings. This
 keeps one presentation per logic timestep; faster render-only iterations
 would otherwise be excluded from its per-frame averages.
 
-For complete final-level coverage, build `make BENCH=1 FINAL_SWEEP=1` and
-`make BENCH=1 FINAL_SWEEP=1 package`. This mode has independent default build
-and object directories under `build/final-sweep`; its package replaces only
-the benchmark core. It covers all 34 main final-level rooms before and after
-stabilizer shutdown. Each ordinary room runs six palettes at the native
-40-step cadence, with normal obstacle animation. Both mini-towers run from
-both entrances at cameras 0, 192, 384 and 568, plus continuous native camera
-scrolling over their full height in both directions. There are 104 cases and
-25,920 measured frames, after 12 warmup frames per case. Allow roughly 15–25
-minutes on Pocket; slow frames may make it longer.
-The `Sweep v2` counter shows the current case, stabilizer state and frame
+For quick final-level device runs, build `make BENCH=1 FINAL_SWEEP=1` and
+`make BENCH=1 FINAL_SWEEP=1 package`. This focused preset keeps six rooms with
+the stabilizer off: The Villi People, Timeslip, Please enjoy these repeats,
+The Last Straw, Try Jiggling the Antenna and Party Time! It also keeps Panic
+Room and The Final Challenge before and after shutdown, continuously scrolling
+from both entrances. There are 14 cases and 4,320 measured frames, after 12
+warmup frames per case. Allow roughly 3–5 minutes on Pocket. Its independent
+build/object directories are under `build/final-sweep`; packaging replaces
+only the benchmark core.
+
+For complete final-level regression coverage, add `FINAL_SWEEP_ALL=1` to both
+build and package commands. This uses `build/final-sweep-all` and retains all
+34 main final-level rooms before and after stabilizer shutdown. Each ordinary
+room runs six palettes at the native 40-step cadence, with normal obstacle
+animation. Both mini-towers run from both entrances at cameras 0, 192, 384 and
+568, plus continuous native camera scrolling over their full height in both
+directions. There are 104 cases and 25,920 measured frames. Allow roughly
+15–25 minutes on Pocket; slow frames may make it longer.
+
+The `Sweep v3` counter shows the current case, stabilizer state and frame
 progress while running. Its overlay drawing cost is excluded from frame/draw
 timings. Results are drawn directly onto the presented window; A advances
-through all three pages. Host checks compare these presented pixels against
-the expected progress/report images and exercise gamepad A paging.
+through the pages (one focused page, three exhaustive pages). Host checks
+compare these presented pixels against the expected progress/report images
+and exercise gamepad A paging.
 
 The sweep pins only the player at a clear, trigger-free position; enemies,
 platforms and gravity lines keep updating through the real main loop. It
@@ -125,16 +135,16 @@ This is a controlled room workload, not an automated playthrough. Intermission
 rooms sharing Finalclass.cpp and the main Tower's entrance corridors are not
 part of the 34-room final level; the existing route still covers Gravitron.
 
-Results rank each room/state by its slowest viewport's average frame time,
-alongside its worst single frame across all views. Logic/draw timings are
-included for the top three cases and for both states of The Final Challenge.
-`+` means the stabilizer is
-off; `-` means on. Capture all three pages. Host coverage uses
-`make host-render HOST_BENCH_SMOKE=1 FINAL_SWEEP=1 SDL3_PREFIX=/opt/homebrew`
-then the usual private assets/basedir launch. Host sweep timers use the real
-performance counter; the simulation clock is accelerated. `SWEEP_VIEW` and
-`SWEEP_RESULT` CSV lines report host microseconds, not Pocket timings.
-Run `python3 tests/final_sweep_roster_test.py` to check the authored-room roster.
+Results rank each selected room/state by its slowest viewport's average frame
+time, alongside its worst single frame across all views. Logic/draw timings
+are included for the top three cases and for both states of The Final Challenge.
+`+` means the stabilizer is off; `-` means on. Capture each result page.
+Host coverage uses `make host-render HOST_BENCH_SMOKE=1 FINAL_SWEEP=1
+SDL3_PREFIX=/opt/homebrew` (also add `FINAL_SWEEP_ALL=1` for the exhaustive
+regression), then the usual private assets/basedir launch. Host sweep timers
+use the real performance counter; the simulation clock is accelerated.
+`SWEEP_VIEW` and `SWEEP_RESULT` CSV lines report host microseconds, not Pocket
+timings. Run `python3 tests/final_sweep_roster_test.py` to check both presets.
 
 The Gravitron split reports background update/drawing and enemy spawning,
 movement (including physics and wall collisions), pair collisions,

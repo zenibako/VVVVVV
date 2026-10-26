@@ -28,6 +28,9 @@ OBJ_DIR      := $(OPENFPGA_ROOT)/build/obj
 BUILD_DIR    := $(OPENFPGA_ROOT)/build
 ifeq ($(FINAL_SWEEP),1)
 BUILD_DIR    := $(OPENFPGA_ROOT)/build/final-sweep
+ifeq ($(FINAL_SWEEP_ALL),1)
+BUILD_DIR    := $(OPENFPGA_ROOT)/build/final-sweep-all
+endif
 OBJ_DIR      := $(BUILD_DIR)/obj
 endif
 SDK_CONTAINER := $(OPENFPGA_ROOT)/scripts/sdk-container.sh
@@ -81,6 +84,9 @@ OPENFPGA_DEFS += -DPOCKET_BENCH
 endif
 ifeq ($(FINAL_SWEEP),1)
 OPENFPGA_DEFS += -DPOCKET_FINAL_SWEEP
+ifeq ($(FINAL_SWEEP_ALL),1)
+OPENFPGA_DEFS += -DPOCKET_FINAL_SWEEP_ALL
+endif
 ifneq ($(BENCH),1)
 ifneq ($(HOST_BENCH_SMOKE),1)
 $(error FINAL_SWEEP=1 requires BENCH=1 or HOST_BENCH_SMOKE=1)
@@ -236,6 +242,9 @@ HOST_DEFS += -DPOCKET_BENCH -DOF_PC
 HOST_INCLUDES += -I$(SDK_DIR)/include
 ifeq ($(FINAL_SWEEP),1)
 HOST_DEFS += -DPOCKET_FINAL_SWEEP
+ifeq ($(FINAL_SWEEP_ALL),1)
+HOST_DEFS += -DPOCKET_FINAL_SWEEP_ALL
+endif
 BENCH_SMOKE_SRC := $(OPENFPGA_ROOT)/tests/final_sweep_smoke.cpp
 else
 BENCH_SMOKE_SRC := $(OPENFPGA_ROOT)/tests/bench_smoke.cpp
