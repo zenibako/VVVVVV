@@ -77,6 +77,10 @@ func safePath(name string, directory bool) error {
 }
 
 func input(source, name string, optional bool) ([]byte, error) {
+	return inputWithOpen(source, name, optional, os.Open)
+}
+
+func inputWithOpen(source, name string, optional bool, open func(string) (*os.File, error)) ([]byte, error) {
 	p := filepath.Join(source, name)
 	if optional {
 		if _, e := os.Lstat(p); os.IsNotExist(e) {
@@ -86,7 +90,16 @@ func input(source, name string, optional bool) ([]byte, error) {
 	if err := safePath(p, false); err != nil {
 		return nil, problem("%s must be a readable regular file without symbolic links.", name)
 	}
-	f, e := os.Open(p)
+	validated, e := os.Lstat(p)
+	if e != nil || !validated.Mode().IsRegular() {
+		return nil, problem("%s must be a readable regular file without symbolic links.", name)
+	}
+	// Windows resolves and caches a Lstat result's file ID lazily in SameFile.
+	// Materialize that identity before opening, rather than after a replacement.
+	if !os.SameFile(validated, validated) {
+		return nil, problem("Cannot establish the identity of %s.", name)
+	}
+	f, e := open(p)
 	if e != nil {
 		return nil, problem("Cannot read %s.", name)
 	}
@@ -94,6 +107,12 @@ func input(source, name string, optional bool) ([]byte, error) {
 	st, e := f.Stat()
 	if e != nil || !st.Mode().IsRegular() || st.Size() > maxInput {
 		return nil, problem("%s exceeds the input limit or is not regular.", name)
+	}
+	// Bind this read to the leaf validated immediately before opening. This
+	// detects replacement with another regular file or a symlink to one; it
+	// does not make concurrent parent-directory changes or in-place writes safe.
+	if !os.SameFile(validated, st) {
+		return nil, problem("%s changed while being opened; retry with a stable source file.", name)
 	}
 	b, e := io.ReadAll(io.LimitReader(f, maxInput+1))
 	if e != nil || int64(len(b)) > maxInput {

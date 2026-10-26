@@ -1,5 +1,21 @@
 # Release assembly
 
+## Publication approval
+
+The `publish` job uses the GitHub environment named `release`. Configure that
+environment with required reviewers and administrator bypass disabled before
+publishing. Merely naming an environment in YAML does not add protection rules.
+The job waits after the candidate artifact is uploaded, so its reviewer can
+download and inspect the exact candidate before approving publication. The
+repository owner may approve a run they dispatched; self-review is allowed.
+Candidate-only runs (`publish: false`) do not require this approval.
+
+Build/test checkouts do not persist repository credentials. The separate
+protected publication job retains the authenticated checkout needed to push
+a new tag without force.
+
+## Local assembly
+
 `assemble.py` uses Python 3.9+ and its standard library. It assembles a local
 candidate and never creates a tag, release, catalog submission or external text.
 Build the normal game SD tree with `openfpga/scripts/package.sh` first. Build the
