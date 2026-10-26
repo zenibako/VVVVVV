@@ -103,6 +103,7 @@ static bool sweep_smoke_present(SDL_Renderer*)
             const SweepResult& r = sweep_results[mode * SWEEP_ROOMS + i];
             if(!sweep_selected(i,mode)) { assert(r.views==0); continue; }
             assert(r.views == (final_rooms[i].tower ? SWEEP_VIEWS_PER_TOWER : 1));
+            assert(r.peak_logic + r.peak_draw <= r.worst);
             printf("SWEEP_RESULT,%d,%d,%d,%d,%d,%u,%u,%u,%u,\"%s\"\n",mode,
                 final_rooms[i].x,final_rooms[i].y,r.entry,r.camera,r.average,r.logic,r.draw,r.worst,final_rooms[i].name);
         }

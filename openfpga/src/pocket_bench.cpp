@@ -33,6 +33,7 @@ extern "C" bool POCKET_warp_tiles_fast;
 extern "C" bool POCKET_copy_fast;
 extern "C" bool POCKET_column_ring;
 extern "C" bool POCKET_tower_grid_fast;
+extern "C" bool POCKET_keyed_spans_fast;
 extern bool POCKET_text_cache;
 extern bool POCKET_clock_border_cache;
 extern Uint32 POCKET_print_us, POCKET_print_calls, POCKET_text_hits, POCKET_text_kept;
@@ -567,8 +568,9 @@ static void measure_final_redraw(void)
         final_redraw_us[mode] = (of_time_us() - start) / 60;
     }
     POCKET_final_grid_fast = true;
-    /* Include both copies in a two-frame lifetime, including the cost of
-     * constructing runs. Rebuilding stays outside the copy-only counter. */
+    /* Keep the legacy first/second-copy comparison independent of the
+     * grid's eager span construction. Rebuilding is outside this counter. */
+    POCKET_keyed_spans_fast = false;
     for (int mode = 0; mode < 2; mode++)
     {
         POCKET_final_copy_fast = mode != 0;
@@ -583,6 +585,7 @@ static void measure_final_redraw(void)
         final_copy_us[mode] = (POCKET_final_copy_us - start) / 120;
     }
     POCKET_final_copy_fast = true;
+    POCKET_keyed_spans_fast = true;
     map.final_mapcol = colour;
     graphics.set_render_target(target);
 }

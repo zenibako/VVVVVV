@@ -97,6 +97,17 @@ building the spans, excludes foreground rebuilding, and uses the same batched
 grid renderer for both policies. Host checks compare composed pixels on both
 the first and retained copies as well as the foreground texture and RNG.
 
+Keyed tile uploads reuse each sheet's 8-pixel transparency patterns to build
+opaque spans directly. The texture grid also copies the sheet's cached RGB565
+pixels, avoiding a second foreground scan/conversion; tower layers avoid a
+separate mask scan. Both paths share span assembly and merge opaque runs across
+tile boundaries. Source changes invalidate the sheet cache, and texture writes
+invalidate the assembled runs. Unsupported sheets retain their existing drawing
+fallbacks. Host renderer checks exercise every 8-bit transparency pattern,
+source mutations, row-ring scrolling, snapshot detachment and composed pixels.
+The legacy copy-policy comparison disables grid span assembly for both modes,
+so it still measures first-copy versus second-copy run construction.
+
 The benchmark forces 30 Hz rendering, independent of saved settings. This
 keeps one presentation per logic timestep; faster render-only iterations
 would otherwise be excluded from its per-frame averages.
@@ -120,10 +131,12 @@ animation. Both mini-towers run from both entrances at cameras 0, 192, 384 and
 directions. There are 104 cases and 25,920 measured frames. Allow roughly
 15–25 minutes on Pocket; slow frames may make it longer.
 
-The `Sweep v3` counter shows the current case, stabilizer state and frame
+The `Sweep v4` counter shows the current case, stabilizer state and frame
 progress while running. Its overlay drawing cost is excluded from frame/draw
 timings. Results are drawn directly onto the presented window; A advances
-through the pages (one focused page, three exhaustive pages). Host checks
+through the pages (one focused page, three exhaustive pages). The focused
+report also splits the top three ranked rooms' worst frames into logic and
+draw time, so average improvements can be distinguished from remaining spikes. Host checks
 compare these presented pixels against the expected progress/report images
 and exercise gamepad A paging.
 

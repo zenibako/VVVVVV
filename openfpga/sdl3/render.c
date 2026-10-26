@@ -491,9 +491,7 @@ static int write_runs_and_pack(const Uint32 *row, int w, Uint16 *runs, Uint16 *p
     return n;
 }
 
-/* Builds the runs of every kept row, or with runs_partial only of the
- * rows marked dirty, keeping the others' as they are. */
-static bool build_runs(Texture *t)
+static bool prepare_run_buffers(Texture *t)
 {
     const int w = t->texture.w;
     const int h = t->texture.h;
@@ -514,6 +512,16 @@ static bool build_runs(Texture *t)
         free_runs(t);
         return false;
     }
+    return true;
+}
+
+/* Builds the runs of every kept row, or with runs_partial only of the
+ * rows marked dirty, keeping the others' as they are. */
+static bool build_runs(Texture *t)
+{
+    if (!prepare_run_buffers(t)) return false;
+    const int w = t->texture.w;
+    const int h = t->texture.h;
     const Uint32 *pixels = texels(t);
     if (!t->runs_partial)
     {
@@ -2132,6 +2140,7 @@ static struct
     Uint32 changes;
     Uint16 *color;
     Uint8 *mask;
+    Uint8 *bits; /* one alpha bit per pixel, grouped into 8-pixel spans */
 } keyed_sheet;
 
 static void forget_keyed_sheet(const Texture *t)
@@ -2140,6 +2149,7 @@ static void forget_keyed_sheet(const Texture *t)
     {
         SDL_free(keyed_sheet.color);
         SDL_free(keyed_sheet.mask);
+        SDL_free(keyed_sheet.bits);
         SDL_zero(keyed_sheet);
     }
 }
@@ -2154,10 +2164,13 @@ static bool keep_keyed_sheet(const Texture *t)
     const size_t count = (size_t) t->texture.w * t->texture.h;
     keyed_sheet.color = (Uint16 *) SDL_malloc(count * sizeof(Uint16));
     keyed_sheet.mask = (Uint8 *) SDL_malloc(count);
-    if (keyed_sheet.color == NULL || keyed_sheet.mask == NULL)
+    const int bit_pitch = (t->texture.w + 7) / 8;
+    keyed_sheet.bits = (Uint8 *) SDL_calloc((size_t) bit_pitch * t->texture.h, 1);
+    if (keyed_sheet.color == NULL || keyed_sheet.mask == NULL || keyed_sheet.bits == NULL)
     {
         SDL_free(keyed_sheet.color);
         SDL_free(keyed_sheet.mask);
+        SDL_free(keyed_sheet.bits);
         SDL_zero(keyed_sheet);
         return false;
     }
@@ -2168,14 +2181,62 @@ static bool keep_keyed_sheet(const Texture *t)
         Uint8 *m = keyed_sheet.mask + (size_t) y * t->texture.w;
         for (int x = 0; x < t->texture.w; x++)
         {
-            c[x] = POCKET_ToRGB565(s[x]);
             m[x] = (Uint8) (s[x] >> 31);
+            c[x] = m[x] ? POCKET_ToRGB565(s[x]) : 0;
+            keyed_sheet.bits[(size_t) y * bit_pitch + x / 8] |= m[x] << (x % 8);
         }
     }
     keyed_sheet.of = t;
     keyed_sheet.changes = t->changes;
     return true;
 }
+
+/* The same tile-row layout feeds texture triples and tile-layer pairs.
+ * Adjacent spans are joined even across tile boundaries, preserving long
+ * memcpy runs rather than turning a solid row into one copy per tile. */
+struct KeyedPattern { Uint8 count, start[4], length[4]; };
+static struct KeyedPattern keyed_patterns[256];
+static bool keyed_patterns_ready;
+
+static void prepare_keyed_patterns(void)
+{
+    if (keyed_patterns_ready) return;
+    for (unsigned bits = 0; bits < 256; bits++)
+    {
+        struct KeyedPattern *p = &keyed_patterns[bits];
+        for (int x = 0; x < 8;)
+        {
+            if (!(bits & (1u << x))) { x++; continue; }
+            const int start = x++;
+            while (x < 8 && (bits & (1u << x))) x++;
+            p->start[p->count] = (Uint8) start;
+            p->length[p->count++] = (Uint8) (x - start);
+        }
+    }
+    keyed_patterns_ready = true;
+}
+
+static int append_keyed_runs(Uint16 *runs, int n, int stride, int x, Uint8 bits)
+{
+    const struct KeyedPattern *p = &keyed_patterns[bits];
+    for (int i = 0; i < p->count; i++)
+    {
+        const int start = x + p->start[i], length = p->length[i];
+        if (n > 0 && runs[(n - 1) * stride] + runs[(n - 1) * stride + 1] == start)
+            runs[(n - 1) * stride + 1] += length;
+        else
+        {
+            runs[n * stride] = (Uint16) start;
+            runs[n * stride + 1] = (Uint16) length;
+            if (stride == 3) runs[n * stride + 2] = RUN_OPAQUE;
+            n++;
+        }
+    }
+    return n;
+}
+
+/* Kept as a switch for controlled host comparisons of identical draws. */
+bool POCKET_keyed_spans_fast = true;
 
 /* Moves the layer's rows down by dy (up when negative); the rows that
  * exposes are clear. */
@@ -2258,6 +2319,7 @@ bool POCKET_PutTileGrid(POCKET_TileLayer *layer, SDL_Texture *sheet,
     for (int i = 0; i < columns * rows; i++)
         if (ids[i] < -1 || ids[i] >= tiles) return false;
     if (!keep_keyed_sheet(t)) return false;
+    prepare_keyed_patterns();
     for (int j = 0; j < rows; j++)
     {
         size_t from[64];
@@ -2270,6 +2332,8 @@ bool POCKET_PutTileGrid(POCKET_TileLayer *layer, SDL_Texture *sheet,
         for (int py = 0; py < 8; py++)
         {
             const int k = layer_row(layer, y + j * 8 + py);
+            Uint16 *runs = layer->runs + (size_t) k * layer->run_cap * 2;
+            int n = 0;
             for (int i = 0; i < columns; i++)
             {
                 const size_t to = (size_t) k * layer->w + i * 8;
@@ -2280,9 +2344,14 @@ bool POCKET_PutTileGrid(POCKET_TileLayer *layer, SDL_Texture *sheet,
                     const size_t source = from[i] + (size_t) py * t->texture.w;
                     SDL_memcpy(layer->color + to, keyed_sheet.color + source, 16);
                     SDL_memcpy(layer->mask + to, keyed_sheet.mask + source, 8);
+                    if (POCKET_keyed_spans_fast)
+                    {
+                        n = append_keyed_runs(runs, n, 2, i * 8, keyed_sheet.bits[source / 8]);
+                    }
                 }
             }
-            layer->dirty[k] = 1;
+            layer->run_count[k] = (Uint16) n;
+            layer->dirty[k] = !POCKET_keyed_spans_fast;
         }
     }
     return true;
@@ -2518,31 +2587,62 @@ bool POCKET_CopyKeyedGrid(SDL_Renderer *renderer, SDL_Texture *sheet,
     dst->row0 = 0;
     dst->opaque = false;
     PART_BEGIN();
+    bool cached = POCKET_keyed_spans_fast && keep_keyed_sheet(src) && prepare_run_buffers(dst);
+    int n = 0;
+    if (cached) prepare_keyed_patterns();
     for (int j = 0; j < rows; j++)
     {
         const Uint32 *spans[64];
+        size_t from[64];
         for (int i = 0; i < columns; i++)
         {
             const int tile = tiles[j * columns + i];
-            spans[i] = tile < 0 ? NULL : src->pixels
-                + (size_t) kept_row(src, tile / sheet_columns * 8) * src->texture.w
+            from[i] = tile < 0 ? 0 : (size_t) (tile / sheet_columns) * 8 * src->texture.w
                 + tile % sheet_columns * 8;
+            spans[i] = tile < 0 ? NULL : src->pixels + from[i];
         }
         for (int y = 0; y < 8; y++)
         {
-            Uint32 *d = dst->pixels + (size_t) (j * 8 + y) * dst->texture.w;
+            const int row = j * 8 + y;
+            /* Four visible spans per tile is an upper bound before merging. */
+            if (cached && !reserve_runs(dst, n + columns * 4))
+            {
+                free_runs(dst);
+                cached = false;
+            }
+            const int row_start = n;
+            if (cached) dst->row_runs[row] = n;
+            Uint32 *d = dst->pixels + (size_t) row * dst->texture.w;
             for (int i = 0; i < columns; i++, d += 8)
             {
                 if (spans[i] == NULL)
+                {
                     SDL_memset(d, 0, 8 * sizeof(Uint32));
+                    if (cached) SDL_memset(dst->runs565 + (size_t) row * dst->texture.w + i * 8, 0, 16);
+                }
                 else
                 {
                     const Uint32 *s = spans[i] + (size_t) y * src->texture.w;
                     for (int x = 0; x < 8; x++)
                         d[x] = s[x] & (0u - (s[x] >> 31));
+                    if (cached)
+                    {
+                        const size_t source = from[i] + (size_t) y * src->texture.w;
+                        SDL_memcpy(dst->runs565 + (size_t) row * dst->texture.w + i * 8,
+                            keyed_sheet.color + source, 16);
+                        n = row_start + append_keyed_runs(dst->runs + (size_t) row_start * 3,
+                            n - row_start, 3, i * 8, keyed_sheet.bits[source / 8]);
+                    }
                 }
             }
+            if (cached) dst->dirty_rows[row] = 0;
         }
+    }
+    if (cached)
+    {
+        dst->row_runs[dst->texture.h] = n;
+        dst->runs_valid = true;
+        dst->runs_partial = false;
     }
     PART_END(1);
     return true;
