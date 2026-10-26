@@ -38,6 +38,8 @@ extern bool POCKET_clock_border_cache;
 extern Uint32 POCKET_print_us, POCKET_print_calls, POCKET_text_hits, POCKET_text_kept;
 extern char POCKET_last_kept[48];
 extern Uint32 POCKET_bg_us, POCKET_bg_tiles, POCKET_bg_full, POCKET_bg_scroll;
+extern Uint32 POCKET_final_rebuild_us, POCKET_final_copy_us, POCKET_final_rebuilds, POCKET_final_grid_hits;
+extern bool POCKET_final_grid_fast;
 extern "C" void POCKET_CountSeeThrough(SDL_Texture* texture, int x, int y, int w, int h, int* clear, int* partial);
 PocketBenchProfile POCKET_grav_profile;
 bool POCKET_grav_draw_active;
@@ -124,6 +126,7 @@ typedef struct
     Uint32 text_us, prints, text_hits, text_kept; /* font::print's, summed */
     Uint32 bg_us, bg_tiles; /* the tower background's update, summed */
     Uint32 bg_full, bg_scroll;
+    Uint32 final_rebuild_us, final_copy_us, final_rebuilds;
     PocketBenchProfile grav;
     Uint32 draw_other, draw_overlap;
     char last_kept[48];
@@ -149,6 +152,9 @@ static Uint32 print_us_start, prints_start, hits_start, kept_start;
 static Uint32 bg_us_start, bg_tiles_start, bg_full_start, bg_scroll_start;
 static PocketBenchProfile grav_start;
 static int steps_this_loop;
+static Uint32 final_rebuild_start, final_copy_start, final_count_start;
+static Uint32 final_redraw_us[2];
+static void measure_final_redraw(void);
 
 static void place_player(int x, int y)
 {
@@ -218,6 +224,7 @@ static void start_part(void)
         break;
     case START_GRAVITRON:
     {
+        measure_final_redraw(); /* Untimed; the previous room is still Party Time! */
         game.intimetrial = false;
         game.inintermission = true;
         game.gravitycontrol = 0;
@@ -327,6 +334,9 @@ void POCKET_BenchLoopStart(void)
     bg_tiles_start = POCKET_bg_tiles;
     bg_full_start = POCKET_bg_full;
     bg_scroll_start = POCKET_bg_scroll;
+    final_rebuild_start = POCKET_final_rebuild_us;
+    final_copy_start = POCKET_final_copy_us;
+    final_count_start = POCKET_final_rebuilds;
     grav_start = POCKET_grav_profile;
     steps_this_loop = 0;
 }
@@ -368,6 +378,9 @@ void POCKET_BenchLoopEnd(void)
     t->bg_tiles += POCKET_bg_tiles - bg_tiles_start;
     t->bg_full += POCKET_bg_full - bg_full_start;
     t->bg_scroll += POCKET_bg_scroll - bg_scroll_start;
+    t->final_rebuild_us += POCKET_final_rebuild_us - final_rebuild_start;
+    t->final_copy_us += POCKET_final_copy_us - final_copy_start;
+    t->final_rebuilds += POCKET_final_rebuilds - final_count_start;
     const Uint32 draw_before = POCKET_GravDrawTime(&t->grav);
     for (int i = 0; i < POCKET_GRAV_PHASES; i++)
     {
@@ -532,6 +545,30 @@ static void check_text_cache(void)
 static void cached_letter(void) { font::print(0, 8, 8, "A", 196, 196, 196); }
 static void cached_bordered(void) { font::print(PR_BOR, 8, 8, "ABCDEFGHIJ", 196, 196, 196); }
 
+static void measure_final_redraw(void)
+{
+    SDL_Texture* target = SDL_GetRenderTarget(gameScreen.m_renderer);
+    graphics.set_render_target(graphics.tempShakeTexture);
+    /* Use a regular animation colour, so this untimed comparison cannot
+     * consume random variants and perturb the later benchmark rooms. */
+    const int colour = map.final_mapcol;
+    map.final_mapcol = 2;
+    for (int mode = 0; mode < 2; mode++)
+    {
+        POCKET_final_grid_fast = mode != 0;
+        const Uint32 start = of_time_us();
+        for (int i = 0; i < 60; i++)
+        {
+            graphics.foregrounddrawn = false;
+            graphics.drawfinalmap();
+        }
+        final_redraw_us[mode] = (of_time_us() - start) / 60;
+    }
+    POCKET_final_grid_fast = true;
+    map.final_mapcol = colour;
+    graphics.set_render_target(target);
+}
+
 static int clock_micro_tick;
 static void original_clock(void)
 {
@@ -617,6 +654,15 @@ void POCKET_BenchDraw(void)
             report.add("%-9s %s %3u.%u %3u.%u %2u.%u", parts[i].name, text,
                 prints / 10, prints % 10, hits / 10, hits % 10, kept / 10, kept % 10);
         }
+        for (int i = 0; i < PART_COUNT; i++)
+            if (parts[i].name && SDL_strcmp(parts[i].name, "final") == 0)
+            {
+                char rebuild[8], copy[8];
+                ms(rebuild, sizeof(rebuild), times[i].final_rebuild_us, times[i].frames);
+                ms(copy, sizeof(copy), times[i].final_copy_us, times[i].frames);
+                report.add("final map: rebuild %s copy %s ms/frame", rebuild, copy);
+                report.add("final rebuilds %u", (unsigned) times[i].final_rebuilds);
+            }
         report.add("Gravitron split: ms/frame, calls/frame");
         static const char* phase_names[] = {
             "bg update", "bg draw", "enemy spawn", "enemy move",
@@ -721,6 +767,7 @@ void POCKET_BenchDraw(void)
         POCKET_tower_grid_fast = true;
         const Uint32 tower_new = text_us(redraw_tower, 60, 1);
         report.add("tower redraw us: old %u new %u", (unsigned) tower_old, (unsigned) tower_new);
+        report.add("final redraw us: old %u new %u", (unsigned) final_redraw_us[0], (unsigned) final_redraw_us[1]);
         /* Whether the tower's background tiles could be copied as they
          * are, needing nothing under them. */
         int tiles = 0, clear_tiles = 0, partial_tiles = 0;

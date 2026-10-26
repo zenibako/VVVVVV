@@ -191,6 +191,7 @@ static bool smoke_present(SDL_Renderer* renderer)
                 report.size(), report.pages());
             printf("Gravitron smoke passed: %d frames, max %d enemies, timer %d, room %d,%d\n",
                 gravitron.frames, max_enemies, game.swntimer, game.roomx, game.roomy);
+            check_final_pixels();
             exit(0);
         }
     }

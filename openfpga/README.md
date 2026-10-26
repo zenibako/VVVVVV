@@ -77,6 +77,20 @@ the workload. The host smoke captures two room frames and verifies that
 obstacle pixels change at the same map colour, plus multiple colours and all
 four animation phases. It leaves Gravitron last, with its existing profiling.
 
+Final-room foreground rebuilds use a shared renderer helper that writes a
+complete grid of binary-alpha tiles in rows. Empty and transparent pixels
+remain clear. Partial-alpha or modulated sheets and recoloured one-way tiles
+retain individual drawing. Tile variants are selected once in their original
+order, including when the batch falls back, so animation and RNG consumption
+stay unchanged. Host checks compare foreground pixels and the next RNG value
+across three rooms, six colours, four phases and reduced-flashing settings.
+
+`final map: rebuild ... copy ... ms/frame` separates the foreground rebuild
+from its per-frame copy; `final rebuilds` counts rebuilds during the segment.
+`final redraw us: old ... new ...` forces 60 redraws on each path before
+Gravitron starts, outside the timed route. This comparison uses a regular
+animation colour so it cannot consume random variants and change later rooms.
+
 The benchmark forces 30 Hz rendering, independent of saved settings. This
 keeps one presentation per logic timestep; faster render-only iterations
 would otherwise be excluded from its per-frame averages.

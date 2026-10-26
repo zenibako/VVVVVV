@@ -2379,6 +2379,65 @@ bool POCKET_CopyOpaqueGrid(SDL_Renderer *renderer, SDL_Texture *sheet,
     return true;
 }
 
+/* Replace a complete target with an 8x8 tile grid on transparent black.
+ * Binary alpha permits straight row writes; alpha-zero RGB is canonicalized
+ * to zero to match blending each tile onto the cleared foreground. */
+bool POCKET_CopyKeyedGrid(SDL_Renderer *renderer, SDL_Texture *sheet,
+    const int *tiles, int columns, int rows)
+{
+    if (!check_renderer(renderer) || !check_texture(sheet) || tiles == NULL
+        || columns <= 0 || rows <= 0 || columns > 64 || rows > 64)
+        return false;
+    Texture *src = texture_data(sheet);
+    Texture *dst = current_target(renderer);
+    if (src == dst || dst->pixels == NULL || renderer->target == NULL
+        || dst->texture.w != columns * 8 || dst->texture.h != rows * 8
+        || src->texture.w < 8 || src->texture.h < 8
+        || src->texture.w % 8 || src->texture.h % 8 || src->row0 != 0
+        || (src->mod_r & src->mod_g & src->mod_b & src->mod_a) != 255
+        || src->blend != SDL_BLENDMODE_BLEND || !POCKET_TileSheetIsKeyed(sheet))
+        return false;
+    const int sheet_columns = src->texture.w / 8;
+    const int tile_count = sheet_columns * (src->texture.h / 8);
+    for (int i = 0; i < columns * rows; i++)
+        if (tiles[i] < -1 || tiles[i] >= tile_count)
+            return false;
+    COUNT_CALL();
+    begin_change(dst, true);
+    keep_argb(dst, false);
+    dst->row0 = 0;
+    dst->opaque = false;
+    PART_BEGIN();
+    for (int j = 0; j < rows; j++)
+    {
+        const Uint32 *spans[64];
+        for (int i = 0; i < columns; i++)
+        {
+            const int tile = tiles[j * columns + i];
+            spans[i] = tile < 0 ? NULL : src->pixels
+                + (size_t) kept_row(src, tile / sheet_columns * 8) * src->texture.w
+                + tile % sheet_columns * 8;
+        }
+        for (int y = 0; y < 8; y++)
+        {
+            Uint32 *d = dst->pixels + (size_t) (j * 8 + y) * dst->texture.w;
+            for (int i = 0; i < columns; i++, d += 8)
+            {
+                if (spans[i] == NULL)
+                    SDL_memset(d, 0, 8 * sizeof(Uint32));
+                else
+                {
+                    const Uint32 *s = spans[i] + (size_t) y * src->texture.w;
+                    for (int x = 0; x < 8; x++)
+                        d[x] = s[x] & (0u - (s[x] >> 31));
+                }
+            }
+        }
+    }
+    PART_END(1);
+    return true;
+}
+
 /* One small repeated tile, expanded into rows with runs of opaque pixels.
  * The sheet may contain other tiles with partial alpha; only this region
  * must be opaque or clear. Pixel changes and destruction invalidate it. */

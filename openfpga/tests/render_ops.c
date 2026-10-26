@@ -12,6 +12,7 @@
 bool POCKET_ScrollTexture(SDL_Texture *texture, int dx, int dy);
 bool POCKET_RepeatTexture(SDL_Renderer*, SDL_Texture*, const SDL_Rect*, const SDL_Rect*);
 bool POCKET_CopyOpaqueGrid(SDL_Renderer*, SDL_Texture*, const Uint16*, int, int, int, int);
+bool POCKET_CopyKeyedGrid(SDL_Renderer*, SDL_Texture*, const int*, int, int);
 bool POCKET_ShiftTextureRows(SDL_Texture *texture, int dy);
 typedef struct POCKET_TileLayer POCKET_TileLayer;
 POCKET_TileLayer *POCKET_CreateTileLayer(int w, int h);
@@ -1135,8 +1136,74 @@ static void surfaces(Capture *capture)
     SDL_DestroySurface(source);
 }
 
+static void put_keyed_grid(SDL_Renderer *renderer, SDL_Texture *sheet, const int *ids)
+{
+#ifdef SDL_RenderClear
+    assert(POCKET_CopyKeyedGrid(renderer, sheet, ids, 3, 2));
+#else
+    SDL_SetRenderDrawColor(renderer, 0, 0, 0, 0);
+    SDL_RenderClear(renderer);
+    for (int i = 0; i < 6; i++)
+    {
+        if (ids[i] < 0) continue;
+        const SDL_FRect src = {(ids[i] % 2) * 8, (ids[i] / 2) * 8, 8, 8};
+        const SDL_FRect dst = {(i % 3) * 8, (i / 3) * 8, 8, 8};
+        SDL_RenderTexture(renderer, sheet, &src, &dst);
+    }
+#endif
+}
+
+static void keyed_grid(SDL_Renderer *renderer, Capture *capture)
+{
+    Uint32 pixels[16 * 16];
+    for (int y = 0; y < 16; y++)
+        for (int x = 0; x < 16; x++)
+            pixels[y * 16 + x] = ((x + y) % 3 ? 0xff000000u : 0)
+                | ((Uint32) x * 13 << 16) | ((Uint32) y * 15 << 8) | 99;
+    SDL_Surface *surface = SDL_CreateSurfaceFrom(16, 16, SDL_PIXELFORMAT_ARGB8888, pixels, 16 * 4);
+    SDL_Texture *sheet = SDL_CreateTextureFromSurface(renderer, surface);
+    SDL_DestroySurface(surface);
+    SDL_SetTextureBlendMode(sheet, SDL_BLENDMODE_BLEND);
+    SDL_Texture *target = SDL_CreateTexture(renderer, SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_TARGET, 24, 16);
+    const int ids[] = {0, 1, -1, 2, 3, 0};
+    SDL_SetRenderTarget(renderer, target);
+    SDL_SetRenderDrawColor(renderer, 22, 55, 88, 255);
+    SDL_RenderClear(renderer);
+    put_keyed_grid(renderer, sheet, ids);
+    capture_target(renderer, capture, "keyed grid transparent replacement");
+    SDL_Texture *snapshot = SDL_CreateTexture(renderer, SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_TARGET, 24, 16);
+    SDL_SetTextureBlendMode(target, SDL_BLENDMODE_NONE);
+    SDL_SetRenderTarget(renderer, snapshot);
+    SDL_RenderTexture(renderer, target, NULL, NULL);
+    SDL_SetRenderTarget(renderer, target);
+    const int changed[] = {3, 2, 1, 0, -1, 3};
+    put_keyed_grid(renderer, sheet, changed);
+    capture_target(renderer, capture, "keyed grid snapshot detached");
+    SDL_SetRenderTarget(renderer, snapshot);
+    capture_target(renderer, capture, "keyed grid snapshot preserved");
+    SDL_SetRenderTarget(renderer, target);
+#ifdef SDL_RenderClear
+    const int invalid[] = {0, 1, -1, 2, 3, 4};
+    assert(!POCKET_CopyKeyedGrid(renderer, sheet, invalid, 3, 2));
+    assert(!POCKET_CopyKeyedGrid(renderer, sheet, ids, INT_MAX, 2));
+    assert(!POCKET_CopyKeyedGrid(renderer, target, ids, 3, 2));
+    SDL_SetTextureColorMod(sheet, 128, 255, 255);
+    assert(!POCKET_CopyKeyedGrid(renderer, sheet, ids, 3, 2));
+    SDL_SetTextureColorMod(sheet, 255, 255, 255);
+    pixels[0] = 0x80ffffff;
+    SDL_UpdateTexture(sheet, NULL, pixels, 16 * 4);
+    assert(!POCKET_CopyKeyedGrid(renderer, sheet, ids, 3, 2));
+#endif
+    capture_target(renderer, capture, "keyed grid atomic rejection");
+    SDL_SetRenderTarget(renderer, NULL);
+    SDL_DestroyTexture(target);
+    SDL_DestroyTexture(snapshot);
+    SDL_DestroyTexture(sheet);
+}
+
 void RENDER_OPS(SDL_Renderer *renderer, Capture *capture)
 {
+    keyed_grid(renderer, capture);
     /* As Screen.cpp does; SDL's default is linear. */
     SDL_SetDefaultTextureScaleMode(renderer, SDL_SCALEMODE_NEAREST);
     SDL_Texture *sprite = make_sprite(renderer);
