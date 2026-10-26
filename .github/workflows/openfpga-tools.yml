@@ -29,4 +29,3 @@ jobs:
         run: make test
       - name: Test release assembly
         run: python3 -m unittest discover -s openfpga/release -p 'test_*.py'
-
