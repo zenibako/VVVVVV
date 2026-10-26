@@ -1,7 +1,7 @@
 /* See pocket_bench.h. */
 #include "pocket_bench.h"
 
-#ifdef POCKET_BENCH
+#if defined(POCKET_BENCH) && !defined(POCKET_FINAL_SWEEP)
 
 #include "pocket_bench_report.h"
 #include "pocket_bench_profile.h"

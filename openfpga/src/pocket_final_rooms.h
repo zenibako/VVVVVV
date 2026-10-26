@@ -1,0 +1,41 @@
+/* Main final-level rooms; coverage is checked against Finalclass.cpp. */
+#ifndef POCKET_FINAL_ROOMS_H
+#define POCKET_FINAL_ROOMS_H
+struct FinalSweepRoom { int x, y; const char* name; bool tower; };
+static const FinalSweepRoom final_rooms[] = {
+    {50, 52, "1954 World Cup Vinyl", false},
+    {50, 51, "The V Stooges", false},
+    {49, 51, "The Untouchables", false},
+    {48, 51, "On the Waterfront", false},
+    {47, 51, "Gvnsmoke", false},
+    {46, 51, "Vwitched", false},
+    {45, 51, "Television Newsveel", false},
+    {44, 51, "Vertigo", false},
+    {43, 51, "The Voon Show", false},
+    {42, 51, "Rear Window", false},
+    {41, 51, "1950 Silverstone Grand V", false},
+    {41, 52, "DIY V Repair", false},
+    {42, 52, "Party Time!", false},
+    {43, 52, "Upstairs, Downstairs", false},
+    {44, 52, "Timeslip", false},
+    {45, 52, "Three's Company", false},
+    {47, 52, "Cosmic Creepers", false},
+    {48, 52, "The Villi People", false},
+    {50, 53, "Please enjoy these repeats", false},
+    {50, 54, "Try Jiggling the Antenna", false},
+    {52, 53, "The Last Straw", false},
+    {53, 53, "W", false},
+    {54, 53, "V", false},
+    {54, 52, "VV", false},
+    {54, 51, "VVV", false},
+    {54, 50, "VVVV", false},
+    {54, 49, "VVVVV", false},
+    {54, 48, "VVVVVV", false},
+    {46, 54, "Temporary Fault...", false},
+    {47, 54, "Do Not Adjust the V-hold", false},
+    {48, 54, "Regular Service Will Return Shortly", false},
+    {49, 54, "Origami Room", false},
+    {49, 52, "Panic Room", true},
+    {51, 53, "The Final Challenge", true},
+};
+#endif

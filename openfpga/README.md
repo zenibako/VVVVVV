@@ -101,6 +101,36 @@ The benchmark forces 30 Hz rendering, independent of saved settings. This
 keeps one presentation per logic timestep; faster render-only iterations
 would otherwise be excluded from its per-frame averages.
 
+For complete final-level coverage, build `make BENCH=1 FINAL_SWEEP=1` and
+`make BENCH=1 FINAL_SWEEP=1 package`. This mode has independent default build
+and object directories under `build/final-sweep`; its package replaces only
+the benchmark core. It covers all 34 main final-level rooms before and after
+stabilizer shutdown. Each ordinary room runs six palettes at the native
+40-step cadence, with normal obstacle animation. Both mini-towers run from
+both entrances at cameras 0, 192, 384 and 568, plus continuous native camera
+scrolling over their full height in both directions. There are 104 cases and
+25,920 measured frames, after 12 warmup frames per case. Allow roughly 15–25
+minutes on Pocket; slow frames may make it longer.
+
+The sweep pins only the player at a clear, trigger-free position; enemies,
+platforms and gravity lines keep updating through the real main loop. It
+checks that rooms, camera positions and game state stay valid, all animated
+palettes/phases occur, and continuous cases actually scroll the background.
+This is a controlled room workload, not an automated playthrough. Intermission
+rooms sharing Finalclass.cpp and the main Tower's entrance corridors are not
+part of the 34-room final level; the existing route still covers Gravitron.
+
+Results rank each room/state by its slowest viewport's average frame time,
+alongside its worst single frame across all views. Logic/draw timings are
+included for the top three cases and for both states of The Final Challenge.
+`+` means the stabilizer is
+off; `-` means on. Capture all three pages. Host coverage uses
+`make host-render HOST_BENCH_SMOKE=1 FINAL_SWEEP=1 SDL3_PREFIX=/opt/homebrew`
+then the usual private assets/basedir launch. Host sweep timers use the real
+performance counter; the simulation clock is accelerated. `SWEEP_VIEW` and
+`SWEEP_RESULT` CSV lines report host microseconds, not Pocket timings.
+Run `python3 tests/final_sweep_roster_test.py` to check the authored-room roster.
+
 The Gravitron split reports background update/drawing and enemy spawning,
 movement (including physics and wall collisions), pair collisions,
 animation/colour updates, and drawing (including warning indicators).
