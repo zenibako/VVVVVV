@@ -664,6 +664,7 @@ static bool check_texture(const SDL_Texture *texture)
 static void forget_keyed_sheet(const Texture *t);
 static void forget_palette_sheet(const Texture *t);
 static void forget_repeat_sheet(const Texture *t);
+static void forget_opaque_repeat(const Texture *t);
 
 SDL_Renderer *SDL_CreateRenderer(SDL_Window *window, const char *name)
 {
@@ -857,6 +858,7 @@ void SDL_DestroyTexture(SDL_Texture *texture)
     forget_keyed_sheet(t);
     forget_palette_sheet(t);
     forget_repeat_sheet(t);
+    forget_opaque_repeat(t);
     free_runs(t);
     SDL_free(t->buffer565);
     SDL_free(t->pixels);
@@ -2594,6 +2596,71 @@ bool POCKET_CopyOpaqueTile(SDL_Renderer *renderer, SDL_Texture *sheet, int sx, i
     return true;
 }
 
+/* Small repeated tile palettes: expand each used tile horizontally once,
+ * then copy a run of identical tiles as one span. No map geometry is cached,
+ * so edits to the caller's tile IDs take effect immediately. */
+enum { OPAQUE_REPEAT_TILES = 6, OPAQUE_REPEAT_WIDTH = POCKET_SCREEN_W + 24 };
+static struct
+{
+    const Texture *of;
+    Uint64 serial;
+    Uint32 changes;
+    int first, tiles;
+    unsigned valid;
+    Uint16 *pixels;
+} opaque_repeat;
+bool POCKET_grid_repeat_fast = true;
+Uint32 POCKET_grid_repeat_hits;
+
+static void forget_opaque_repeat(const Texture *t)
+{
+    if (opaque_repeat.of == t)
+    {
+        SDL_free(opaque_repeat.pixels);
+        SDL_zero(opaque_repeat);
+    }
+}
+
+static const Uint16 *opaque_repeated_tile(const Texture *src, int tile, int first, int tiles)
+{
+    if (opaque_repeat.of != src || opaque_repeat.serial != src->serial
+        || opaque_repeat.changes != src->changes || opaque_repeat.first != first || opaque_repeat.tiles != tiles)
+    {
+        opaque_repeat.of = src;
+        opaque_repeat.serial = src->serial;
+        opaque_repeat.changes = src->changes;
+        opaque_repeat.first = first;
+        opaque_repeat.tiles = tiles;
+        opaque_repeat.valid = 0;
+    }
+    if (opaque_repeat.pixels == NULL)
+    {
+        opaque_repeat.pixels = (Uint16 *) SDL_malloc(OPAQUE_REPEAT_TILES * 8 * OPAQUE_REPEAT_WIDTH * sizeof(Uint16));
+        if (opaque_repeat.pixels == NULL) return NULL;
+    }
+    const int index = tile - first;
+    Uint16 *expanded = opaque_repeat.pixels + (size_t) index * 8 * OPAQUE_REPEAT_WIDTH;
+    if (!(opaque_repeat.valid & (1u << index)))
+    {
+        const int columns = src->texture.w / 8;
+        const int pitch = src->alias_of != NULL ? src->alias_of->pitch565 : src->pitch565;
+        const Uint16 *source = texels565(src) + (size_t) (tile / columns) * 8 * pitch + tile % columns * 8;
+        for (int y = 0; y < 8; y++)
+        {
+            Uint16 *out = expanded + (size_t) y * OPAQUE_REPEAT_WIDTH;
+            SDL_memcpy(out, source + (size_t) y * pitch, 16);
+            for (int n = 8; n < OPAQUE_REPEAT_WIDTH;)
+            {
+                const int add = SDL_min(n, OPAQUE_REPEAT_WIDTH - n);
+                SDL_memcpy(out + n, out, (size_t) add * 2);
+                n += add;
+            }
+        }
+        opaque_repeat.valid |= 1u << index;
+    }
+    return expanded;
+}
+
 /* Direct writes avoid gathering a scratch row and copying it again. A
  * horizontally wrapped destination still uses that scratch-row fallback. */
 bool POCKET_grid_direct = true;
@@ -2618,9 +2685,15 @@ bool POCKET_CopyOpaqueGrid(SDL_Renderer *renderer, SDL_Texture *sheet,
         return false;
     const int sheet_columns = src->texture.w / 8;
     const int sheet_tiles = sheet_columns * (src->texture.h / 8);
+    int first_tile = INT_MAX, last_tile = 0;
     for (int i = 0; i < columns * rows; i++)
-        if (tiles[i] >= sheet_tiles)
-            return false;
+    {
+        if (tiles[i] >= sheet_tiles) return false;
+        first_tile = SDL_min(first_tile, tiles[i]);
+        last_tile = SDL_max(last_tile, tiles[i]);
+    }
+    bool repeated = POCKET_grid_repeat_fast && last_tile - first_tile < OPAQUE_REPEAT_TILES;
+    bool used_repeated = false;
     const SDL_Rect wanted = {x, y, columns * 8, rows * 8};
     const SDL_Rect bounds = {0, 0, dst->texture.w, dst->texture.h};
     SDL_Rect clip;
@@ -2636,7 +2709,7 @@ bool POCKET_CopyOpaqueGrid(SDL_Renderer *renderer, SDL_Texture *sheet,
         begin_rows_change(dst, clip.y, clip.h);
     const Uint16 *pixels = texels565(src);
     const int pitch = src->alias_of != NULL ? src->alias_of->pitch565 : src->pitch565;
-    struct Span { const Uint16 *source; int destination, count; } spans[64];
+    struct Span { const Uint16 *source; int destination, count, pitch; } spans[64];
     Uint16 line[POCKET_SCREEN_W + 16];
     const int destination_x = kept_column(dst, clip.x);
     const bool direct = POCKET_grid_direct && destination_x + clip.w <= dst->texture.w;
@@ -2647,35 +2720,50 @@ bool POCKET_CopyOpaqueGrid(SDL_Renderer *renderer, SDL_Texture *sheet,
     for (int j = first_row; j <= last_row; j++)
     {
         int count = 0;
-        for (int i = first_column; i <= last_column; i++)
+        for (int i = first_column; i <= last_column;)
         {
             const int tile = tiles[j * columns + i];
+            int end = i + 1;
+            if (repeated)
+                while (end <= last_column && tiles[j * columns + end] == tile) end++;
+            const Uint16 *expanded = NULL;
+            if (end > i + 1)
+            {
+                expanded = opaque_repeated_tile(src, tile, first_tile, last_tile - first_tile + 1);
+                if (expanded == NULL) { repeated = false; end = i + 1; }
+                else used_repeated = true;
+            }
             const int left = SDL_max(clip.x, x + i * 8);
-            const int right = SDL_min(clip.x + clip.w, x + i * 8 + 8);
-            spans[count].source = pixels + (size_t) (tile / sheet_columns * 8) * pitch
-                + tile % sheet_columns * 8 + left - (x + i * 8);
+            const int right = SDL_min(clip.x + clip.w, x + end * 8);
+            spans[count].source = expanded != NULL
+                ? expanded + left - (x + i * 8)
+                : pixels + (size_t) (tile / sheet_columns * 8) * pitch
+                    + tile % sheet_columns * 8 + left - (x + i * 8);
+            spans[count].pitch = expanded != NULL ? OPAQUE_REPEAT_WIDTH : pitch;
             spans[count].destination = left - clip.x;
             spans[count++].count = right - left;
+            i = end;
         }
         const int top = SDL_max(clip.y, y + j * 8);
         const int bottom = SDL_min(clip.y + clip.h, y + j * 8 + 8);
         for (int py = top; py < bottom; py++)
         {
-            const size_t source_row = (size_t) (py - y - j * 8) * pitch;
+            const int source_row = py - y - j * 8;
             Uint16 *target_row = dst->pixels565 + kept_row(dst, py) * dst->pitch565;
             Uint16 *out = direct ? target_row + destination_x : line;
             for (int i = 0; i < count; i++)
             {
                 const struct Span *span = &spans[i];
                 if (span->count == 8)
-                    SDL_memcpy(out + span->destination, span->source + source_row, 8 * sizeof(Uint16));
+                    SDL_memcpy(out + span->destination, span->source + (size_t) source_row * span->pitch, 8 * sizeof(Uint16));
                 else
-                    SDL_memcpy(out + span->destination, span->source + source_row, (size_t) span->count * 2);
+                    SDL_memcpy(out + span->destination, span->source + (size_t) source_row * span->pitch, (size_t) span->count * 2);
             }
             if (!direct)
                 copy_packed_span(target_row, dst->texture.w, destination_x, line, clip.w, 0, clip.w);
         }
     }
+    if (used_repeated) POCKET_grid_repeat_hits++;
     PART_END(1);
     return true;
 }

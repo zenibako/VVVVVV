@@ -16,6 +16,7 @@ bool POCKET_CopyOpaqueGrid(SDL_Renderer*, SDL_Texture*, const Uint16*, int, int,
 bool POCKET_CopyKeyedGrid(SDL_Renderer*, SDL_Texture*, const int*, int, int);
 extern bool POCKET_keyed_spans_fast;
 extern bool POCKET_grid_direct;
+extern bool POCKET_grid_repeat_fast;
 void POCKET_SetTextureRuns(SDL_Texture*, bool);
 bool POCKET_ShiftTextureRows(SDL_Texture *texture, int dy);
 typedef struct POCKET_TileLayer POCKET_TileLayer;
@@ -1397,6 +1398,52 @@ static void keyed_grid(SDL_Renderer *renderer, Capture *capture)
 /* Every 8-bit transparency pattern, including joins across tile edges,
  * rebuilt after source mutation. Both texture and layer paths must agree
  * with native SDL, including transparent RGB in the foreground itself. */
+static void opaque_repeat_grid(SDL_Renderer *renderer, Capture *capture)
+{
+    SDL_Texture *sheet = SDL_CreateTexture(renderer, SDL_PIXELFORMAT_ARGB8888,
+        SDL_TEXTUREACCESS_TARGET, 32, 16);
+    scroll_pattern(renderer, sheet);
+    SDL_SetTextureBlendMode(sheet, SDL_BLENDMODE_NONE);
+    SDL_Texture *image = SDL_CreateTexture(renderer, SDL_PIXELFORMAT_ARGB8888,
+        SDL_TEXTUREACCESS_TARGET, 336, 336);
+    SDL_Texture *temp = SDL_CreateTexture(renderer, SDL_PIXELFORMAT_ARGB8888,
+        SDL_TEXTUREACCESS_TARGET, 336, 336);
+    SDL_SetTextureBlendMode(image, SDL_BLENDMODE_NONE);
+    SDL_SetTextureBlendMode(temp, SDL_BLENDMODE_NONE);
+    Uint16 ids[44 * 33];
+    for (int j = 0; j < 33; j++)
+        for (int i = 0; i < 40; i++)
+            ids[j * 40 + i] = i == 19 ? 2 + j % 4 : i < 19 ? 0 : 1;
+#ifdef SDL_RenderClear
+    POCKET_grid_repeat_fast = true;
+#endif
+    scroll_pattern(renderer, image);
+    draw_grid(renderer, sheet, ids, 40, 33, -3, -5, true);
+    exact_target(renderer, capture, "repeated grid clipped");
+    scroll_offset(renderer, image, temp, -7, -3);
+    draw_grid(renderer, sheet, ids, 40, 33, 0, -3, true);
+    exact_target(renderer, capture, "repeated grid circular");
+    SDL_SetRenderTarget(renderer, sheet);
+    SDL_SetRenderDrawColor(renderer, 255, 32, 64, 255);
+    const SDL_FRect patch = {1, 1, 3, 3};
+    SDL_RenderFillRect(renderer, &patch);
+    SDL_SetRenderTarget(renderer, image);
+    draw_grid(renderer, sheet, ids, 40, 33, 0, -7, true);
+    exact_target(renderer, capture, "repeated grid source changed");
+    ids[0] = 7;
+    draw_grid(renderer, sheet, ids, 40, 33, 1, 0, true);
+    exact_target(renderer, capture, "repeated grid wider palette fallback");
+    for (int j = 0; j < 33; j++)
+        for (int i = 0; i < 44; i++)
+            ids[j * 44 + i] = i == 0 ? 5 : i == 19 ? 2 + j % 4 : i < 19 ? 0 : 1;
+    draw_grid(renderer, sheet, ids, 44, 33, -7, -7, true);
+    exact_target(renderer, capture, "repeated grid max clip changed IDs");
+    SDL_SetRenderTarget(renderer, NULL);
+    SDL_DestroyTexture(image);
+    SDL_DestroyTexture(temp);
+    SDL_DestroyTexture(sheet);
+}
+
 static void keyed_span_patterns(SDL_Renderer *renderer, Capture *capture)
 {
     Uint32 pixels[128 * 128];
@@ -1554,6 +1601,7 @@ void RENDER_OPS(SDL_Renderer *renderer, Capture *capture)
     opaque_grid_timing(renderer);
     keyed_span_timing(renderer);
 #endif
+    opaque_repeat_grid(renderer, capture);
     keyed_span_patterns(renderer, capture);
     keyed_grid(renderer, capture);
     recolor_tile_layer(renderer, capture);

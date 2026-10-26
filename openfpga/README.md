@@ -131,7 +131,7 @@ animation. Both mini-towers run from both entrances at cameras 0, 192, 384 and
 directions. There are 104 cases and 25,920 measured frames. Allow roughly
 15–25 minutes on Pocket; slow frames may make it longer.
 
-The `Sweep v6` counter shows the current case, stabilizer state and frame
+The `Sweep v7` counter shows the current case, stabilizer state and frame
 progress while running. Its overlay drawing cost is excluded from frame/draw
 timings. Results are drawn directly onto the presented window; A advances
 through the pages (one focused page, three exhaustive pages). The focused
@@ -153,7 +153,7 @@ time, alongside its worst single frame across all views. Logic/draw timings
 are included for the top three cases. The tower detail rows split each tower's
 worst frame (across both states/entrances) into background-update (`B`) and
 foreground (`F`) time. `C` marks a colour change, `R` a full background rebuild;
-`P` marks a retained palette update; `-` means that event did not occur. These costs are already inside the frame's
+`P` marks a retained palette update, `S` cached background strips; `-` means that event did not occur. These costs are already inside the frame's
 logic/draw totals: the fixed update renders the background, so its work appears
 under logic. `+` means the stabilizer is off; `-` means on. Capture each result page.
 Host coverage uses `make host-render HOST_BENCH_SMOKE=1 FINAL_SWEEP=1
@@ -182,6 +182,16 @@ palette families, modulation and allocation failures retain the full-upload
 fallback. The 320x248 tower layer retains about 5 KiB of tile IDs. Host checks
 compare all 900 shipped palette pairs and 120 colour/scroll/camera-jump frames
 with redraws, including arbitrary RGB565 colour mappings.
+
+Opaque grids using a small palette (up to six consecutive tile IDs) expand
+repeated tile rows into cached RGB565 strips, merging adjacent identical tiles
+into one copy. The tower background uses six tile types, so this reduces the
+many short tile-row copies during colour rebuilds. The cache uses about 33 KiB
+and expands only tiles that actually repeat; source identity, revision and
+palette range invalidate it. Incoming map IDs are read every draw, so map edits
+remain visible. Larger tile ranges and allocation failures retain individual
+tile copies. Clipped edges, ring destinations, source changes and wider-palette
+fallbacks are compared against SDL; background checks include changing colours.
 
 The Gravitron split reports background update/drawing and enemy spawning,
 movement (including physics and wall collisions), pair collisions,

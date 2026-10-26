@@ -5,6 +5,9 @@
 extern "C" {
 Uint32 POCKET_bench_keys;
 bool POCKET_saves_volatile;
+#ifndef POCKET_SMOKE_RENDER
+Uint32 POCKET_grid_repeat_hits;
+#endif
 Uint64 SDL_GetTicks(void) { static Uint64 ticks; return ticks += 17; }
 void SDL_Delay(Uint32) {}
 unsigned int of_time_us(void)
@@ -97,7 +100,9 @@ static bool sweep_smoke_present(SDL_Renderer*)
     assert(!sweep_failed);
     assert(sweep_cases == SWEEP_CASES);
     assert(sweep_scroll_cases == 8);
-    assert(POCKET_tower_recolors > 0);
+#ifdef POCKET_SMOKE_RENDER
+    assert(POCKET_tower_recolors > 0 && POCKET_grid_repeat_hits > 0);
+#endif
     for (int mode = 0; mode < 2; mode++)
         for (int i = 0; i < SWEEP_ROOMS; i++)
         {

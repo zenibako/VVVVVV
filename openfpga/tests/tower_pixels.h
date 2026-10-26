@@ -1,3 +1,6 @@
+#ifdef POCKET_SMOKE_RENDER
+extern "C" bool POCKET_grid_repeat_fast;
+#endif
 /* Row batching must preserve the original signed division and wrapping. */
 static void check_tower_rows(void)
 {
@@ -109,6 +112,27 @@ static void check_tower_pixels(void)
         }
         elapsed[mode] = (SDL_GetPerformanceCounter() - start) * 1000000 / SDL_GetPerformanceFrequency() / 100;
     }
+    Uint64 strip_elapsed[2];
+    for (int mode = 0; mode < 2; mode++)
+    {
+        POCKET_tower_grid_fast = true;
+        POCKET_grid_repeat_fast = mode != 0;
+        const Uint64 start = SDL_GetPerformanceCounter();
+        for (int frame = 0; frame < 120; frame++)
+        {
+            bg[mode].colstate = frame % 30;
+            bg[mode].bypos = 491 + frame % 8;
+            bg[mode].bscroll = 3;
+            bg[mode].scrolldir = 1;
+            bg[mode].tdrawback = true;
+            graphics.updatetowerbackground(bg[mode]);
+        }
+        strip_elapsed[mode] = SDL_GetPerformanceCounter() - start;
+    }
+    POCKET_grid_repeat_fast = true;
+    const double strip_scale = 1000000.0 / SDL_GetPerformanceFrequency() / 120;
+    printf("HOST background colour rebuild us: tile grid %.1f repeated strips %.1f (not Pocket timing)\n",
+        strip_elapsed[0] * strip_scale, strip_elapsed[1] * strip_scale);
     graphics.set_render_target(target);
     SDL_DestroyTexture(bg[0].texture);
     SDL_DestroyTexture(bg[1].texture);

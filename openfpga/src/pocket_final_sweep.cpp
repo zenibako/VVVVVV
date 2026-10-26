@@ -20,6 +20,7 @@
 
 extern "C" Uint32 POCKET_bench_keys;
 extern "C" bool POCKET_saves_volatile;
+extern "C" Uint32 POCKET_grid_repeat_hits;
 extern Uint32 POCKET_bg_scroll, POCKET_bg_us, POCKET_bg_full, POCKET_tower_fg_us, POCKET_tower_recolors;
 PocketBenchProfile POCKET_grav_profile;
 bool POCKET_grav_draw_active;
@@ -30,7 +31,7 @@ static const int sweep_cameras[] = {0, 192, 384, 568, -1};
 struct SweepResult
 {
     Uint32 average, logic, draw, worst, peak_logic, peak_draw, peak_bg, peak_fg;
-    bool peak_colour, peak_full, peak_palette;
+    bool peak_colour, peak_full, peak_palette, peak_strips;
     int camera, entry, views;
 };
 static SweepResult sweep_results[SWEEP_ROOMS * 2];
@@ -48,9 +49,9 @@ static Uint32 sweep_loop_start, sweep_logic_start, sweep_draw_start, sweep_logic
 static Uint32 sweep_overlay_us;
 static Uint64 sweep_sum, sweep_logic_sum, sweep_draw_sum;
 static Uint32 sweep_worst, sweep_peak_logic, sweep_peak_draw, sweep_peak_bg, sweep_peak_fg;
-static Uint32 sweep_bg_start, sweep_fg_start, sweep_full_start, sweep_palette_start;
+static Uint32 sweep_bg_start, sweep_fg_start, sweep_full_start, sweep_palette_start, sweep_strips_start;
 static int sweep_colour_start;
-static bool sweep_peak_colour, sweep_peak_full, sweep_peak_palette;
+static bool sweep_peak_colour, sweep_peak_full, sweep_peak_palette, sweep_peak_strips;
 static int sweep_frames;
 #ifdef POCKET_FINAL_SWEEP_ALL
 enum { SWEEP_CASES = 104, SWEEP_VIEWS_PER_TOWER = 10, SWEEP_REPORT_ROWS = 80 };
@@ -174,7 +175,7 @@ static void sweep_load(void)
     sweep_tick = -1;
     sweep_sum = sweep_logic_sum = sweep_draw_sum = 0;
     sweep_worst = sweep_peak_logic = sweep_peak_draw = sweep_peak_bg = sweep_peak_fg = 0;
-    sweep_peak_colour = sweep_peak_full = sweep_peak_palette = false;
+    sweep_peak_colour = sweep_peak_full = sweep_peak_palette = sweep_peak_strips = false;
     sweep_frames = 0;
     sweep_colours = sweep_phases = 0;
     sweep_scroll_frames = 0;
@@ -210,6 +211,7 @@ static void sweep_finish_case(void)
         result.peak_colour = sweep_peak_colour;
         result.peak_full = sweep_peak_full;
         result.peak_palette = sweep_peak_palette;
+        result.peak_strips = sweep_peak_strips;
     }
     result.views++;
     sweep_cases++;
@@ -308,6 +310,7 @@ void POCKET_BenchLoopStart(void)
     sweep_fg_start = POCKET_tower_fg_us;
     sweep_full_start = POCKET_bg_full;
     sweep_palette_start = POCKET_tower_recolors;
+    sweep_strips_start = POCKET_grid_repeat_hits;
     sweep_colour_start = graphics.towerbg.colstate;
 }
 void POCKET_BenchLoopEnd(void)
@@ -327,6 +330,7 @@ void POCKET_BenchLoopEnd(void)
         sweep_peak_colour = graphics.towerbg.colstate != sweep_colour_start;
         sweep_peak_full = POCKET_bg_full != sweep_full_start;
         sweep_peak_palette = POCKET_tower_recolors != sweep_palette_start;
+        sweep_peak_strips = POCKET_grid_repeat_hits != sweep_strips_start;
     }
     sweep_frames++;
     if (sweep_scrolling && graphics.towerbg.bscroll != 0) sweep_scroll_frames++;
@@ -342,7 +346,7 @@ void POCKET_BenchDraw(void)
         if (!sweep_started) return;
         const Uint32 overlay_start = of_time_us();
         const int progress = SDL_max(0,sweep_tick-SWEEP_WARMUP+1)/20*20;
-        SDL_snprintf(sweep_status,sizeof(sweep_status),"Sweep v6 %3d/%d %c %02d,%02d %3d/%d",
+        SDL_snprintf(sweep_status,sizeof(sweep_status),"Sweep v7 %3d/%d %c %02d,%02d %3d/%d",
             sweep_cases+1,SWEEP_CASES,sweep_mode?'+':'-',final_rooms[sweep_room].x,final_rooms[sweep_room].y,
             progress,sweep_duration());
         graphics.set_render_target(NULL);
@@ -355,7 +359,7 @@ void POCKET_BenchDraw(void)
     }
     if (sweep_report.size() == 0)
     {
-        sweep_report.add(SWEEP_CASES==104?"Full sweep v6: 34 rooms, worst view first":"Final focus v6: 8 problem rooms");
+        sweep_report.add(SWEEP_CASES==104?"Full sweep v7: 34 rooms, worst view first":"Final focus v7: 8 problem rooms");
         sweep_report.add("+ stabilizer off; - on; times in ms");
         sweep_report.add("room +/- mean peak name");
         if (sweep_failed) sweep_report.add("INVALID FIXTURE: no ranking available");
@@ -404,12 +408,12 @@ void POCKET_BenchDraw(void)
                 {
                     const int mode = sweep_results[SWEEP_ROOMS + i].worst > sweep_results[i].worst ? 1 : 0;
                     const SweepResult& r = sweep_results[mode * SWEEP_ROOMS + i];
-                    sweep_report.add("%02d,%02d %c B%4.1f F%4.1f %c%c%c", final_rooms[i].x, final_rooms[i].y,
+                    sweep_report.add("%02d,%02d %c B%4.1f F%4.1f %c%c%c%c", final_rooms[i].x, final_rooms[i].y,
                         mode ? '+' : '-', r.peak_bg/1000.0, r.peak_fg/1000.0,
-                        r.peak_colour ? 'C' : '-', r.peak_full ? 'R' : '-', r.peak_palette ? 'P' : '-');
+                        r.peak_colour ? 'C' : '-', r.peak_full ? 'R' : '-', r.peak_palette ? 'P' : '-', r.peak_strips ? 'S' : '-');
                 }
         }
-        sweep_report.add("P: retained palette update on peak frame");
+        sweep_report.add("P: foreground palette; S: bg strips");
         sweep_report.add("240/360 frames/view; budget 34 ms; A: next");
     }
     sweep_report.next(key.isDown(SDL_GAMEPAD_BUTTON_SOUTH) || key.isDown(SDLK_SPACE));
