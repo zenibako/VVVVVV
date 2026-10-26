@@ -259,7 +259,7 @@ $(foreach src,Font Game Input KeyPoll Render ButtonGlyphs,$(call host_object,$(G
 $(call host_object,$(BENCH_SMOKE_SRC)): \
 	$(OPENFPGA_ROOT)/src/pocket_final_sweep.cpp $(OPENFPGA_ROOT)/src/pocket_final_rooms.h \
 	$(OPENFPGA_ROOT)/src/pocket_bench.cpp $(OPENFPGA_ROOT)/src/pocket_bench.h $(OPENFPGA_ROOT)/src/pocket_bench_report.h \
-	$(OPENFPGA_ROOT)/src/pocket_bench_profile.h $(OPENFPGA_ROOT)/tests/clock_pixels.h $(OPENFPGA_ROOT)/tests/final_room.h $(OPENFPGA_ROOT)/tests/font_alpha_pixels.h $(OPENFPGA_ROOT)/tests/controls.h $(OPENFPGA_ROOT)/tests/background_pixels.h $(OPENFPGA_ROOT)/tests/tower_pixels.h $(GAME_ROOT)/src/Font.h
+	$(OPENFPGA_ROOT)/src/pocket_bench_profile.h $(OPENFPGA_ROOT)/tests/clock_pixels.h $(OPENFPGA_ROOT)/tests/final_room.h $(OPENFPGA_ROOT)/tests/font_alpha_pixels.h $(OPENFPGA_ROOT)/tests/controls.h $(OPENFPGA_ROOT)/tests/background_pixels.h $(OPENFPGA_ROOT)/tests/tower_pixels.h $(OPENFPGA_ROOT)/tests/tower_recolor.h $(GAME_ROOT)/src/Font.h
 endif
 
 define HOST_C_RULE
@@ -341,7 +341,7 @@ $(call host_render_object,$(BENCH_SMOKE_SRC)): HOST_DEFS += -DPOCKET_SMOKE_RENDE
 $(call host_render_object,$(BENCH_SMOKE_SRC)): \
 	$(OPENFPGA_ROOT)/src/pocket_final_sweep.cpp $(OPENFPGA_ROOT)/src/pocket_final_rooms.h \
 	$(OPENFPGA_ROOT)/src/pocket_bench.cpp $(OPENFPGA_ROOT)/src/pocket_bench.h $(OPENFPGA_ROOT)/src/pocket_bench_report.h \
-	$(OPENFPGA_ROOT)/src/pocket_bench_profile.h $(OPENFPGA_ROOT)/tests/clock_pixels.h $(OPENFPGA_ROOT)/tests/final_room.h $(OPENFPGA_ROOT)/tests/font_alpha_pixels.h $(OPENFPGA_ROOT)/tests/controls.h $(OPENFPGA_ROOT)/tests/background_pixels.h $(OPENFPGA_ROOT)/tests/tower_pixels.h $(GAME_ROOT)/src/Font.h
+	$(OPENFPGA_ROOT)/src/pocket_bench_profile.h $(OPENFPGA_ROOT)/tests/clock_pixels.h $(OPENFPGA_ROOT)/tests/final_room.h $(OPENFPGA_ROOT)/tests/font_alpha_pixels.h $(OPENFPGA_ROOT)/tests/controls.h $(OPENFPGA_ROOT)/tests/background_pixels.h $(OPENFPGA_ROOT)/tests/tower_pixels.h $(OPENFPGA_ROOT)/tests/tower_recolor.h $(GAME_ROOT)/src/Font.h
 else
 HOST_RENDER_OBJS += $(HOST_RENDER_DIR)/obj/present.o
 endif

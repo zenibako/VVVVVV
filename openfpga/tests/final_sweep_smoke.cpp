@@ -97,6 +97,7 @@ static bool sweep_smoke_present(SDL_Renderer*)
     assert(!sweep_failed);
     assert(sweep_cases == SWEEP_CASES);
     assert(sweep_scroll_cases == 8);
+    assert(POCKET_tower_recolors > 0);
     for (int mode = 0; mode < 2; mode++)
         for (int i = 0; i < SWEEP_ROOMS; i++)
         {

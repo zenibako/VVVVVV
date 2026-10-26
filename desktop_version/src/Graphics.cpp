@@ -867,7 +867,8 @@ void Graphics::drawtile2(int x, int y, int t)
 /* For the benchmark: time spent updating the tower's background, and the
  * tiles it and drawtile3 drew. */
 Uint32 POCKET_bg_us, POCKET_bg_tiles, POCKET_bg_full, POCKET_bg_scroll;
-Uint32 POCKET_tower_fg_us;
+Uint32 POCKET_tower_fg_us, POCKET_tower_recolors;
+bool POCKET_tower_recolor_fast = true;
 Uint32 POCKET_final_rebuild_us, POCKET_final_copy_us, POCKET_final_rebuilds, POCKET_final_grid_hits;
 bool POCKET_final_grid_fast = true;
 bool POCKET_final_copy_fast = true;
@@ -3099,6 +3100,7 @@ extern "C" POCKET_TileLayer* POCKET_CreateTileLayer(int w, int h);
 extern "C" bool POCKET_TileSheetIsKeyed(SDL_Texture* sheet);
 extern "C" void POCKET_ShiftTileLayer(POCKET_TileLayer* layer, int dy);
 extern "C" void POCKET_ClearTileLayer(POCKET_TileLayer* layer);
+extern "C" bool POCKET_RecolorTileLayer(POCKET_TileLayer*, SDL_Texture*, int, int, int);
 extern "C" bool POCKET_PutTileGrid(POCKET_TileLayer* layer, SDL_Texture* sheet, const int* ids, int columns, int rows, int y);
 extern "C" void POCKET_PutTile(POCKET_TileLayer* layer, SDL_Texture* sheet, int sx, int sy, int x, int y, int w, int h);
 extern "C" bool POCKET_DrawTileLayer(SDL_Renderer* renderer, POCKET_TileLayer* layer, int src_y);
@@ -3111,6 +3113,9 @@ extern "C" bool POCKET_tower_grid_fast;
 #endif
 
 
+#ifndef POCKET_BENCH
+#define POCKET_tower_recolor_fast true
+#endif
 static bool tower_texture_valid = false;
 
 /* The tower's tiles are wholly opaque or clear, so where the sheet allows
@@ -3149,13 +3154,18 @@ static bool drawtowermap_layer(Graphics& g, const int yoff)
     int first = 0;
     int count = rows;
     if (valid
-    && cached_colstate == g.towerbg.colstate
     && cached_tiles == sheet
     && cached_minitower == map.tower.minitowermode
     && cached_roomx == game.roomx
     && cached_roomy == game.roomy
-    && SDL_abs(top - cached_top) < rows)
+    && SDL_abs(top - cached_top) < rows
+    && (cached_colstate == g.towerbg.colstate
+        || (POCKET_tower_recolor_fast
+            && POCKET_RecolorTileLayer(layer, sheet, cached_colstate * 30, g.towerbg.colstate * 30, 30))))
     {
+#ifdef POCKET_BENCH
+        if (cached_colstate != g.towerbg.colstate) POCKET_tower_recolors++;
+#endif
         const int moved = top - cached_top;
         POCKET_ShiftTileLayer(layer, -moved * 8);
         first = moved > 0 ? rows - moved : 0;

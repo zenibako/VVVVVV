@@ -109,7 +109,9 @@ typedef struct Texture
     int copies_since_change;
     /* Counts changes to the pixels, for what is kept made from them. */
     Uint32 changes;
+    Uint64 serial; /* distinguishes recycled texture pointers/property slots */
 } Texture;
+static Uint64 texture_serial;
 
 enum
 {
@@ -660,6 +662,7 @@ static bool check_texture(const SDL_Texture *texture)
 }
 
 static void forget_keyed_sheet(const Texture *t);
+static void forget_palette_sheet(const Texture *t);
 static void forget_repeat_sheet(const Texture *t);
 
 SDL_Renderer *SDL_CreateRenderer(SDL_Window *window, const char *name)
@@ -789,6 +792,7 @@ SDL_Texture *SDL_CreateTexture(SDL_Renderer *renderer, SDL_PixelFormat format, S
             return NULL;
         }
     }
+    t->serial = ++texture_serial;
     t->props = register_properties(t);
     if (t->props == 0)
     {
@@ -851,6 +855,7 @@ void SDL_DestroyTexture(SDL_Texture *texture)
     }
     begin_change(t, false);
     forget_keyed_sheet(t);
+    forget_palette_sheet(t);
     forget_repeat_sheet(t);
     free_runs(t);
     SDL_free(t->buffer565);
@@ -2054,6 +2059,10 @@ struct POCKET_TileLayer
     Uint16 *run_count;
     int run_cap;
     Uint8 *dirty;
+    Uint64 source_serial;
+    Uint32 source_changes;
+    int *tile_ids; /* physical tile rows, retained for colour-only uploads */
+    bool source_valid; /* all retained pixels came from this sheet revision */
 };
 
 static inline int layer_row(const POCKET_TileLayer *layer, int y)
@@ -2073,6 +2082,7 @@ void POCKET_DestroyTileLayer(POCKET_TileLayer *layer)
     SDL_free(layer->runs);
     SDL_free(layer->run_count);
     SDL_free(layer->dirty);
+    SDL_free(layer->tile_ids);
     SDL_free(layer);
 }
 
@@ -2106,6 +2116,7 @@ bool POCKET_TileSheetIsKeyed(SDL_Texture *sheet)
 {
     static const Texture *checked;
     static Uint32 checked_changes;
+    static Uint64 checked_serial;
     static bool keyed;
     if (!check_texture(sheet))
     {
@@ -2116,7 +2127,7 @@ bool POCKET_TileSheetIsKeyed(SDL_Texture *sheet)
     {
         return false;
     }
-    if (t != checked || t->changes != checked_changes)
+    if (t != checked || t->serial != checked_serial || t->changes != checked_changes)
     {
         keyed = true;
         const size_t count = (size_t) t->texture.w * t->texture.h;
@@ -2126,6 +2137,7 @@ bool POCKET_TileSheetIsKeyed(SDL_Texture *sheet)
             keyed = a == 0 || a == 255;
         }
         checked = t;
+        checked_serial = t->serial;
         checked_changes = t->changes;
     }
     return keyed;
@@ -2242,6 +2254,7 @@ bool POCKET_keyed_spans_fast = true;
  * exposes are clear. */
 void POCKET_ShiftTileLayer(POCKET_TileLayer *layer, int dy)
 {
+    if (dy % 8 != 0 || layer->h % 8 != 0) layer->source_valid = false;
     const int h = layer->h;
     const int exposed = SDL_min(dy > 0 ? dy : -dy, h);
     const int first = dy > 0 ? 0 : h - exposed;
@@ -2251,11 +2264,15 @@ void POCKET_ShiftTileLayer(POCKET_TileLayer *layer, int dy)
         const int k = layer_row(layer, y);
         SDL_memset(layer->mask + (size_t) k * layer->w, 0, (size_t) layer->w);
         layer->dirty[k] = 1;
+        if (layer->source_valid && k % 8 == 0)
+            for (int x = 0; x < layer->w / 8; x++)
+                layer->tile_ids[k / 8 * (layer->w / 8) + x] = -1;
     }
 }
 
 void POCKET_ClearTileLayer(POCKET_TileLayer *layer)
 {
+    layer->source_valid = false;
     SDL_memset(layer->mask, 0, (size_t) layer->w * layer->h);
     SDL_memset(layer->dirty, 1, (size_t) layer->h);
 }
@@ -2273,6 +2290,7 @@ void POCKET_PutTile(POCKET_TileLayer *layer, SDL_Texture *sheet, int sx, int sy,
     {
         return;
     }
+    layer->source_valid = false;
     if (keep_keyed_sheet(t))
     {
         for (int row = clip.y; row < clip.y + clip.h; row++)
@@ -2319,6 +2337,21 @@ bool POCKET_PutTileGrid(POCKET_TileLayer *layer, SDL_Texture *sheet,
     for (int i = 0; i < columns * rows; i++)
         if (ids[i] < -1 || ids[i] >= tiles) return false;
     if (!keep_keyed_sheet(t)) return false;
+    if (y == 0 && rows * 8 == layer->h && layer->row0 % 8 == 0)
+    {
+        if (layer->tile_ids == NULL)
+            layer->tile_ids = (int *) SDL_malloc((size_t) columns * rows * sizeof(int));
+        layer->source_serial = t->serial;
+        layer->source_changes = t->changes;
+        layer->source_valid = layer->tile_ids != NULL;
+    }
+    else if (layer->source_serial != t->serial || layer->source_changes != t->changes
+        || layer->row0 % 8 != 0 || layer->h % 8 != 0)
+        layer->source_valid = false;
+    if (layer->source_valid)
+        for (int j = 0; j < rows; j++)
+            SDL_memcpy(layer->tile_ids + (size_t) (layer_row(layer, y + j * 8) / 8) * columns,
+                ids + (size_t) j * columns, (size_t) columns * sizeof(int));
     prepare_keyed_patterns();
     for (int j = 0; j < rows; j++)
     {
@@ -2353,6 +2386,89 @@ bool POCKET_PutTileGrid(POCKET_TileLayer *layer, SDL_Texture *sheet,
             layer->run_count[k] = (Uint16) n;
             layer->dirty[k] = !POCKET_keyed_spans_fast;
         }
+    }
+    return true;
+}
+
+/* Validate stable tile transparency once per sheet revision. Keeping tile
+ * IDs allows ambiguous colour mappings too: copy the actual new tile pixels,
+ * rather than inferring them from the old RGB565 values. */
+static struct
+{
+    const Texture *of;
+    Uint32 changes;
+    int tiles;
+    bool valid;
+} palette_sheet;
+
+static void forget_palette_sheet(const Texture *t)
+{
+    if (palette_sheet.of == t) SDL_zero(palette_sheet);
+}
+
+static bool keep_palette_sheet(const Texture *t, int tiles)
+{
+    if (palette_sheet.of == t && palette_sheet.changes == t->changes && palette_sheet.tiles == tiles)
+        return palette_sheet.valid;
+    palette_sheet.of = t;
+    palette_sheet.changes = t->changes;
+    palette_sheet.tiles = tiles;
+    palette_sheet.valid = false;
+    const int columns = t->texture.w / 8;
+    const int count = columns * (t->texture.h / 8);
+    if (count % tiles) return false;
+    for (int tile = tiles; tile < count; tile++)
+    {
+        const size_t base = (size_t) (tile / columns) * 8 * t->texture.w + tile % columns * 8;
+        const int original = tile % tiles;
+        const size_t first = (size_t) (original / columns) * 8 * t->texture.w + original % columns * 8;
+        for (int y = 0; y < 8; y++)
+            if (keyed_sheet.bits[base / 8 + (size_t) y * columns]
+                != keyed_sheet.bits[first / 8 + (size_t) y * columns]) return false;
+    }
+    palette_sheet.valid = true;
+    return true;
+}
+
+/* Upload only colours for the retained tile IDs. Masks and spans remain
+ * valid because every corresponding palette tile has identical alpha.
+ * Validate the source revision and every old tile before writing anything. */
+bool POCKET_RecolorTileLayer(POCKET_TileLayer *layer, SDL_Texture *sheet,
+    int from, int to, int tiles)
+{
+    if (layer == NULL || !POCKET_TileSheetIsKeyed(sheet)) return false;
+    const Texture *t = texture_data(sheet);
+    if (!layer->source_valid || layer->source_serial != t->serial || layer->source_changes != t->changes
+        || t->texture.w % 8 || t->texture.h % 8
+        || (t->mod_r & t->mod_g & t->mod_b & t->mod_a) != 255) return false;
+    const int count = (t->texture.w / 8) * (t->texture.h / 8);
+    if (from < 0 || to < 0 || tiles <= 0 || tiles > count
+        || from > count - tiles || to > count - tiles || from % tiles || to % tiles) return false;
+    const int columns = layer->w / 8, rows = layer->h / 8;
+    for (int i = 0; i < columns * rows; i++)
+        if (layer->tile_ids[i] >= 0 && (layer->tile_ids[i] < from || layer->tile_ids[i] >= from + tiles)) return false;
+    for (int k = 0; k < layer->h; k++) if (layer->dirty[k]) return false;
+    if (!keep_keyed_sheet(t) || !keep_palette_sheet(t, tiles)) return false;
+    const int sheet_columns = t->texture.w / 8;
+    for (int j = 0; j < rows; j++)
+    {
+        size_t source[64];
+        for (int i = 0; i < columns; i++)
+        {
+            int *id = &layer->tile_ids[j * columns + i];
+            if (*id < 0) { source[i] = 0; continue; }
+            *id += to - from;
+            source[i] = (size_t) (*id / sheet_columns) * 8 * t->texture.w + *id % sheet_columns * 8;
+        }
+        for (int y = 0; y < 8; y++)
+            for (int i = 0; i < columns; i++)
+                if (layer->tile_ids[j * columns + i] >= 0)
+                {
+                    const size_t at = source[i] + (size_t) y * t->texture.w;
+                    if (keyed_sheet.bits[at / 8])
+                        SDL_memcpy(layer->color + (size_t) (j * 8 + y) * layer->w + i * 8,
+                            keyed_sheet.color + at, 16);
+                }
     }
     return true;
 }

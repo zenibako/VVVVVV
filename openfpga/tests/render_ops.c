@@ -27,6 +27,7 @@ void POCKET_ClearTileLayer(POCKET_TileLayer *layer);
 void POCKET_PutTile(POCKET_TileLayer *layer, SDL_Texture *sheet, int sx, int sy, int x, int y, int w, int h);
 bool POCKET_PutTileGrid(POCKET_TileLayer*, SDL_Texture*, const int*, int, int, int);
 bool POCKET_DrawTileLayer(SDL_Renderer *renderer, POCKET_TileLayer *layer, int src_y);
+bool POCKET_RecolorTileLayer(POCKET_TileLayer*, SDL_Texture*, int, int, int);
 bool POCKET_CopyOpaqueTile(SDL_Renderer *renderer, SDL_Texture *sheet, int sx, int sy, int x, int y, int w, int h);
 #endif
 
@@ -1158,6 +1159,110 @@ static void put_keyed_grid(SDL_Renderer *renderer, SDL_Texture *sheet, const int
 #endif
 }
 
+static void recolor_tile_layer(SDL_Renderer *renderer, Capture *capture)
+{
+    Uint32 pixels[16 * 16];
+    for (int y = 0; y < 16; y++)
+        for (int x = 0; x < 16; x++)
+            pixels[y * 16 + x] = (x + y % 8) % 3 == 0 ? 0
+                : ((x % 2) ^ (y / 8) ? 0xff00ff00u : 0xffff0000u);
+    SDL_Texture *sheet = SDL_CreateTexture(renderer, SDL_PIXELFORMAT_ARGB8888,
+        SDL_TEXTUREACCESS_STREAMING, 16, 16);
+    SDL_SetTextureBlendMode(sheet, SDL_BLENDMODE_BLEND);
+    SDL_UpdateTexture(sheet, NULL, pixels, 16 * 4);
+    SDL_Texture *target = SDL_CreateTexture(renderer, SDL_PIXELFORMAT_ARGB8888,
+        SDL_TEXTUREACCESS_TARGET, 16, 16);
+#ifdef SDL_RenderClear
+    POCKET_TileLayer *layer = POCKET_CreateTileLayer(16, 16);
+    const int original[] = {0, 1, 1, 0};
+    assert(POCKET_PutTileGrid(layer, sheet, original, 2, 2, 0));
+    assert(!POCKET_RecolorTileLayer(layer, sheet, 2, 0, 2));
+    assert(POCKET_RecolorTileLayer(layer, sheet, 0, 2, 2));
+#endif
+    for (int step = 0; step < 8; step++)
+    {
+        if (step == 7)
+        {
+            pixels[8 * 16 + 2] = 0xff0000ffu;
+            SDL_UpdateTexture(sheet, NULL, pixels, 16 * 4);
+        }
+        SDL_SetRenderTarget(renderer, target);
+        SDL_SetRenderDrawColor(renderer, 24, 64, 120, 255);
+        SDL_RenderClear(renderer);
+#ifdef SDL_RenderClear
+        if (step == 1)
+        {
+            POCKET_ShiftTileLayer(layer, -8);
+            const int exposed[] = {3, 2};
+            assert(POCKET_PutTileGrid(layer, sheet, exposed, 2, 1, 8));
+            assert(POCKET_RecolorTileLayer(layer, sheet, 2, 0, 2));
+        }
+        if (step == 2)
+        {
+            /* A changed source cannot recolour a layer built from its old
+             * generation, even if its pointer and colours still match. */
+            SDL_UpdateTexture(sheet, NULL, pixels, 16 * 4);
+            assert(!POCKET_RecolorTileLayer(layer, sheet, 0, 2, 2));
+        }
+        if (step == 3)
+        {
+            /* Altered transparency must reject without changing the layer. */
+            pixels[8 * 16 + 2] = 0;
+            SDL_UpdateTexture(sheet, NULL, pixels, 16 * 4);
+            const int current[] = {1, 0, 1, 0};
+            assert(POCKET_PutTileGrid(layer, sheet, current, 2, 2, 0));
+            assert(!POCKET_RecolorTileLayer(layer, sheet, 0, 2, 2));
+        }
+        if (step == 4)
+        {
+            pixels[8 * 16 + 2] = 0;
+            SDL_UpdateTexture(sheet, NULL, pixels, 16 * 4);
+            const int current[] = {1, 0, 1, 0};
+            assert(POCKET_PutTileGrid(layer, sheet, current, 2, 2, 0));
+            assert(!POCKET_RecolorTileLayer(layer, sheet, 0, 2, 2));
+        }
+        if (step == 5)
+        {
+            POCKET_PutTile(layer, sheet, 8, 0, 0, 0, 8, 8);
+            assert(!POCKET_RecolorTileLayer(layer, sheet, 0, 2, 2));
+        }
+        if (step == 6)
+        {
+            SDL_DestroyTexture(sheet);
+            sheet = SDL_CreateTexture(renderer, SDL_PIXELFORMAT_ARGB8888,
+                SDL_TEXTUREACCESS_STREAMING, 16, 16);
+            SDL_SetTextureBlendMode(sheet, SDL_BLENDMODE_BLEND);
+            SDL_UpdateTexture(sheet, NULL, pixels, 16 * 4);
+            assert(!POCKET_RecolorTileLayer(layer, sheet, 0, 2, 2));
+        }
+        if (step == 7)
+        {
+            const int current[] = {1, 0, 1, 0};
+            assert(POCKET_PutTileGrid(layer, sheet, current, 2, 2, 0));
+            assert(POCKET_RecolorTileLayer(layer, sheet, 0, 2, 2));
+        }
+        assert(POCKET_DrawTileLayer(renderer, layer, 0));
+#else
+        const int initial[] = {2, 3, 3, 2};
+        const int shifted[] = {1, 0, 1, 0};
+        for (int i = 0; i < 4; i++)
+        {
+            const int tile = step == 0 ? initial[i] : shifted[i] + (step == 7 ? 2 : 0);
+            const SDL_FRect src = {tile % 2 * 8, tile / 2 * 8, 8, 8};
+            const SDL_FRect dst = {i % 2 * 8, i / 2 * 8, 8, 8};
+            SDL_RenderTexture(renderer, sheet, &src, &dst);
+        }
+#endif
+        capture_target(renderer, capture, "retained palette geometry/rejection");
+    }
+#ifdef SDL_RenderClear
+    POCKET_DestroyTileLayer(layer);
+#endif
+    SDL_SetRenderTarget(renderer, NULL);
+    SDL_DestroyTexture(target);
+    SDL_DestroyTexture(sheet);
+}
+
 static void bulk_tile_grid(SDL_Renderer *renderer, Capture *capture)
 {
     Uint32 pixels[16 * 16];
@@ -1451,6 +1556,7 @@ void RENDER_OPS(SDL_Renderer *renderer, Capture *capture)
 #endif
     keyed_span_patterns(renderer, capture);
     keyed_grid(renderer, capture);
+    recolor_tile_layer(renderer, capture);
     bulk_tile_grid(renderer,capture);
     run_cache_patterns(renderer,capture);
     /* As Screen.cpp does; SDL's default is linear. */

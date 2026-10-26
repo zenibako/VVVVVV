@@ -40,6 +40,7 @@ static bool save_capture(SDL_Surface* surface, const char* path);
 #include "clock_pixels.h"
 #include "background_pixels.h"
 #include "tower_pixels.h"
+#include "tower_recolor.h"
 #include "font_alpha_pixels.h"
 #include "controls.h"
 #include "final_room.h"
@@ -193,6 +194,7 @@ static bool smoke_present(SDL_Renderer* renderer)
             printf("Gravitron smoke passed: %d frames, max %d enemies, timer %d, room %d,%d\n",
                 gravitron.frames, max_enemies, game.swntimer, game.roomx, game.roomy);
             check_final_pixels();
+            check_tower_recolor();
             exit(0);
         }
     }
