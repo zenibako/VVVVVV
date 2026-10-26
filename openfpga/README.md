@@ -111,6 +111,11 @@ both entrances at cameras 0, 192, 384 and 568, plus continuous native camera
 scrolling over their full height in both directions. There are 104 cases and
 25,920 measured frames, after 12 warmup frames per case. Allow roughly 15–25
 minutes on Pocket; slow frames may make it longer.
+The `Sweep v2` counter shows the current case, stabilizer state and frame
+progress while running. Its overlay drawing cost is excluded from frame/draw
+timings. Results are drawn directly onto the presented window; A advances
+through all three pages. Host checks compare these presented pixels against
+the expected progress/report images and exercise gamepad A paging.
 
 The sweep pins only the player at a clear, trigger-free position; enemies,
 platforms and gravity lines keep updating through the real main loop. It

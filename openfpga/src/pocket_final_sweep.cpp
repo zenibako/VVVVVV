@@ -34,6 +34,7 @@ struct SweepResult
 };
 static SweepResult sweep_results[SWEEP_ROOMS * 2];
 static PocketBenchReport sweep_report;
+static char sweep_status[48];
 static int sweep_room, sweep_mode, sweep_variant, sweep_tick = -1;
 static int sweep_x, sweep_y, sweep_camera, sweep_entry_y, sweep_cases, sweep_scroll_cases;
 static int sweep_scroll_x[72], sweep_scroll_y[72];
@@ -43,6 +44,7 @@ static unsigned sweep_colours, sweep_phases;
 static Uint32 sweep_scroll_calls_start;
 static bool sweep_started, sweep_done, sweep_failed, sweep_stepped;
 static Uint32 sweep_loop_start, sweep_logic_start, sweep_draw_start, sweep_logic_us, sweep_draw_us;
+static Uint32 sweep_overlay_us;
 static Uint64 sweep_sum, sweep_logic_sum, sweep_draw_sum;
 static Uint32 sweep_worst;
 static int sweep_frames;
@@ -258,11 +260,12 @@ void POCKET_BenchLoopStart(void)
     sweep_loop_start = of_time_us();
     sweep_stepped = false;
     sweep_logic_us = sweep_draw_us = 0;
+    sweep_overlay_us = 0;
 }
 void POCKET_BenchLoopEnd(void)
 {
     if (!sweep_stepped || sweep_done || sweep_tick < SWEEP_WARMUP) return;
-    const Uint32 elapsed = of_time_us() - sweep_loop_start;
+    const Uint32 elapsed = of_time_us() - sweep_loop_start - sweep_overlay_us;
     sweep_sum += elapsed;
     sweep_logic_sum += sweep_logic_us;
     sweep_draw_sum += sweep_draw_us;
@@ -273,13 +276,28 @@ void POCKET_BenchLoopEnd(void)
     sweep_phases |= 1u << map.final_aniframe;
 }
 void POCKET_BenchDrawStart(void) { sweep_draw_start = of_time_us(); }
-void POCKET_BenchDrawEnd(void) { sweep_draw_us += of_time_us() - sweep_draw_start; }
+void POCKET_BenchDrawEnd(void) { sweep_draw_us += of_time_us() - sweep_draw_start - sweep_overlay_us; }
 void POCKET_BenchDraw(void)
 {
-    if (!sweep_done) return;
+    if (!sweep_done)
+    {
+        if (!sweep_started) return;
+        const Uint32 overlay_start = of_time_us();
+        const int progress = SDL_max(0,sweep_tick-SWEEP_WARMUP+1)/20*20;
+        SDL_snprintf(sweep_status,sizeof(sweep_status),"Sweep v2 %3d/104 %c %02d,%02d %3d/%d",
+            sweep_cases+1,sweep_mode?'+':'-',final_rooms[sweep_room].x,final_rooms[sweep_room].y,
+            progress,sweep_duration());
+        graphics.set_render_target(NULL);
+        SDL_SetRenderDrawColor(gameScreen.m_renderer,0,0,0,255);
+        const SDL_FRect band = {0,0,320,10};
+        SDL_RenderFillRect(gameScreen.m_renderer,&band);
+        font::print(0,4,0,sweep_status,255,255,255);
+        sweep_overlay_us += of_time_us()-overlay_start;
+        return;
+    }
     if (sweep_report.size() == 0)
     {
-        sweep_report.add("Final sweep: 34 rooms, worst view first");
+        sweep_report.add("Final sweep v2: 34 rooms, worst view first");
         sweep_report.add("+ stabilizer off; - on; times in ms");
         sweep_report.add("room +/- mean peak name");
         if (sweep_failed) sweep_report.add("INVALID FIXTURE: no ranking available");
@@ -323,8 +341,10 @@ void POCKET_BenchDraw(void)
         sweep_report.add("both tower entrances; static + scroll views");
         sweep_report.add("240/360 frames/view; 34 ms budget; A: next");
     }
-    sweep_report.next(key.isDown(KEYBOARD_z) || key.isDown(KEYBOARD_SPACE));
-    graphics.set_render_target(graphics.gameTexture);
+    sweep_report.next(key.isDown(SDL_GAMEPAD_BUTTON_SOUTH) || key.isDown(SDLK_SPACE));
+    /* gamerender has already copied the frame to the window. Match the
+     * ordinary benchmark: draw the report onto the presented backbuffer. */
+    graphics.set_render_target(NULL);
     graphics.fill_rect(0,0,0);
     int y = 0;
     for (int i = sweep_report.first(); i < sweep_report.end(); i++, y += 8)
