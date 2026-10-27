@@ -124,6 +124,23 @@ class ReleaseTests(unittest.TestCase):
         self.assertIn(b"Terry Cavanagh", entries[CORE + "info.txt"])
         self.assertIn(b"save states", entries[CORE + "info.txt"])
 
+    def test_released_game_recommends_plugin_without_packaging_benchmark(self):
+        benchmark = self.sd / "Cores/zenibako.vvvvvvbench/updaters.json"
+        benchmark.parent.mkdir(parents=True)
+        benchmark.write_text('{"fixture": "benchmark must stay excluded"}')
+        out = self.release()
+        with zipfile.ZipFile(out / "vvvvvv-openfpga.zip") as archive:
+            updater_paths = [name for name in archive.namelist() if name.endswith("/updaters.json")]
+            self.assertEqual(updater_paths, [CORE + "updaters.json"])
+            updater = json.loads(archive.read(updater_paths[0]))
+            self.assertEqual(updater, {
+                "declare_ai": ["OpenAI Codex", "Claude Code"],
+                "plugins": ["https://github.com/zenibako/VVVVVV-pocket"],
+            })
+            metadata = json.loads(archive.read(CORE + "core.json"))["core"]["metadata"]
+            self.assertEqual(metadata["shortname"], "vvvvvv")
+            self.assertEqual(metadata["platform_ids"], ["vvvvvv"])
+
     def test_runtime_corruption_is_rejected(self):
         (self.sd / (COMMON + "os.bin")).write_bytes(b"corrupt")
         self.assertIsNotNone(self.module, "release assembler must exist")

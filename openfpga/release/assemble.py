@@ -105,7 +105,10 @@ def prepare_core(snapshot, version, release_date, runtime_lock):
     except (KeyError, TypeError) as error:
         raise ValueError("Invalid game core metadata") from error
     files[name] = json_bytes(core)
-    files[CORE + "updaters.json"] = json_bytes({"declare_ai": ["OpenAI Codex", "Claude Code"]})
+    files[CORE + "updaters.json"] = json_bytes({
+        "declare_ai": ["OpenAI Codex", "Claude Code"],
+        "plugins": ["https://github.com/zenibako/VVVVVV-pocket"],
+    })
     files[CORE + "info.txt"] = INFO.encode()
     return files
 
