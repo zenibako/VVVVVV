@@ -1,12 +1,12 @@
 # VVVVVV preparation and Pocket Sync plugin
 
 Approved in chat on 2026-10-26: keep the game, openfpgaOS port, preparation
-tools, plugin and release automation in zenibako/VVVVVV. Tools live under
+tools, plugin and release automation in zenibako/VVVVVV-pocket. Tools live under
 openfpga/tools; the game engine remains under desktop_version.
 
 ## Existing decisions
 
-- The [port plan](https://github.com/zenibako/VVVVVV/issues/1) requires owned
+- The [port plan](https://github.com/zenibako/VVVVVV-pocket/issues/1) requires owned
   data.zip, offline music conversion, immutable runtime pins and source notices.
 - The [Butterscotch install architecture](https://github.com/zenibako/butterscotch-pocket/blob/main/docs/superpowers/specs/2026-10-18-install-entrypoint-design.md)
   supplies the native/shared-library/plugin/release pattern. Its repository
@@ -41,7 +41,7 @@ Release assembly uses an explicit SD file allowlist and pinned runtime hashes.
 It excludes purchased inputs, converted music, saves, benchmarks and local
 metadata. Each release includes vvvvvv-openfpga.zip, plugin.wasm,
 plugin.json, native preparation tools, checksums and source/provenance notices.
-Catalog repository: zenibako/VVVVVV; ZIP filter: ^vvvvvv-openfpga\.zip$.
+Catalog repository: zenibako/VVVVVV-pocket; ZIP filter: ^vvvvvv-openfpga\.zip$.
 Publishing requires an explicit version/tag after reviewing the candidate.
 
 ## Verification

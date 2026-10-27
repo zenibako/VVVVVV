@@ -6,7 +6,7 @@ in [`openfpga/`](openfpga/). The shared C++ engine and game resources remain in
 [`desktop_version/`](desktop_version/) to follow upstream's layout.
 
 - [Build, test and install the Pocket port](openfpga/README.md)
-- [Port plan and progress](https://github.com/zenibako/VVVVVV/issues/1)
+- [Port plan and progress](https://github.com/zenibako/VVVVVV-pocket/issues/1)
 - [Upstream VVVVVV](https://github.com/TerryCavanagh/VVVVVV)
 
 You must supply your own `data.zip`; no commercial game data is included.

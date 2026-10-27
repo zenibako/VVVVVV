@@ -7,7 +7,7 @@ port is based on the VVVVVV source code. The `openfpga/` directory names
 the port; its hardware target remains the Analogue Pocket.
 
 The port is in progress. The plan and its phases are tracked in
-[zenibako/VVVVVV#1](https://github.com/zenibako/VVVVVV/issues/1).
+[zenibako/VVVVVV-pocket#1](https://github.com/zenibako/VVVVVV-pocket/issues/1).
 
 No game data is included. You need your own `data.zip`.
 
@@ -23,6 +23,7 @@ No game data is included. You need your own `data.zip`.
 | `host/` | Shows the port's renderer in a desktop window for `make host-render` |
 | `src/` | Pocket-only code: the sound player that stands in for FAudio |
 | `fonts/` | The game's button fonts with Pocket glyphs added (generated) |
+| `assets/branding/` | Artwork provenance and the platform banner preview |
 | `tests/` | Host checks for the compat headers, the save archive, the renderer and the sound player |
 
 The game sources in `../desktop_version/src` build with the same C++98 flags as the desktop
@@ -47,6 +48,13 @@ lang folders zipped as `vvvvvv-repo.zip`, laid out like the Android build's
 `repo.zip` because openfpgaOS has no directories. Copy it to the root of
 the card and add your `data.zip` as `Assets/vvvvvv/common/data.zip`. For
 now the Chinese, Japanese and Korean fonts are left out to save memory.
+
+The package includes the VVVVVV logo as `Platforms/_images/vvvvvv.bin`, using
+the Pocket's monochrome platform-banner format. Pocket Sync uses the original
+Captain Viridian app icon as the plugin's `plugin_icon.png` release asset.
+Regenerate both from the checked-in game artwork with
+`python3 openfpga/scripts/make-branding.py` (Python 3 and Pillow, from the
+repository root). See [artwork provenance](assets/branding/README.md).
 
 `make test` runs the compat-header, save-archive and sound checks on the
 host with AddressSanitizer and UBSan.

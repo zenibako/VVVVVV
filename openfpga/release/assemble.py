@@ -23,7 +23,8 @@ CORE_FILES = (
 )
 SD_FILES = tuple(CORE + name for name in CORE_FILES) + tuple(
     COMMON + name for name in ("os.bin", "vvvvvv.elf", "vvvvvv.ini", "vvvvvv-repo.zip")
-) + ("Assets/vvvvvv/zenibako.vvvvvv/vvvvvv.json", "Platforms/vvvvvv.json")
+) + ("Assets/vvvvvv/zenibako.vvvvvv/vvvvvv.json", "Platforms/vvvvvv.json",
+     "Platforms/_images/vvvvvv.bin")
 RUNTIME_FILES = (CORE + "os20.rbf_r", CORE + "loader.bin", COMMON + "os.bin")
 NATIVES = tuple(f"prepare-data-{system}-{arch}" + (".exe" if system == "windows" else "")
                 for system in ("darwin", "linux", "windows") for arch in ("amd64", "arm64"))
@@ -246,6 +247,7 @@ proprietary and must not be redistributed. See licenses.tar.gz and GAME-DATA.md.
 
 def assemble(sd, tools, output, version, source_commit=None, *, repo=ROOT,
              runtime_lock=None, allow_dirty=False, runtime_source=None):
+    """Validate pinned inputs and archive exact sources before writing a candidate."""
     require_version(version)
     output = Path(output)
     if output.exists() or output.is_symlink():
@@ -261,7 +263,7 @@ def assemble(sd, tools, output, version, source_commit=None, *, repo=ROOT,
     lock = runtime_lock if runtime_lock is not None else parse_json(LOCK.read_bytes(), str(LOCK))
     core_inputs = {name: read_regular(sd, name) for name in SD_FILES}
     core = prepare_core(core_inputs, version, release_date, lock)
-    tool_files = {name: read_regular(tools, name) for name in (*NATIVES, "plugin.wasm", "plugin.json", "prepare-data.wasm")}
+    tool_files = {name: read_regular(tools, name) for name in (*NATIVES, "plugin.wasm", "plugin.json", "plugin_icon.png", "prepare-data.wasm")}
     for name in ("plugin.wasm", "prepare-data.wasm"):
         if tool_files[name][:8] != b"\0asm\x01\0\0\0":
             raise ValueError(f"Invalid WebAssembly (WASM) v1 header: {name}")
@@ -307,7 +309,7 @@ def assemble(sd, tools, output, version, source_commit=None, *, repo=ROOT,
         bundle["License exceptions.md"] = source["License exceptions.md"]
         bundle["README.md"] = source["openfpga/tools/README.md"]
         artifacts[name.removesuffix(".exe") + ".tar.gz"] = tar_bytes(bundle, epoch)
-    for name in ("plugin.wasm", "plugin.json", "prepare-data.wasm"):
+    for name in ("plugin.wasm", "plugin.json", "plugin_icon.png", "prepare-data.wasm"):
         artifacts[name] = tool_files[name]
     artifacts["PROVENANCE.json"] = json_bytes({
         "schema": 1, "version": version, "source_commit": commit, "source_head": head,

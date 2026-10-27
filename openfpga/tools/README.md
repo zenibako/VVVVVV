@@ -1,7 +1,7 @@
 # VVVVVV game-file preparation
 
 These tools prepare your own VVVVVV installation for the Analogue Pocket.
-They are part of [zenibako/VVVVVV](https://github.com/zenibako/VVVVVV).
+They are part of [zenibako/VVVVVV-pocket](https://github.com/zenibako/VVVVVV-pocket).
 No purchased game data or converted music is included in releases.
 
 ## Files to supply
@@ -29,9 +29,10 @@ depots or store installer executables. They never download purchased assets.
 2. Create `Assets/vvvvvv/common/source/` on that card and copy your original
    files listed above into it, using their original names. `data.zip` alone
    is sufficient when it contains the original soundtrack.
-3. In Pocket Sync, install the plugin from `https://github.com/zenibako/VVVVVV`.
+3. In Pocket Sync, install the plugin from `https://github.com/zenibako/VVVVVV-pocket`.
    The repository's latest stable release must contain `plugin.wasm` and
-   `plugin.json`; a source checkout, draft or prerelease is not sufficient.
+   `plugin.json`, plus `plugin_icon.png` for its Captain Viridian icon; a source
+   checkout, draft or prerelease is not sufficient.
 4. Run **VVVVVV Game Data** and choose installation while keeping originals
    (the first/default choice). The plugin installs `data.zip` and
    `vvvvvv-music.bin` directly into `Assets/vvvvvv/common/`.
@@ -99,7 +100,7 @@ openfpga release workflow. Every stable release must contain the complete core
 ZIP, plugin assets, native bundles, WASI CLI, source/provenance/licenses and
 checksums, including when only the tools change.
 
-Catalog repository: `zenibako/VVVVVV`. ZIP asset filter:
+Catalog repository: `zenibako/VVVVVV-pocket`. ZIP asset filter:
 `^vvvvvv-openfpga\.zip$`. The listing follows a tested stable release and a
 separate maintainer submission; preparing these files does not itself publish
 the core or add it to the catalog.
@@ -107,6 +108,9 @@ the core or add it to the catalog.
 ## Licenses and attribution
 
 The preparation/plugin application code is MIT licensed (see `LICENSE`).
+The plugin icon is the original checked-in VVVVVV app artwork, copied unchanged;
+it retains the game's copyright and source license. See the
+[artwork provenance](../assets/branding/README.md).
 Pinned pocket-music and its patched decoders retain their original MIT
 licenses and patch notes under `third_party/`. This tool is an altered companion
 to VVVVVV, copyright Terry Cavanagh; the game's code and assets retain the
