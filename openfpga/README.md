@@ -116,6 +116,10 @@ source mutations, row-ring scrolling, snapshot detachment and composed pixels.
 The legacy copy-policy comparison disables grid span assembly for both modes,
 so it still measures first-copy versus second-copy run construction.
 
+For shared platform profiles, evidence collection and comparison, see the
+[benchmark integration guide](BENCHMARKING.md). It preserves these workloads and
+keeps host timing, screenshot-backed Pocket results and hardware validation separate.
+
 The benchmark forces 30 Hz rendering, independent of saved settings. This
 keeps one presentation per logic timestep; faster render-only iterations
 would otherwise be excluded from its per-frame averages.
