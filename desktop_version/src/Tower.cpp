@@ -19,6 +19,24 @@ towerclass::towerclass(void)
     loadmap();
 }
 
+static const short* tower_row(const short* tiles, int height, int yp, int yoff)
+{
+    /* Truncate the signed pixel coordinate before wrapping, as at/backat do. */
+    yp = (yp * 8 + yoff) / 8;
+    return tiles + POS_MOD(yp, height) * 40;
+}
+
+const short* towerclass::row(int yp, int yoff) const
+{
+    return minitowermode ? tower_row(minitower, 100, yp, yoff)
+        : tower_row(contents, 700, yp, yoff);
+}
+
+const short* towerclass::backrow(int yp, int yoff) const
+{
+    return tower_row(back, 120, yp, yoff);
+}
+
 int towerclass::backat(int xp, int yp, int yoff)
 {
     yp = (yp*8 + yoff) / 8;

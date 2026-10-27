@@ -26,6 +26,13 @@ SDL3_ROOT    ?= $(OPENFPGA_ROOT)/.deps/sdl3
 SDK_DIR      := $(SDK_ROOT)/src/sdk
 OBJ_DIR      := $(OPENFPGA_ROOT)/build/obj
 BUILD_DIR    := $(OPENFPGA_ROOT)/build
+ifeq ($(FINAL_SWEEP),1)
+BUILD_DIR    := $(OPENFPGA_ROOT)/build/final-sweep
+ifeq ($(FINAL_SWEEP_ALL),1)
+BUILD_DIR    := $(OPENFPGA_ROOT)/build/final-sweep-all
+endif
+OBJ_DIR      := $(BUILD_DIR)/obj
+endif
 SDK_CONTAINER := $(OPENFPGA_ROOT)/scripts/sdk-container.sh
 
 GAME_CXX_SRCS := $(addprefix $(GAME_ROOT)/src/, \
@@ -75,6 +82,17 @@ endif
 ifeq ($(BENCH),1)
 OPENFPGA_DEFS += -DPOCKET_BENCH
 endif
+ifeq ($(FINAL_SWEEP),1)
+OPENFPGA_DEFS += -DPOCKET_FINAL_SWEEP
+ifeq ($(FINAL_SWEEP_ALL),1)
+OPENFPGA_DEFS += -DPOCKET_FINAL_SWEEP_ALL
+endif
+ifneq ($(BENCH),1)
+ifneq ($(HOST_BENCH_SMOKE),1)
+$(error FINAL_SWEEP=1 requires BENCH=1 or HOST_BENCH_SMOKE=1)
+endif
+endif
+endif
 OPENFPGA_INCLUDES := -I$(GAME_ROOT) -I$(OPENFPGA_ROOT)/src -I$(SDL3_ROOT)/include \
 	-I$(THIRD_PARTY)/tinyxml2 -I$(THIRD_PARTY)/physfs/src \
 	-I$(THIRD_PARTY)/physfs/extras -I$(THIRD_PARTY)/lodepng \
@@ -95,6 +113,7 @@ include $(SDK_DIR)/sdk.mk
 
 # Profiling's shared layout is used by C and C++ translation units.
 $(foreach src,$(SRCS) $(SRCS_CXX),$(call sdk_app_object,$(src))): $(OPENFPGA_ROOT)/src/pocket_bench_profile.h
+$(call sdk_app_object,$(OPENFPGA_ROOT)/src/pocket_final_sweep.cpp): $(OPENFPGA_ROOT)/src/pocket_final_rooms.h
 
 # The SDK's C++ ABI shim is C++11.
 $(call sdk_app_object,$(SDK_DIR)/of_cxxabi.cpp): CXXFLAGS += -std=gnu++17
@@ -112,7 +131,7 @@ deps:
 
 # The SD card tree in build/sd, without game data.
 package: $(BUILD_DIR)/app.elf
-	BENCH=$(BENCH) bash $(OPENFPGA_ROOT)/scripts/package.sh
+	BENCH=$(BENCH) PACKAGE_ELF="$(BUILD_DIR)/app.elf" PACKAGE_OUT="$(BUILD_DIR)/sd" bash $(OPENFPGA_ROOT)/scripts/package.sh
 
 # The game's button fonts with Pocket glyphs added; the output is committed.
 button-fonts:
@@ -221,16 +240,26 @@ HOST_INCLUDES := -I$(SDL3_PREFIX)/include $(filter-out -I$(SDL3_ROOT)/include,$(
 ifeq ($(HOST_BENCH_SMOKE),1)
 HOST_DEFS += -DPOCKET_BENCH -DOF_PC
 HOST_INCLUDES += -I$(SDK_DIR)/include
-HOST_CXX_SRCS += $(OPENFPGA_ROOT)/src/pocket_bench_startup.cpp $(OPENFPGA_ROOT)/tests/bench_smoke.cpp
+ifeq ($(FINAL_SWEEP),1)
+HOST_DEFS += -DPOCKET_FINAL_SWEEP
+ifeq ($(FINAL_SWEEP_ALL),1)
+HOST_DEFS += -DPOCKET_FINAL_SWEEP_ALL
+endif
+BENCH_SMOKE_SRC := $(OPENFPGA_ROOT)/tests/final_sweep_smoke.cpp
+else
+BENCH_SMOKE_SRC := $(OPENFPGA_ROOT)/tests/bench_smoke.cpp
+endif
+HOST_CXX_SRCS += $(OPENFPGA_ROOT)/src/pocket_bench_startup.cpp $(BENCH_SMOKE_SRC)
 endif
 host_object = $(HOST_DIR)/obj/$(subst ../,__parent__/,$(basename $(1))).o
 HOST_OBJS := $(foreach src,$(HOST_C_SRCS) $(HOST_CXX_SRCS),$(call host_object,$(src)))
 ifeq ($(HOST_BENCH_SMOKE),1)
 # Exercise the device's controls, title prompt and text cache on host SDL.
 $(foreach src,Font Game Input KeyPoll Render ButtonGlyphs,$(call host_object,$(GAME_ROOT)/src/$(src).cpp)): HOST_DEFS += -DVVV_POCKET
-$(call host_object,$(OPENFPGA_ROOT)/tests/bench_smoke.cpp): \
+$(call host_object,$(BENCH_SMOKE_SRC)): \
+	$(OPENFPGA_ROOT)/src/pocket_final_sweep.cpp $(OPENFPGA_ROOT)/src/pocket_final_rooms.h \
 	$(OPENFPGA_ROOT)/src/pocket_bench.cpp $(OPENFPGA_ROOT)/src/pocket_bench.h $(OPENFPGA_ROOT)/src/pocket_bench_report.h \
-	$(OPENFPGA_ROOT)/src/pocket_bench_profile.h $(OPENFPGA_ROOT)/tests/clock_pixels.h $(OPENFPGA_ROOT)/tests/font_alpha_pixels.h $(OPENFPGA_ROOT)/tests/controls.h $(OPENFPGA_ROOT)/tests/background_pixels.h $(OPENFPGA_ROOT)/tests/tower_pixels.h $(GAME_ROOT)/src/Font.h
+	$(OPENFPGA_ROOT)/src/pocket_bench_profile.h $(OPENFPGA_ROOT)/tests/clock_pixels.h $(OPENFPGA_ROOT)/tests/final_room.h $(OPENFPGA_ROOT)/tests/font_alpha_pixels.h $(OPENFPGA_ROOT)/tests/controls.h $(OPENFPGA_ROOT)/tests/background_pixels.h $(OPENFPGA_ROOT)/tests/tower_pixels.h $(OPENFPGA_ROOT)/tests/tower_recolor.h $(GAME_ROOT)/src/Font.h
 endif
 
 define HOST_C_RULE
@@ -308,10 +337,11 @@ HOST_RENDER_OBJS := $(foreach src,$(HOST_RENDER_C_SRCS) $(HOST_CXX_SRCS),$(call 
 ifeq ($(HOST_BENCH_SMOKE),1)
 $(foreach src,Font Game Input KeyPoll Render ButtonGlyphs,$(call host_render_object,$(GAME_ROOT)/src/$(src).cpp)): HOST_DEFS += -DVVV_POCKET
 $(call host_render_object,$(GAME_ROOT)/src/Graphics.cpp): HOST_DEFS += -DVVV_POCKET
-$(call host_render_object,$(OPENFPGA_ROOT)/tests/bench_smoke.cpp): HOST_DEFS += -DPOCKET_SMOKE_RENDER
-$(call host_render_object,$(OPENFPGA_ROOT)/tests/bench_smoke.cpp): \
+$(call host_render_object,$(BENCH_SMOKE_SRC)): HOST_DEFS += -DPOCKET_SMOKE_RENDER
+$(call host_render_object,$(BENCH_SMOKE_SRC)): \
+	$(OPENFPGA_ROOT)/src/pocket_final_sweep.cpp $(OPENFPGA_ROOT)/src/pocket_final_rooms.h \
 	$(OPENFPGA_ROOT)/src/pocket_bench.cpp $(OPENFPGA_ROOT)/src/pocket_bench.h $(OPENFPGA_ROOT)/src/pocket_bench_report.h \
-	$(OPENFPGA_ROOT)/src/pocket_bench_profile.h $(OPENFPGA_ROOT)/tests/clock_pixels.h $(OPENFPGA_ROOT)/tests/font_alpha_pixels.h $(OPENFPGA_ROOT)/tests/controls.h $(OPENFPGA_ROOT)/tests/background_pixels.h $(OPENFPGA_ROOT)/tests/tower_pixels.h $(GAME_ROOT)/src/Font.h
+	$(OPENFPGA_ROOT)/src/pocket_bench_profile.h $(OPENFPGA_ROOT)/tests/clock_pixels.h $(OPENFPGA_ROOT)/tests/final_room.h $(OPENFPGA_ROOT)/tests/font_alpha_pixels.h $(OPENFPGA_ROOT)/tests/controls.h $(OPENFPGA_ROOT)/tests/background_pixels.h $(OPENFPGA_ROOT)/tests/tower_pixels.h $(OPENFPGA_ROOT)/tests/tower_recolor.h $(GAME_ROOT)/src/Font.h
 else
 HOST_RENDER_OBJS += $(HOST_RENDER_DIR)/obj/present.o
 endif

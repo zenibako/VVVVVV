@@ -867,6 +867,11 @@ void Graphics::drawtile2(int x, int y, int t)
 /* For the benchmark: time spent updating the tower's background, and the
  * tiles it and drawtile3 drew. */
 Uint32 POCKET_bg_us, POCKET_bg_tiles, POCKET_bg_full, POCKET_bg_scroll;
+Uint32 POCKET_tower_fg_us, POCKET_tower_recolors;
+bool POCKET_tower_recolor_fast = true;
+Uint32 POCKET_final_rebuild_us, POCKET_final_copy_us, POCKET_final_rebuilds, POCKET_final_grid_hits;
+bool POCKET_final_grid_fast = true;
+bool POCKET_final_copy_fast = true;
 #define COUNT_BG_TILE() (POCKET_bg_tiles++)
 #define COUNT_BG_TILES(n) (POCKET_bg_tiles += (n))
 #else
@@ -3010,36 +3015,80 @@ void Graphics::drawmap(void)
     copy_texture(foregroundTexture, NULL, NULL);
 }
 
+#ifdef VVV_POCKET
+extern "C" bool POCKET_CopyKeyedGrid(SDL_Renderer*, SDL_Texture*, const int*, int, int);
+extern "C" void POCKET_SetTextureRuns(SDL_Texture*, bool);
+#ifndef POCKET_BENCH
+#define POCKET_final_grid_fast true
+#define POCKET_final_copy_fast true
+#endif
+#endif
+
 void Graphics::drawfinalmap(void)
 {
     if (!foregrounddrawn)
     {
+#ifdef POCKET_BENCH
+        const Uint32 rebuild_start = of_time_us();
+#endif
         SDL_Texture* target = SDL_GetRenderTarget(gameScreen.m_renderer);
-
         set_render_target(foregroundTexture);
         set_blendmode(foregroundTexture, SDL_BLENDMODE_BLEND);
-        clear(0, 0, 0, 0);
-        if (map.tileset == 0) {
-            for (int j = 0; j < 30; j++) {
-                for (int i = 0; i < 40; i++) {
-                    if ((map.contents[TILE_IDX(i, j)]) > 0)
-                        drawtile(i * 8, j * 8, map.finalat(i, j));
-                }
+        /* Resolve each tile once, in the original order. Random variants
+         * must not be rerolled if the renderer declines the batch. */
+        static int tiles[40 * 30];
+        bool can_batch = tiles_rect.w == 8 && tiles_rect.h == 8;
+        for (int j = 0; j < 30; j++)
+            for (int i = 0; i < 40; i++)
+            {
+                int& tile = tiles[TILE_IDX(i, j)];
+                tile = (map.tileset == 0 || map.tileset == 1) && map.contents[TILE_IDX(i, j)] > 0
+                    ? map.finalat(i, j) : -1;
+                if (shouldrecoloroneway(tile, map.tileset == 0 ? tiles1_mounted : tiles2_mounted))
+                    can_batch = false;
             }
+        bool batched = false;
+#ifdef VVV_POCKET
+        SDL_Texture* sheet = map.tileset == 0 ? grphx.im_tiles : grphx.im_tiles2;
+        if (POCKET_final_grid_fast && can_batch && (map.tileset == 0 || map.tileset == 1))
+        {
+            batched = POCKET_CopyKeyedGrid(gameScreen.m_renderer, sheet, tiles, 40, 30);
         }
-        else if (map.tileset == 1) {
-            for (int j = 0; j < 30; j++) {
-                for (int i = 0; i < 40; i++) {
-                    if ((map.contents[TILE_IDX(i, j)]) > 0)
-                        drawtile2(i * 8, j * 8, map.finalat(i, j));
-                }
-            }
+#else
+        (void) can_batch;
+#endif
+        if (!batched)
+        {
+            clear(0, 0, 0, 0);
+            for (int j = 0; j < 30; j++)
+                for (int i = 0; i < 40; i++)
+                    if (tiles[TILE_IDX(i, j)] >= 0)
+                    {
+                        if (map.tileset == 0) drawtile(i * 8, j * 8, tiles[TILE_IDX(i, j)]);
+                        else drawtile2(i * 8, j * 8, tiles[TILE_IDX(i, j)]);
+                    }
         }
         set_render_target(target);
         foregrounddrawn = true;
+#ifdef POCKET_BENCH
+        POCKET_final_rebuild_us += of_time_us() - rebuild_start;
+        POCKET_final_rebuilds++;
+        POCKET_final_grid_hits += batched;
+#endif
     }
-
+#ifdef VVV_POCKET
+    /* This texture is copied every frame but changes every two steps.
+     * Build opaque spans immediately instead of spending its first copy
+     * blending the whole ARGB foreground pixel by pixel. */
+    POCKET_SetTextureRuns(foregroundTexture, POCKET_final_copy_fast);
+#endif
+#ifdef POCKET_BENCH
+    const Uint32 copy_start = of_time_us();
+#endif
     copy_texture(foregroundTexture, NULL, NULL);
+#ifdef POCKET_BENCH
+    POCKET_final_copy_us += of_time_us() - copy_start;
+#endif
 }
 
 #ifdef VVV_POCKET
@@ -3051,6 +3100,8 @@ extern "C" POCKET_TileLayer* POCKET_CreateTileLayer(int w, int h);
 extern "C" bool POCKET_TileSheetIsKeyed(SDL_Texture* sheet);
 extern "C" void POCKET_ShiftTileLayer(POCKET_TileLayer* layer, int dy);
 extern "C" void POCKET_ClearTileLayer(POCKET_TileLayer* layer);
+extern "C" bool POCKET_RecolorTileLayer(POCKET_TileLayer*, SDL_Texture*, int, int, int);
+extern "C" bool POCKET_PutTileGrid(POCKET_TileLayer* layer, SDL_Texture* sheet, const int* ids, int columns, int rows, int y);
 extern "C" void POCKET_PutTile(POCKET_TileLayer* layer, SDL_Texture* sheet, int sx, int sy, int x, int y, int w, int h);
 extern "C" bool POCKET_DrawTileLayer(SDL_Renderer* renderer, POCKET_TileLayer* layer, int src_y);
 extern "C" bool POCKET_CopyOpaqueTile(SDL_Renderer* renderer, SDL_Texture* sheet, int sx, int sy, int x, int y, int w, int h);
@@ -3062,6 +3113,9 @@ extern "C" bool POCKET_tower_grid_fast;
 #endif
 
 
+#ifndef POCKET_BENCH
+#define POCKET_tower_recolor_fast true
+#endif
 static bool tower_texture_valid = false;
 
 /* The tower's tiles are wholly opaque or clear, so where the sheet allows
@@ -3100,13 +3154,18 @@ static bool drawtowermap_layer(Graphics& g, const int yoff)
     int first = 0;
     int count = rows;
     if (valid
-    && cached_colstate == g.towerbg.colstate
     && cached_tiles == sheet
     && cached_minitower == map.tower.minitowermode
     && cached_roomx == game.roomx
     && cached_roomy == game.roomy
-    && SDL_abs(top - cached_top) < rows)
+    && SDL_abs(top - cached_top) < rows
+    && (cached_colstate == g.towerbg.colstate
+        || (POCKET_tower_recolor_fast
+            && POCKET_RecolorTileLayer(layer, sheet, cached_colstate * 30, g.towerbg.colstate * 30, 30))))
     {
+#ifdef POCKET_BENCH
+        if (cached_colstate != g.towerbg.colstate) POCKET_tower_recolors++;
+#endif
         const int moved = top - cached_top;
         POCKET_ShiftTileLayer(layer, -moved * 8);
         first = moved > 0 ? rows - moved : 0;
@@ -3117,15 +3176,26 @@ static bool drawtowermap_layer(Graphics& g, const int yoff)
         POCKET_ClearTileLayer(layer);
     }
 
-    for (int j = first; j < first + count; j++)
+    int ids[40 * rows];
+    for (int j = 0; j < count; j++)
     {
+        const short* row = map.tower.row(first + j, top * 8);
         for (int i = 0; i < 40; i++)
         {
-            const int temp = map.tower.at(i, j, top * 8);
-            if (temp > 0)
+            const int temp = row[i];
+            ids[j * 40 + i] = temp > 0 ? temp + g.towerbg.colstate * 30 : -1;
+        }
+    }
+    if (count > 0 && !POCKET_PutTileGrid(layer, sheet, ids, 40, count, first * 8))
+    {
+        for (int j = 0; j < count; j++)
+        {
+            for (int i = 0; i < 40; i++)
             {
-                const int t = temp + g.towerbg.colstate * 30;
-                POCKET_PutTile(layer, sheet, (t % (width / 8)) * 8, (t / (width / 8)) * 8, i * 8, j * 8, 8, 8);
+                const int t = ids[j * 40 + i];
+                if (t >= 0)
+                    POCKET_PutTile(layer, sheet, (t % (width / 8)) * 8, (t / (width / 8)) * 8,
+                        i * 8, (first + j) * 8, 8, 8);
             }
         }
     }
@@ -3241,6 +3311,15 @@ static bool drawtowermap_cached(Graphics& g, const int yoff)
 
 void Graphics::drawtowermap(void)
 {
+#ifdef POCKET_BENCH
+    const Uint32 bench_start = of_time_us();
+    draw_tower_map();
+    POCKET_tower_fg_us += of_time_us() - bench_start;
+}
+
+void Graphics::draw_tower_map(void)
+{
+#endif
     const int yoff = lerp(map.oldypos, map.ypos);
 #ifdef VVV_POCKET
     if (drawtowermap_layer(*this, yoff) || drawtowermap_cached(*this, yoff))
@@ -3367,12 +3446,15 @@ void Graphics::update_tower_background(TowerBG& bg_obj)
                 static Uint16 tiles[40 * 33];
                 bool valid = true;
                 for (int j = -1; j < 32; j++)
+                {
+                    const short* row = map.tower.backrow(j, bg_obj.bypos);
                     for (int i = 0; i < 40; i++)
                     {
-                        const int t = map.tower.backat(i, j, bg_obj.bypos) + bg_obj.colstate * 30;
+                        const int t = row[i] + bg_obj.colstate * 30;
                         if (t < 0 || t > 65535) valid = false;
                         tiles[(j + 1) * 40 + i] = (Uint16) t;
                     }
+                }
                 copied = valid && POCKET_CopyOpaqueGrid(gameScreen.m_renderer, sheet, tiles, 40, 33, 0, band_top);
                 if (copied) COUNT_BG_TILES(40 * 33);
             }

@@ -93,6 +93,7 @@ typedef struct Texture
      * runs[row_runs[k + 1]], each {x, length, kind}. Rows are indexed as
      * kept, so a row shift leaves the runs of the rows it keeps good. */
     Uint16 *runs;
+    int runs_capacity; /* triples allocated, retained across full rebuilds */
     /* The texture in RGB565 while its runs are valid, for copying opaque
      * runs onto RGB565 targets as they are. */
     Uint16 *runs565;
@@ -108,7 +109,9 @@ typedef struct Texture
     int copies_since_change;
     /* Counts changes to the pixels, for what is kept made from them. */
     Uint32 changes;
+    Uint64 serial; /* distinguishes recycled texture pointers/property slots */
 } Texture;
+static Uint64 texture_serial;
 
 enum
 {
@@ -400,6 +403,7 @@ static void free_runs(Texture *t)
     SDL_free(t->runs565);
     SDL_free(t->dirty_rows);
     t->runs = NULL;
+    t->runs_capacity = 0;
     t->runs565 = NULL;
     t->row_runs = NULL;
     t->dirty_rows = NULL;
@@ -453,9 +457,43 @@ static int write_runs(const Uint32 *row, int w, Uint16 *runs)
     return n;
 }
 
-/* Builds the runs of every kept row, or with runs_partial only of the
- * rows marked dirty, keeping the others' as they are. */
-static bool build_runs(Texture *t)
+/* Full rebuilds reuse their storage and classify/pack each pixel once. */
+static bool reserve_runs(Texture *t, int needed)
+{
+    if (needed <= t->runs_capacity) return true;
+    const int capacity = SDL_max(needed, t->runs_capacity + t->runs_capacity / 2);
+    Uint16 *runs = (Uint16 *) SDL_realloc(t->runs, (size_t) capacity * 3 * sizeof(Uint16));
+    if (runs == NULL) return false;
+    t->runs = runs;
+    t->runs_capacity = capacity;
+    return true;
+}
+
+static int write_runs_and_pack(const Uint32 *row, int w, Uint16 *runs, Uint16 *packed)
+{
+    int n = 0, start = 0, kind = -1;
+    for (int x = 0; x <= w; x++)
+    {
+        const int next = x < w ? run_kind(row[x]) : -1;
+        if (next != kind)
+        {
+            if (kind >= 0)
+            {
+                runs[n * 3] = (Uint16) start;
+                runs[n * 3 + 1] = (Uint16) (x - start);
+                runs[n * 3 + 2] = (Uint16) kind;
+                n++;
+            }
+            start = x;
+            kind = next;
+        }
+        /* Keep RGB even for clear pixels: raw copies also use this cache. */
+        if (x < w) packed[x] = POCKET_ToRGB565(row[x]);
+    }
+    return n;
+}
+
+static bool prepare_run_buffers(Texture *t)
 {
     const int w = t->texture.w;
     const int h = t->texture.h;
@@ -476,11 +514,39 @@ static bool build_runs(Texture *t)
         free_runs(t);
         return false;
     }
+    return true;
+}
+
+/* Builds the runs of every kept row, or with runs_partial only of the
+ * rows marked dirty, keeping the others' as they are. */
+static bool build_runs(Texture *t)
+{
+    if (!prepare_run_buffers(t)) return false;
+    const int w = t->texture.w;
+    const int h = t->texture.h;
+    const Uint32 *pixels = texels(t);
     if (!t->runs_partial)
     {
-        SDL_memset(t->dirty_rows, 1, (size_t) h);
+        int n = 0;
+        for (int k = 0; k < h; k++)
+        {
+            /* A row can have at most w visible runs. Reserve before writing. */
+            if (!reserve_runs(t, n + w))
+            {
+                free_runs(t);
+                return false;
+            }
+            t->row_runs[k] = n;
+            n += write_runs_and_pack(pixels + (size_t) k * w, w,
+                t->runs + (size_t) n * 3, t->runs565 + (size_t) k * w);
+            t->dirty_rows[k] = 0;
+        }
+        t->row_runs[h] = n;
+        t->runs_valid = true;
+        return true;
     }
-    const Uint32 *pixels = texels(t);
+    /* Partial rebuilds use separate storage so shifted run offsets cannot
+     * overwrite unchanged rows that have not been copied yet. */
     int count = 0;
     for (int k = 0; k < h; k++)
     {
@@ -521,6 +587,7 @@ static bool build_runs(Texture *t)
     t->row_runs[h] = n;
     SDL_free(t->runs);
     t->runs = runs;
+    t->runs_capacity = count ? count : 1;
     t->runs_valid = true;
     t->runs_partial = false;
     return true;
@@ -595,7 +662,9 @@ static bool check_texture(const SDL_Texture *texture)
 }
 
 static void forget_keyed_sheet(const Texture *t);
+static void forget_palette_sheet(const Texture *t);
 static void forget_repeat_sheet(const Texture *t);
+static void forget_opaque_repeat(const Texture *t);
 
 SDL_Renderer *SDL_CreateRenderer(SDL_Window *window, const char *name)
 {
@@ -724,6 +793,7 @@ SDL_Texture *SDL_CreateTexture(SDL_Renderer *renderer, SDL_PixelFormat format, S
             return NULL;
         }
     }
+    t->serial = ++texture_serial;
     t->props = register_properties(t);
     if (t->props == 0)
     {
@@ -786,7 +856,9 @@ void SDL_DestroyTexture(SDL_Texture *texture)
     }
     begin_change(t, false);
     forget_keyed_sheet(t);
+    forget_palette_sheet(t);
     forget_repeat_sheet(t);
+    forget_opaque_repeat(t);
     free_runs(t);
     SDL_free(t->buffer565);
     SDL_free(t->pixels);
@@ -1870,12 +1942,17 @@ bool POCKET_ScrollTexture(SDL_Texture *texture, int dx, int dy)
     return true;
 }
 
-void POCKET_KeepTextureRuns(SDL_Texture *texture)
+void POCKET_SetTextureRuns(SDL_Texture *texture, bool enabled)
 {
     if (check_texture(texture))
     {
-        texture_data(texture)->always_runs = true;
+        texture_data(texture)->always_runs = enabled;
     }
+}
+
+void POCKET_KeepTextureRuns(SDL_Texture *texture)
+{
+    POCKET_SetTextureRuns(texture, true);
 }
 
 /* The same for any texture, filling the rows it exposes with transparent
@@ -1984,6 +2061,10 @@ struct POCKET_TileLayer
     Uint16 *run_count;
     int run_cap;
     Uint8 *dirty;
+    Uint64 source_serial;
+    Uint32 source_changes;
+    int *tile_ids; /* physical tile rows, retained for colour-only uploads */
+    bool source_valid; /* all retained pixels came from this sheet revision */
 };
 
 static inline int layer_row(const POCKET_TileLayer *layer, int y)
@@ -2003,6 +2084,7 @@ void POCKET_DestroyTileLayer(POCKET_TileLayer *layer)
     SDL_free(layer->runs);
     SDL_free(layer->run_count);
     SDL_free(layer->dirty);
+    SDL_free(layer->tile_ids);
     SDL_free(layer);
 }
 
@@ -2036,6 +2118,7 @@ bool POCKET_TileSheetIsKeyed(SDL_Texture *sheet)
 {
     static const Texture *checked;
     static Uint32 checked_changes;
+    static Uint64 checked_serial;
     static bool keyed;
     if (!check_texture(sheet))
     {
@@ -2046,7 +2129,7 @@ bool POCKET_TileSheetIsKeyed(SDL_Texture *sheet)
     {
         return false;
     }
-    if (t != checked || t->changes != checked_changes)
+    if (t != checked || t->serial != checked_serial || t->changes != checked_changes)
     {
         keyed = true;
         const size_t count = (size_t) t->texture.w * t->texture.h;
@@ -2056,6 +2139,7 @@ bool POCKET_TileSheetIsKeyed(SDL_Texture *sheet)
             keyed = a == 0 || a == 255;
         }
         checked = t;
+        checked_serial = t->serial;
         checked_changes = t->changes;
     }
     return keyed;
@@ -2070,6 +2154,7 @@ static struct
     Uint32 changes;
     Uint16 *color;
     Uint8 *mask;
+    Uint8 *bits; /* one alpha bit per pixel, grouped into 8-pixel spans */
 } keyed_sheet;
 
 static void forget_keyed_sheet(const Texture *t)
@@ -2078,6 +2163,7 @@ static void forget_keyed_sheet(const Texture *t)
     {
         SDL_free(keyed_sheet.color);
         SDL_free(keyed_sheet.mask);
+        SDL_free(keyed_sheet.bits);
         SDL_zero(keyed_sheet);
     }
 }
@@ -2092,10 +2178,13 @@ static bool keep_keyed_sheet(const Texture *t)
     const size_t count = (size_t) t->texture.w * t->texture.h;
     keyed_sheet.color = (Uint16 *) SDL_malloc(count * sizeof(Uint16));
     keyed_sheet.mask = (Uint8 *) SDL_malloc(count);
-    if (keyed_sheet.color == NULL || keyed_sheet.mask == NULL)
+    const int bit_pitch = (t->texture.w + 7) / 8;
+    keyed_sheet.bits = (Uint8 *) SDL_calloc((size_t) bit_pitch * t->texture.h, 1);
+    if (keyed_sheet.color == NULL || keyed_sheet.mask == NULL || keyed_sheet.bits == NULL)
     {
         SDL_free(keyed_sheet.color);
         SDL_free(keyed_sheet.mask);
+        SDL_free(keyed_sheet.bits);
         SDL_zero(keyed_sheet);
         return false;
     }
@@ -2106,8 +2195,9 @@ static bool keep_keyed_sheet(const Texture *t)
         Uint8 *m = keyed_sheet.mask + (size_t) y * t->texture.w;
         for (int x = 0; x < t->texture.w; x++)
         {
-            c[x] = POCKET_ToRGB565(s[x]);
             m[x] = (Uint8) (s[x] >> 31);
+            c[x] = m[x] ? POCKET_ToRGB565(s[x]) : 0;
+            keyed_sheet.bits[(size_t) y * bit_pitch + x / 8] |= m[x] << (x % 8);
         }
     }
     keyed_sheet.of = t;
@@ -2115,10 +2205,58 @@ static bool keep_keyed_sheet(const Texture *t)
     return true;
 }
 
+/* The same tile-row layout feeds texture triples and tile-layer pairs.
+ * Adjacent spans are joined even across tile boundaries, preserving long
+ * memcpy runs rather than turning a solid row into one copy per tile. */
+struct KeyedPattern { Uint8 count, start[4], length[4]; };
+static struct KeyedPattern keyed_patterns[256];
+static bool keyed_patterns_ready;
+
+static void prepare_keyed_patterns(void)
+{
+    if (keyed_patterns_ready) return;
+    for (unsigned bits = 0; bits < 256; bits++)
+    {
+        struct KeyedPattern *p = &keyed_patterns[bits];
+        for (int x = 0; x < 8;)
+        {
+            if (!(bits & (1u << x))) { x++; continue; }
+            const int start = x++;
+            while (x < 8 && (bits & (1u << x))) x++;
+            p->start[p->count] = (Uint8) start;
+            p->length[p->count++] = (Uint8) (x - start);
+        }
+    }
+    keyed_patterns_ready = true;
+}
+
+static int append_keyed_runs(Uint16 *runs, int n, int stride, int x, Uint8 bits)
+{
+    const struct KeyedPattern *p = &keyed_patterns[bits];
+    for (int i = 0; i < p->count; i++)
+    {
+        const int start = x + p->start[i], length = p->length[i];
+        if (n > 0 && runs[(n - 1) * stride] + runs[(n - 1) * stride + 1] == start)
+            runs[(n - 1) * stride + 1] += length;
+        else
+        {
+            runs[n * stride] = (Uint16) start;
+            runs[n * stride + 1] = (Uint16) length;
+            if (stride == 3) runs[n * stride + 2] = RUN_OPAQUE;
+            n++;
+        }
+    }
+    return n;
+}
+
+/* Kept as a switch for controlled host comparisons of identical draws. */
+bool POCKET_keyed_spans_fast = true;
+
 /* Moves the layer's rows down by dy (up when negative); the rows that
  * exposes are clear. */
 void POCKET_ShiftTileLayer(POCKET_TileLayer *layer, int dy)
 {
+    if (dy % 8 != 0 || layer->h % 8 != 0) layer->source_valid = false;
     const int h = layer->h;
     const int exposed = SDL_min(dy > 0 ? dy : -dy, h);
     const int first = dy > 0 ? 0 : h - exposed;
@@ -2128,11 +2266,15 @@ void POCKET_ShiftTileLayer(POCKET_TileLayer *layer, int dy)
         const int k = layer_row(layer, y);
         SDL_memset(layer->mask + (size_t) k * layer->w, 0, (size_t) layer->w);
         layer->dirty[k] = 1;
+        if (layer->source_valid && k % 8 == 0)
+            for (int x = 0; x < layer->w / 8; x++)
+                layer->tile_ids[k / 8 * (layer->w / 8) + x] = -1;
     }
 }
 
 void POCKET_ClearTileLayer(POCKET_TileLayer *layer)
 {
+    layer->source_valid = false;
     SDL_memset(layer->mask, 0, (size_t) layer->w * layer->h);
     SDL_memset(layer->dirty, 1, (size_t) layer->h);
 }
@@ -2150,6 +2292,7 @@ void POCKET_PutTile(POCKET_TileLayer *layer, SDL_Texture *sheet, int sx, int sy,
     {
         return;
     }
+    layer->source_valid = false;
     if (keep_keyed_sheet(t))
     {
         for (int row = clip.y; row < clip.y + clip.h; row++)
@@ -2176,6 +2319,160 @@ void POCKET_PutTile(POCKET_TileLayer *layer, SDL_Texture *sheet, int sx, int sy,
         }
         layer->dirty[k] = 1;
     }
+}
+
+/* Full-width 8-pixel tile rows. Validate the complete request before
+ * touching the layer, and prepare the keyed source only once per batch. */
+bool POCKET_PutTileGrid(POCKET_TileLayer *layer, SDL_Texture *sheet,
+    const int *ids, int columns, int rows, int y)
+{
+    if (layer == NULL || ids == NULL || columns <= 0 || columns > 64
+        || rows <= 0 || rows > 64 || columns * 8 != layer->w
+        || y < 0 || y % 8 != 0 || y > layer->h - rows * 8
+        || !POCKET_TileSheetIsKeyed(sheet)) return false;
+    const Texture *t = texture_data(sheet);
+    if (t->texture.w % 8 != 0 || t->texture.h % 8 != 0
+        || t->col0 != 0 || t->mod_r != 255 || t->mod_g != 255
+        || t->mod_b != 255 || t->mod_a != 255) return false;
+    const int sheet_columns = t->texture.w / 8;
+    const int tiles = sheet_columns * (t->texture.h / 8);
+    for (int i = 0; i < columns * rows; i++)
+        if (ids[i] < -1 || ids[i] >= tiles) return false;
+    if (!keep_keyed_sheet(t)) return false;
+    if (y == 0 && rows * 8 == layer->h && layer->row0 % 8 == 0)
+    {
+        if (layer->tile_ids == NULL)
+            layer->tile_ids = (int *) SDL_malloc((size_t) columns * rows * sizeof(int));
+        layer->source_serial = t->serial;
+        layer->source_changes = t->changes;
+        layer->source_valid = layer->tile_ids != NULL;
+    }
+    else if (layer->source_serial != t->serial || layer->source_changes != t->changes
+        || layer->row0 % 8 != 0 || layer->h % 8 != 0)
+        layer->source_valid = false;
+    if (layer->source_valid)
+        for (int j = 0; j < rows; j++)
+            SDL_memcpy(layer->tile_ids + (size_t) (layer_row(layer, y + j * 8) / 8) * columns,
+                ids + (size_t) j * columns, (size_t) columns * sizeof(int));
+    prepare_keyed_patterns();
+    for (int j = 0; j < rows; j++)
+    {
+        size_t from[64];
+        for (int i = 0; i < columns; i++)
+        {
+            const int tile = ids[j * columns + i];
+            from[i] = tile < 0 ? 0 : (size_t) (tile / sheet_columns) * 8 * t->texture.w
+                + (tile % sheet_columns) * 8;
+        }
+        for (int py = 0; py < 8; py++)
+        {
+            const int k = layer_row(layer, y + j * 8 + py);
+            Uint16 *runs = layer->runs + (size_t) k * layer->run_cap * 2;
+            int n = 0;
+            for (int i = 0; i < columns; i++)
+            {
+                const size_t to = (size_t) k * layer->w + i * 8;
+                if (ids[j * columns + i] < 0)
+                    SDL_memset(layer->mask + to, 0, 8);
+                else
+                {
+                    const size_t source = from[i] + (size_t) py * t->texture.w;
+                    SDL_memcpy(layer->color + to, keyed_sheet.color + source, 16);
+                    SDL_memcpy(layer->mask + to, keyed_sheet.mask + source, 8);
+                    if (POCKET_keyed_spans_fast)
+                    {
+                        n = append_keyed_runs(runs, n, 2, i * 8, keyed_sheet.bits[source / 8]);
+                    }
+                }
+            }
+            layer->run_count[k] = (Uint16) n;
+            layer->dirty[k] = !POCKET_keyed_spans_fast;
+        }
+    }
+    return true;
+}
+
+/* Validate stable tile transparency once per sheet revision. Keeping tile
+ * IDs allows ambiguous colour mappings too: copy the actual new tile pixels,
+ * rather than inferring them from the old RGB565 values. */
+static struct
+{
+    const Texture *of;
+    Uint32 changes;
+    int tiles;
+    bool valid;
+} palette_sheet;
+
+static void forget_palette_sheet(const Texture *t)
+{
+    if (palette_sheet.of == t) SDL_zero(palette_sheet);
+}
+
+static bool keep_palette_sheet(const Texture *t, int tiles)
+{
+    if (palette_sheet.of == t && palette_sheet.changes == t->changes && palette_sheet.tiles == tiles)
+        return palette_sheet.valid;
+    palette_sheet.of = t;
+    palette_sheet.changes = t->changes;
+    palette_sheet.tiles = tiles;
+    palette_sheet.valid = false;
+    const int columns = t->texture.w / 8;
+    const int count = columns * (t->texture.h / 8);
+    if (count % tiles) return false;
+    for (int tile = tiles; tile < count; tile++)
+    {
+        const size_t base = (size_t) (tile / columns) * 8 * t->texture.w + tile % columns * 8;
+        const int original = tile % tiles;
+        const size_t first = (size_t) (original / columns) * 8 * t->texture.w + original % columns * 8;
+        for (int y = 0; y < 8; y++)
+            if (keyed_sheet.bits[base / 8 + (size_t) y * columns]
+                != keyed_sheet.bits[first / 8 + (size_t) y * columns]) return false;
+    }
+    palette_sheet.valid = true;
+    return true;
+}
+
+/* Upload only colours for the retained tile IDs. Masks and spans remain
+ * valid because every corresponding palette tile has identical alpha.
+ * Validate the source revision and every old tile before writing anything. */
+bool POCKET_RecolorTileLayer(POCKET_TileLayer *layer, SDL_Texture *sheet,
+    int from, int to, int tiles)
+{
+    if (layer == NULL || !POCKET_TileSheetIsKeyed(sheet)) return false;
+    const Texture *t = texture_data(sheet);
+    if (!layer->source_valid || layer->source_serial != t->serial || layer->source_changes != t->changes
+        || t->texture.w % 8 || t->texture.h % 8
+        || (t->mod_r & t->mod_g & t->mod_b & t->mod_a) != 255) return false;
+    const int count = (t->texture.w / 8) * (t->texture.h / 8);
+    if (from < 0 || to < 0 || tiles <= 0 || tiles > count
+        || from > count - tiles || to > count - tiles || from % tiles || to % tiles) return false;
+    const int columns = layer->w / 8, rows = layer->h / 8;
+    for (int i = 0; i < columns * rows; i++)
+        if (layer->tile_ids[i] >= 0 && (layer->tile_ids[i] < from || layer->tile_ids[i] >= from + tiles)) return false;
+    for (int k = 0; k < layer->h; k++) if (layer->dirty[k]) return false;
+    if (!keep_keyed_sheet(t) || !keep_palette_sheet(t, tiles)) return false;
+    const int sheet_columns = t->texture.w / 8;
+    for (int j = 0; j < rows; j++)
+    {
+        size_t source[64];
+        for (int i = 0; i < columns; i++)
+        {
+            int *id = &layer->tile_ids[j * columns + i];
+            if (*id < 0) { source[i] = 0; continue; }
+            *id += to - from;
+            source[i] = (size_t) (*id / sheet_columns) * 8 * t->texture.w + *id % sheet_columns * 8;
+        }
+        for (int y = 0; y < 8; y++)
+            for (int i = 0; i < columns; i++)
+                if (layer->tile_ids[j * columns + i] >= 0)
+                {
+                    const size_t at = source[i] + (size_t) y * t->texture.w;
+                    if (keyed_sheet.bits[at / 8])
+                        SDL_memcpy(layer->color + (size_t) (j * 8 + y) * layer->w + i * 8,
+                            keyed_sheet.color + at, 16);
+                }
+    }
+    return true;
 }
 
 /* Blends layer rows from src_y on, as many as the target is tall, onto
@@ -2299,9 +2596,76 @@ bool POCKET_CopyOpaqueTile(SDL_Renderer *renderer, SDL_Texture *sheet, int sx, i
     return true;
 }
 
-/* Draw an indexed 8x8 opaque tile grid with one target mutation and one
- * destination copy per pixel row. Gather short tile spans into a scratch
- * row so the destination is written contiguously, including ring targets. */
+/* Small repeated tile palettes: expand each used tile horizontally once,
+ * then copy a run of identical tiles as one span. No map geometry is cached,
+ * so edits to the caller's tile IDs take effect immediately. */
+enum { OPAQUE_REPEAT_TILES = 6, OPAQUE_REPEAT_WIDTH = POCKET_SCREEN_W + 24 };
+static struct
+{
+    const Texture *of;
+    Uint64 serial;
+    Uint32 changes;
+    int first, tiles;
+    unsigned valid;
+    Uint16 *pixels;
+} opaque_repeat;
+bool POCKET_grid_repeat_fast = true;
+Uint32 POCKET_grid_repeat_hits;
+
+static void forget_opaque_repeat(const Texture *t)
+{
+    if (opaque_repeat.of == t)
+    {
+        SDL_free(opaque_repeat.pixels);
+        SDL_zero(opaque_repeat);
+    }
+}
+
+static const Uint16 *opaque_repeated_tile(const Texture *src, int tile, int first, int tiles)
+{
+    if (opaque_repeat.of != src || opaque_repeat.serial != src->serial
+        || opaque_repeat.changes != src->changes || opaque_repeat.first != first || opaque_repeat.tiles != tiles)
+    {
+        opaque_repeat.of = src;
+        opaque_repeat.serial = src->serial;
+        opaque_repeat.changes = src->changes;
+        opaque_repeat.first = first;
+        opaque_repeat.tiles = tiles;
+        opaque_repeat.valid = 0;
+    }
+    if (opaque_repeat.pixels == NULL)
+    {
+        opaque_repeat.pixels = (Uint16 *) SDL_malloc(OPAQUE_REPEAT_TILES * 8 * OPAQUE_REPEAT_WIDTH * sizeof(Uint16));
+        if (opaque_repeat.pixels == NULL) return NULL;
+    }
+    const int index = tile - first;
+    Uint16 *expanded = opaque_repeat.pixels + (size_t) index * 8 * OPAQUE_REPEAT_WIDTH;
+    if (!(opaque_repeat.valid & (1u << index)))
+    {
+        const int columns = src->texture.w / 8;
+        const int pitch = src->alias_of != NULL ? src->alias_of->pitch565 : src->pitch565;
+        const Uint16 *source = texels565(src) + (size_t) (tile / columns) * 8 * pitch + tile % columns * 8;
+        for (int y = 0; y < 8; y++)
+        {
+            Uint16 *out = expanded + (size_t) y * OPAQUE_REPEAT_WIDTH;
+            SDL_memcpy(out, source + (size_t) y * pitch, 16);
+            for (int n = 8; n < OPAQUE_REPEAT_WIDTH;)
+            {
+                const int add = SDL_min(n, OPAQUE_REPEAT_WIDTH - n);
+                SDL_memcpy(out + n, out, (size_t) add * 2);
+                n += add;
+            }
+        }
+        opaque_repeat.valid |= 1u << index;
+    }
+    return expanded;
+}
+
+/* Direct writes avoid gathering a scratch row and copying it again. A
+ * horizontally wrapped destination still uses that scratch-row fallback. */
+bool POCKET_grid_direct = true;
+
+/* Draw an indexed 8x8 opaque tile grid with one target mutation. */
 bool POCKET_CopyOpaqueGrid(SDL_Renderer *renderer, SDL_Texture *sheet,
     const Uint16 *tiles, int columns, int rows, int x, int y)
 {
@@ -2321,9 +2685,15 @@ bool POCKET_CopyOpaqueGrid(SDL_Renderer *renderer, SDL_Texture *sheet,
         return false;
     const int sheet_columns = src->texture.w / 8;
     const int sheet_tiles = sheet_columns * (src->texture.h / 8);
+    int first_tile = INT_MAX, last_tile = 0;
     for (int i = 0; i < columns * rows; i++)
-        if (tiles[i] >= sheet_tiles)
-            return false;
+    {
+        if (tiles[i] >= sheet_tiles) return false;
+        first_tile = SDL_min(first_tile, tiles[i]);
+        last_tile = SDL_max(last_tile, tiles[i]);
+    }
+    bool repeated = POCKET_grid_repeat_fast && last_tile - first_tile < OPAQUE_REPEAT_TILES;
+    bool used_repeated = false;
     const SDL_Rect wanted = {x, y, columns * 8, rows * 8};
     const SDL_Rect bounds = {0, 0, dst->texture.w, dst->texture.h};
     SDL_Rect clip;
@@ -2339,8 +2709,10 @@ bool POCKET_CopyOpaqueGrid(SDL_Renderer *renderer, SDL_Texture *sheet,
         begin_rows_change(dst, clip.y, clip.h);
     const Uint16 *pixels = texels565(src);
     const int pitch = src->alias_of != NULL ? src->alias_of->pitch565 : src->pitch565;
-    struct Span { const Uint16 *source; int destination, count; } spans[64];
+    struct Span { const Uint16 *source; int destination, count, pitch; } spans[64];
     Uint16 line[POCKET_SCREEN_W + 16];
+    const int destination_x = kept_column(dst, clip.x);
+    const bool direct = POCKET_grid_direct && destination_x + clip.w <= dst->texture.w;
     const int first_column = (clip.x - x) / 8;
     const int last_column = (clip.x + clip.w - 1 - x) / 8;
     const int first_row = (clip.y - y) / 8;
@@ -2348,32 +2720,139 @@ bool POCKET_CopyOpaqueGrid(SDL_Renderer *renderer, SDL_Texture *sheet,
     for (int j = first_row; j <= last_row; j++)
     {
         int count = 0;
-        for (int i = first_column; i <= last_column; i++)
+        for (int i = first_column; i <= last_column;)
         {
             const int tile = tiles[j * columns + i];
+            int end = i + 1;
+            if (repeated)
+                while (end <= last_column && tiles[j * columns + end] == tile) end++;
+            const Uint16 *expanded = NULL;
+            if (end > i + 1)
+            {
+                expanded = opaque_repeated_tile(src, tile, first_tile, last_tile - first_tile + 1);
+                if (expanded == NULL) { repeated = false; end = i + 1; }
+                else used_repeated = true;
+            }
             const int left = SDL_max(clip.x, x + i * 8);
-            const int right = SDL_min(clip.x + clip.w, x + i * 8 + 8);
-            spans[count].source = pixels + (size_t) (tile / sheet_columns * 8) * pitch
-                + tile % sheet_columns * 8 + left - (x + i * 8);
+            const int right = SDL_min(clip.x + clip.w, x + end * 8);
+            spans[count].source = expanded != NULL
+                ? expanded + left - (x + i * 8)
+                : pixels + (size_t) (tile / sheet_columns * 8) * pitch
+                    + tile % sheet_columns * 8 + left - (x + i * 8);
+            spans[count].pitch = expanded != NULL ? OPAQUE_REPEAT_WIDTH : pitch;
             spans[count].destination = left - clip.x;
             spans[count++].count = right - left;
+            i = end;
         }
         const int top = SDL_max(clip.y, y + j * 8);
         const int bottom = SDL_min(clip.y + clip.h, y + j * 8 + 8);
         for (int py = top; py < bottom; py++)
         {
-            const size_t source_row = (size_t) (py - y - j * 8) * pitch;
+            const int source_row = py - y - j * 8;
+            Uint16 *target_row = dst->pixels565 + kept_row(dst, py) * dst->pitch565;
+            Uint16 *out = direct ? target_row + destination_x : line;
             for (int i = 0; i < count; i++)
             {
                 const struct Span *span = &spans[i];
                 if (span->count == 8)
-                    SDL_memcpy(line + span->destination, span->source + source_row, 8 * sizeof(Uint16));
+                    SDL_memcpy(out + span->destination, span->source + (size_t) source_row * span->pitch, 8 * sizeof(Uint16));
                 else
-                    SDL_memcpy(line + span->destination, span->source + source_row, (size_t) span->count * 2);
+                    SDL_memcpy(out + span->destination, span->source + (size_t) source_row * span->pitch, (size_t) span->count * 2);
             }
-            copy_packed_span(dst->pixels565 + kept_row(dst, py) * dst->pitch565,
-                dst->texture.w, kept_column(dst, clip.x), line, clip.w, 0, clip.w);
+            if (!direct)
+                copy_packed_span(target_row, dst->texture.w, destination_x, line, clip.w, 0, clip.w);
         }
+    }
+    if (used_repeated) POCKET_grid_repeat_hits++;
+    PART_END(1);
+    return true;
+}
+
+/* Replace a complete target with an 8x8 tile grid on transparent black.
+ * Binary alpha permits straight row writes; alpha-zero RGB is canonicalized
+ * to zero to match blending each tile onto the cleared foreground. */
+bool POCKET_CopyKeyedGrid(SDL_Renderer *renderer, SDL_Texture *sheet,
+    const int *tiles, int columns, int rows)
+{
+    if (!check_renderer(renderer) || !check_texture(sheet) || tiles == NULL
+        || columns <= 0 || rows <= 0 || columns > 64 || rows > 64)
+        return false;
+    Texture *src = texture_data(sheet);
+    Texture *dst = current_target(renderer);
+    if (src == dst || dst->pixels == NULL || renderer->target == NULL
+        || dst->texture.w != columns * 8 || dst->texture.h != rows * 8
+        || src->texture.w < 8 || src->texture.h < 8
+        || src->texture.w % 8 || src->texture.h % 8 || src->row0 != 0
+        || (src->mod_r & src->mod_g & src->mod_b & src->mod_a) != 255
+        || src->blend != SDL_BLENDMODE_BLEND || !POCKET_TileSheetIsKeyed(sheet))
+        return false;
+    const int sheet_columns = src->texture.w / 8;
+    const int tile_count = sheet_columns * (src->texture.h / 8);
+    for (int i = 0; i < columns * rows; i++)
+        if (tiles[i] < -1 || tiles[i] >= tile_count)
+            return false;
+    COUNT_CALL();
+    begin_change(dst, true);
+    keep_argb(dst, false);
+    dst->row0 = 0;
+    dst->opaque = false;
+    PART_BEGIN();
+    bool cached = POCKET_keyed_spans_fast && keep_keyed_sheet(src) && prepare_run_buffers(dst);
+    int n = 0;
+    if (cached) prepare_keyed_patterns();
+    for (int j = 0; j < rows; j++)
+    {
+        const Uint32 *spans[64];
+        size_t from[64];
+        for (int i = 0; i < columns; i++)
+        {
+            const int tile = tiles[j * columns + i];
+            from[i] = tile < 0 ? 0 : (size_t) (tile / sheet_columns) * 8 * src->texture.w
+                + tile % sheet_columns * 8;
+            spans[i] = tile < 0 ? NULL : src->pixels + from[i];
+        }
+        for (int y = 0; y < 8; y++)
+        {
+            const int row = j * 8 + y;
+            /* Four visible spans per tile is an upper bound before merging. */
+            if (cached && !reserve_runs(dst, n + columns * 4))
+            {
+                free_runs(dst);
+                cached = false;
+            }
+            const int row_start = n;
+            if (cached) dst->row_runs[row] = n;
+            Uint32 *d = dst->pixels + (size_t) row * dst->texture.w;
+            for (int i = 0; i < columns; i++, d += 8)
+            {
+                if (spans[i] == NULL)
+                {
+                    SDL_memset(d, 0, 8 * sizeof(Uint32));
+                    if (cached) SDL_memset(dst->runs565 + (size_t) row * dst->texture.w + i * 8, 0, 16);
+                }
+                else
+                {
+                    const Uint32 *s = spans[i] + (size_t) y * src->texture.w;
+                    for (int x = 0; x < 8; x++)
+                        d[x] = s[x] & (0u - (s[x] >> 31));
+                    if (cached)
+                    {
+                        const size_t source = from[i] + (size_t) y * src->texture.w;
+                        SDL_memcpy(dst->runs565 + (size_t) row * dst->texture.w + i * 8,
+                            keyed_sheet.color + source, 16);
+                        n = row_start + append_keyed_runs(dst->runs + (size_t) row_start * 3,
+                            n - row_start, 3, i * 8, keyed_sheet.bits[source / 8]);
+                    }
+                }
+            }
+            if (cached) dst->dirty_rows[row] = 0;
+        }
+    }
+    if (cached)
+    {
+        dst->row_runs[dst->texture.h] = n;
+        dst->runs_valid = true;
+        dst->runs_partial = false;
     }
     PART_END(1);
     return true;

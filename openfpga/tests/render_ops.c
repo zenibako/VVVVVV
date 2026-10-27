@@ -5,6 +5,7 @@
 #include <SDL3/SDL.h>
 #include <limits.h>
 #include <assert.h>
+#include <stdio.h>
 
 #include "render_test.h"
 
@@ -12,6 +13,11 @@
 bool POCKET_ScrollTexture(SDL_Texture *texture, int dx, int dy);
 bool POCKET_RepeatTexture(SDL_Renderer*, SDL_Texture*, const SDL_Rect*, const SDL_Rect*);
 bool POCKET_CopyOpaqueGrid(SDL_Renderer*, SDL_Texture*, const Uint16*, int, int, int, int);
+bool POCKET_CopyKeyedGrid(SDL_Renderer*, SDL_Texture*, const int*, int, int);
+extern bool POCKET_keyed_spans_fast;
+extern bool POCKET_grid_direct;
+extern bool POCKET_grid_repeat_fast;
+void POCKET_SetTextureRuns(SDL_Texture*, bool);
 bool POCKET_ShiftTextureRows(SDL_Texture *texture, int dy);
 typedef struct POCKET_TileLayer POCKET_TileLayer;
 POCKET_TileLayer *POCKET_CreateTileLayer(int w, int h);
@@ -20,7 +26,9 @@ bool POCKET_TileSheetIsKeyed(SDL_Texture *sheet);
 void POCKET_ShiftTileLayer(POCKET_TileLayer *layer, int dy);
 void POCKET_ClearTileLayer(POCKET_TileLayer *layer);
 void POCKET_PutTile(POCKET_TileLayer *layer, SDL_Texture *sheet, int sx, int sy, int x, int y, int w, int h);
+bool POCKET_PutTileGrid(POCKET_TileLayer*, SDL_Texture*, const int*, int, int, int);
 bool POCKET_DrawTileLayer(SDL_Renderer *renderer, POCKET_TileLayer *layer, int src_y);
+bool POCKET_RecolorTileLayer(POCKET_TileLayer*, SDL_Texture*, int, int, int);
 bool POCKET_CopyOpaqueTile(SDL_Renderer *renderer, SDL_Texture *sheet, int sx, int sy, int x, int y, int w, int h);
 #endif
 
@@ -1135,11 +1143,484 @@ static void surfaces(Capture *capture)
     SDL_DestroySurface(source);
 }
 
+static void put_keyed_grid(SDL_Renderer *renderer, SDL_Texture *sheet, const int *ids)
+{
+#ifdef SDL_RenderClear
+    assert(POCKET_CopyKeyedGrid(renderer, sheet, ids, 3, 2));
+#else
+    SDL_SetRenderDrawColor(renderer, 0, 0, 0, 0);
+    SDL_RenderClear(renderer);
+    for (int i = 0; i < 6; i++)
+    {
+        if (ids[i] < 0) continue;
+        const SDL_FRect src = {(ids[i] % 2) * 8, (ids[i] / 2) * 8, 8, 8};
+        const SDL_FRect dst = {(i % 3) * 8, (i / 3) * 8, 8, 8};
+        SDL_RenderTexture(renderer, sheet, &src, &dst);
+    }
+#endif
+}
+
+static void recolor_tile_layer(SDL_Renderer *renderer, Capture *capture)
+{
+    Uint32 pixels[16 * 16];
+    for (int y = 0; y < 16; y++)
+        for (int x = 0; x < 16; x++)
+            pixels[y * 16 + x] = (x + y % 8) % 3 == 0 ? 0
+                : ((x % 2) ^ (y / 8) ? 0xff00ff00u : 0xffff0000u);
+    SDL_Texture *sheet = SDL_CreateTexture(renderer, SDL_PIXELFORMAT_ARGB8888,
+        SDL_TEXTUREACCESS_STREAMING, 16, 16);
+    SDL_SetTextureBlendMode(sheet, SDL_BLENDMODE_BLEND);
+    SDL_UpdateTexture(sheet, NULL, pixels, 16 * 4);
+    SDL_Texture *target = SDL_CreateTexture(renderer, SDL_PIXELFORMAT_ARGB8888,
+        SDL_TEXTUREACCESS_TARGET, 16, 16);
+#ifdef SDL_RenderClear
+    POCKET_TileLayer *layer = POCKET_CreateTileLayer(16, 16);
+    const int original[] = {0, 1, 1, 0};
+    assert(POCKET_PutTileGrid(layer, sheet, original, 2, 2, 0));
+    assert(!POCKET_RecolorTileLayer(layer, sheet, 2, 0, 2));
+    assert(POCKET_RecolorTileLayer(layer, sheet, 0, 2, 2));
+#endif
+    for (int step = 0; step < 8; step++)
+    {
+        if (step == 7)
+        {
+            pixels[8 * 16 + 2] = 0xff0000ffu;
+            SDL_UpdateTexture(sheet, NULL, pixels, 16 * 4);
+        }
+        SDL_SetRenderTarget(renderer, target);
+        SDL_SetRenderDrawColor(renderer, 24, 64, 120, 255);
+        SDL_RenderClear(renderer);
+#ifdef SDL_RenderClear
+        if (step == 1)
+        {
+            POCKET_ShiftTileLayer(layer, -8);
+            const int exposed[] = {3, 2};
+            assert(POCKET_PutTileGrid(layer, sheet, exposed, 2, 1, 8));
+            assert(POCKET_RecolorTileLayer(layer, sheet, 2, 0, 2));
+        }
+        if (step == 2)
+        {
+            /* A changed source cannot recolour a layer built from its old
+             * generation, even if its pointer and colours still match. */
+            SDL_UpdateTexture(sheet, NULL, pixels, 16 * 4);
+            assert(!POCKET_RecolorTileLayer(layer, sheet, 0, 2, 2));
+        }
+        if (step == 3)
+        {
+            /* Altered transparency must reject without changing the layer. */
+            pixels[8 * 16 + 2] = 0;
+            SDL_UpdateTexture(sheet, NULL, pixels, 16 * 4);
+            const int current[] = {1, 0, 1, 0};
+            assert(POCKET_PutTileGrid(layer, sheet, current, 2, 2, 0));
+            assert(!POCKET_RecolorTileLayer(layer, sheet, 0, 2, 2));
+        }
+        if (step == 4)
+        {
+            pixels[8 * 16 + 2] = 0;
+            SDL_UpdateTexture(sheet, NULL, pixels, 16 * 4);
+            const int current[] = {1, 0, 1, 0};
+            assert(POCKET_PutTileGrid(layer, sheet, current, 2, 2, 0));
+            assert(!POCKET_RecolorTileLayer(layer, sheet, 0, 2, 2));
+        }
+        if (step == 5)
+        {
+            POCKET_PutTile(layer, sheet, 8, 0, 0, 0, 8, 8);
+            assert(!POCKET_RecolorTileLayer(layer, sheet, 0, 2, 2));
+        }
+        if (step == 6)
+        {
+            SDL_DestroyTexture(sheet);
+            sheet = SDL_CreateTexture(renderer, SDL_PIXELFORMAT_ARGB8888,
+                SDL_TEXTUREACCESS_STREAMING, 16, 16);
+            SDL_SetTextureBlendMode(sheet, SDL_BLENDMODE_BLEND);
+            SDL_UpdateTexture(sheet, NULL, pixels, 16 * 4);
+            assert(!POCKET_RecolorTileLayer(layer, sheet, 0, 2, 2));
+        }
+        if (step == 7)
+        {
+            const int current[] = {1, 0, 1, 0};
+            assert(POCKET_PutTileGrid(layer, sheet, current, 2, 2, 0));
+            assert(POCKET_RecolorTileLayer(layer, sheet, 0, 2, 2));
+        }
+        assert(POCKET_DrawTileLayer(renderer, layer, 0));
+#else
+        const int initial[] = {2, 3, 3, 2};
+        const int shifted[] = {1, 0, 1, 0};
+        for (int i = 0; i < 4; i++)
+        {
+            const int tile = step == 0 ? initial[i] : shifted[i] + (step == 7 ? 2 : 0);
+            const SDL_FRect src = {tile % 2 * 8, tile / 2 * 8, 8, 8};
+            const SDL_FRect dst = {i % 2 * 8, i / 2 * 8, 8, 8};
+            SDL_RenderTexture(renderer, sheet, &src, &dst);
+        }
+#endif
+        capture_target(renderer, capture, "retained palette geometry/rejection");
+    }
+#ifdef SDL_RenderClear
+    POCKET_DestroyTileLayer(layer);
+#endif
+    SDL_SetRenderTarget(renderer, NULL);
+    SDL_DestroyTexture(target);
+    SDL_DestroyTexture(sheet);
+}
+
+static void bulk_tile_grid(SDL_Renderer *renderer, Capture *capture)
+{
+    Uint32 pixels[16 * 16];
+    for (int i = 0; i < 256; i++) pixels[i] = i % 3 ? 0xff80c040 : 0;
+    SDL_Surface *surface = SDL_CreateSurfaceFrom(16, 16, SDL_PIXELFORMAT_ARGB8888, pixels, 16 * 4);
+    SDL_SetSurfaceBlendMode(surface, SDL_BLENDMODE_BLEND);
+    SDL_Texture *sheet = SDL_CreateTextureFromSurface(renderer, surface);
+    SDL_DestroySurface(surface);
+    SDL_Texture *target = SDL_CreateTexture(renderer, SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_TARGET, 24, 16);
+    const int ids[] = {0, 1, -1, 2, 3, 0};
+#ifdef SDL_RenderClear
+    POCKET_TileLayer *layer = POCKET_CreateTileLayer(24, 16);
+#endif
+    for (int round = 0; round < 3; round++)
+    {
+        SDL_SetRenderTarget(renderer, target);
+        SDL_SetRenderDrawColor(renderer, 24, 64, 120, 255);
+        SDL_RenderClear(renderer);
+#ifdef SDL_RenderClear
+        if (round == 2)
+        {
+            /* A scroll retains the old bottom row, then uploads only the
+             * newly exposed row through the layer's circular origin. */
+            POCKET_ShiftTileLayer(layer, -8);
+            assert(POCKET_PutTileGrid(layer, sheet, ids, 3, 1, 8));
+        }
+        else assert(POCKET_PutTileGrid(layer, sheet, ids, 3, 2, 0));
+        const int invalid[] = {3, 1, -1, 2, 3, 99};
+        assert(!POCKET_PutTileGrid(layer, sheet, invalid, 3, 2, 0));
+        assert(!POCKET_PutTileGrid(layer, sheet, ids, 3, 2, 8));
+        assert(POCKET_DrawTileLayer(renderer, layer, 0));
+#else
+        for (int i = 0; i < 6; i++)
+        {
+            const int tile = ids[round == 2 ? (i + 3) % 6 : i];
+            if (tile < 0) continue;
+            const SDL_FRect src = {tile % 2 * 8, tile / 2 * 8, 8, 8};
+            const SDL_FRect dst = {i % 3 * 8, i / 3 * 8, 8, 8};
+            SDL_RenderTexture(renderer, sheet, &src, &dst);
+        }
+#endif
+        capture_target(renderer, capture, round == 2 ? "bulk grid shifted rows" : "bulk grid atomic rejection/source change");
+        for (int i = 0; i < 256; i++) pixels[i] = i % 4 ? 0xff204080 : 0;
+        SDL_UpdateTexture(sheet, NULL, pixels, 16 * 4);
+    }
+#ifdef SDL_RenderClear
+    POCKET_DestroyTileLayer(layer);
+#endif
+    SDL_SetRenderTarget(renderer, NULL);
+    SDL_DestroyTexture(sheet);
+    SDL_DestroyTexture(target);
+}
+
+static void run_cache_patterns(SDL_Renderer *renderer, Capture *capture)
+{
+    Uint32 pixels[24 * 16];
+    SDL_Texture *sheet = SDL_CreateTexture(renderer, SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_STREAMING, 24, 16);
+    SDL_SetTextureBlendMode(sheet, SDL_BLENDMODE_BLEND);
+#ifdef SDL_RenderClear
+    POCKET_SetTextureRuns(sheet, true);
+#endif
+    for (int round = 0; round < 4; round++)
+    {
+        for (int i = 0; i < 24 * 16; i++)
+        {
+            const Uint32 alpha = round % 2 == 0 ? (i % 3 == 0 ? 0 : i % 3 == 1 ? 128 : 255) : 255;
+            pixels[i] = (alpha << 24) | 0x4080c0u;
+        }
+        if (round == 2)
+        {
+            const SDL_Rect area = {0, 0, 24, 1};
+            SDL_UpdateTexture(sheet, &area, pixels, 24 * 4);
+        }
+        else SDL_UpdateTexture(sheet, NULL, pixels, 24 * 4);
+        SDL_SetRenderTarget(renderer, NULL);
+        SDL_SetRenderDrawColor(renderer, 24, 64, 120, 255);
+        SDL_RenderClear(renderer);
+        draw_sprite(renderer, sheet, 10, 20, 24, 16, SDL_FLIP_NONE);
+        capture_target(renderer, capture, "cache full/partial run pattern");
+    }
+    SDL_DestroyTexture(sheet);
+}
+
+static void keyed_grid(SDL_Renderer *renderer, Capture *capture)
+{
+    Uint32 pixels[16 * 16];
+    for (int y = 0; y < 16; y++)
+        for (int x = 0; x < 16; x++)
+            pixels[y * 16 + x] = ((x + y) % 3 ? 0xff000000u : 0)
+                | ((Uint32) x * 13 << 16) | ((Uint32) y * 15 << 8) | 99;
+    SDL_Surface *surface = SDL_CreateSurfaceFrom(16, 16, SDL_PIXELFORMAT_ARGB8888, pixels, 16 * 4);
+    SDL_Texture *sheet = SDL_CreateTextureFromSurface(renderer, surface);
+    SDL_DestroySurface(surface);
+    SDL_SetTextureBlendMode(sheet, SDL_BLENDMODE_BLEND);
+    SDL_Texture *target = SDL_CreateTexture(renderer, SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_TARGET, 24, 16);
+    const int ids[] = {0, 1, -1, 2, 3, 0};
+    SDL_SetRenderTarget(renderer, target);
+    SDL_SetRenderDrawColor(renderer, 22, 55, 88, 255);
+    SDL_RenderClear(renderer);
+    put_keyed_grid(renderer, sheet, ids);
+    capture_target(renderer, capture, "keyed grid transparent replacement");
+    SDL_Texture *snapshot = SDL_CreateTexture(renderer, SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_TARGET, 24, 16);
+    SDL_SetTextureBlendMode(target, SDL_BLENDMODE_NONE);
+    SDL_SetRenderTarget(renderer, snapshot);
+    SDL_RenderTexture(renderer, target, NULL, NULL);
+    SDL_SetRenderTarget(renderer, target);
+    const int changed[] = {3, 2, 1, 0, -1, 3};
+    put_keyed_grid(renderer, sheet, changed);
+    capture_target(renderer, capture, "keyed grid snapshot detached");
+    SDL_SetRenderTarget(renderer, snapshot);
+    capture_target(renderer, capture, "keyed grid snapshot preserved");
+    SDL_SetRenderTarget(renderer, target);
+#ifdef SDL_RenderClear
+    const int invalid[] = {0, 1, -1, 2, 3, 4};
+    assert(!POCKET_CopyKeyedGrid(renderer, sheet, invalid, 3, 2));
+    assert(!POCKET_CopyKeyedGrid(renderer, sheet, ids, INT_MAX, 2));
+    assert(!POCKET_CopyKeyedGrid(renderer, target, ids, 3, 2));
+    SDL_SetTextureColorMod(sheet, 128, 255, 255);
+    assert(!POCKET_CopyKeyedGrid(renderer, sheet, ids, 3, 2));
+    SDL_SetTextureColorMod(sheet, 255, 255, 255);
+    pixels[0] = 0x80ffffff;
+    SDL_UpdateTexture(sheet, NULL, pixels, 16 * 4);
+    assert(!POCKET_CopyKeyedGrid(renderer, sheet, ids, 3, 2));
+#endif
+    capture_target(renderer, capture, "keyed grid atomic rejection");
+    SDL_SetRenderTarget(renderer, NULL);
+    SDL_DestroyTexture(target);
+    SDL_DestroyTexture(snapshot);
+    SDL_DestroyTexture(sheet);
+}
+
+/* Every 8-bit transparency pattern, including joins across tile edges,
+ * rebuilt after source mutation. Both texture and layer paths must agree
+ * with native SDL, including transparent RGB in the foreground itself. */
+static void opaque_repeat_grid(SDL_Renderer *renderer, Capture *capture)
+{
+    SDL_Texture *sheet = SDL_CreateTexture(renderer, SDL_PIXELFORMAT_ARGB8888,
+        SDL_TEXTUREACCESS_TARGET, 32, 16);
+    scroll_pattern(renderer, sheet);
+    SDL_SetTextureBlendMode(sheet, SDL_BLENDMODE_NONE);
+    SDL_Texture *image = SDL_CreateTexture(renderer, SDL_PIXELFORMAT_ARGB8888,
+        SDL_TEXTUREACCESS_TARGET, 336, 336);
+    SDL_Texture *temp = SDL_CreateTexture(renderer, SDL_PIXELFORMAT_ARGB8888,
+        SDL_TEXTUREACCESS_TARGET, 336, 336);
+    SDL_SetTextureBlendMode(image, SDL_BLENDMODE_NONE);
+    SDL_SetTextureBlendMode(temp, SDL_BLENDMODE_NONE);
+    Uint16 ids[44 * 33];
+    for (int j = 0; j < 33; j++)
+        for (int i = 0; i < 40; i++)
+            ids[j * 40 + i] = i == 19 ? 2 + j % 4 : i < 19 ? 0 : 1;
+#ifdef SDL_RenderClear
+    POCKET_grid_repeat_fast = true;
+#endif
+    scroll_pattern(renderer, image);
+    draw_grid(renderer, sheet, ids, 40, 33, -3, -5, true);
+    exact_target(renderer, capture, "repeated grid clipped");
+    scroll_offset(renderer, image, temp, -7, -3);
+    draw_grid(renderer, sheet, ids, 40, 33, 0, -3, true);
+    exact_target(renderer, capture, "repeated grid circular");
+    SDL_SetRenderTarget(renderer, sheet);
+    SDL_SetRenderDrawColor(renderer, 255, 32, 64, 255);
+    const SDL_FRect patch = {1, 1, 3, 3};
+    SDL_RenderFillRect(renderer, &patch);
+    SDL_SetRenderTarget(renderer, image);
+    draw_grid(renderer, sheet, ids, 40, 33, 0, -7, true);
+    exact_target(renderer, capture, "repeated grid source changed");
+    ids[0] = 7;
+    draw_grid(renderer, sheet, ids, 40, 33, 1, 0, true);
+    exact_target(renderer, capture, "repeated grid wider palette fallback");
+    for (int j = 0; j < 33; j++)
+        for (int i = 0; i < 44; i++)
+            ids[j * 44 + i] = i == 0 ? 5 : i == 19 ? 2 + j % 4 : i < 19 ? 0 : 1;
+    draw_grid(renderer, sheet, ids, 44, 33, -7, -7, true);
+    exact_target(renderer, capture, "repeated grid max clip changed IDs");
+    SDL_SetRenderTarget(renderer, NULL);
+    SDL_DestroyTexture(image);
+    SDL_DestroyTexture(temp);
+    SDL_DestroyTexture(sheet);
+}
+
+static void keyed_span_patterns(SDL_Renderer *renderer, Capture *capture)
+{
+    Uint32 pixels[128 * 128];
+    int ids[16 * 16];
+    SDL_Texture *sheet = SDL_CreateTexture(renderer, SDL_PIXELFORMAT_ARGB8888,
+        SDL_TEXTUREACCESS_STREAMING, 128, 128);
+    SDL_SetTextureBlendMode(sheet, SDL_BLENDMODE_BLEND);
+    SDL_Texture *foreground = SDL_CreateTexture(renderer, SDL_PIXELFORMAT_ARGB8888,
+        SDL_TEXTUREACCESS_TARGET, 128, 128);
+    SDL_SetTextureBlendMode(foreground, SDL_BLENDMODE_BLEND);
+#ifdef SDL_RenderClear
+    POCKET_TileLayer *layer = POCKET_CreateTileLayer(128, 128);
+#endif
+    for (int round = 0; round < 2; round++)
+    {
+        for (int tile = 0; tile < 256; tile++)
+        {
+            ids[tile] = tile;
+            for (int y = 0; y < 8; y++)
+                for (int x = 0; x < 8; x++)
+                {
+                    const unsigned bits = (tile + y * 13 + round * 71) & 255;
+                    pixels[(tile / 16 * 8 + y) * 128 + tile % 16 * 8 + x]
+                        = ((bits >> x) & 1 ? 0xff000000u : 0) | 0x4080c0u;
+                }
+        }
+        SDL_UpdateTexture(sheet, NULL, pixels, 128 * 4);
+        SDL_SetRenderTarget(renderer, foreground);
+#ifdef SDL_RenderClear
+        assert(POCKET_CopyKeyedGrid(renderer, sheet, ids, 16, 16));
+#else
+        SDL_SetRenderDrawColor(renderer, 0, 0, 0, 0);
+        SDL_RenderClear(renderer);
+        for (int tile = 0; tile < 256; tile++)
+        {
+            const SDL_FRect area = {tile % 16 * 8, tile / 16 * 8, 8, 8};
+            SDL_RenderTexture(renderer, sheet, &area, &area);
+        }
+#endif
+        capture_target(renderer, capture, "all keyed patterns ARGB");
+        SDL_SetRenderTarget(renderer, NULL);
+        SDL_SetRenderDrawColor(renderer, 32, 64, 128, 255);
+        SDL_RenderClear(renderer);
+        const SDL_FRect destination = {0, 0, 128, 128};
+        SDL_RenderTexture(renderer, foreground, NULL, &destination);
+        capture_target(renderer, capture, "all keyed patterns composed");
+        SDL_SetRenderTarget(renderer, foreground);
+        SDL_SetRenderDrawColor(renderer, 32, 64, 128, 255);
+        SDL_RenderClear(renderer);
+#ifdef SDL_RenderClear
+        assert(POCKET_PutTileGrid(layer, sheet, ids, 16, 16, 0));
+        assert(POCKET_DrawTileLayer(renderer, layer, 0));
+#else
+        for (int tile = 0; tile < 256; tile++)
+        {
+            const SDL_FRect area = {tile % 16 * 8, tile / 16 * 8, 8, 8};
+            SDL_RenderTexture(renderer, sheet, &area, &area);
+        }
+#endif
+        capture_target(renderer, capture, "all keyed patterns layer");
+    }
+#ifdef SDL_RenderClear
+    POCKET_DestroyTileLayer(layer);
+#endif
+    SDL_SetRenderTarget(renderer, NULL);
+    SDL_DestroyTexture(foreground);
+    SDL_DestroyTexture(sheet);
+}
+
+#ifdef SDL_RenderClear
+static void opaque_grid_timing(SDL_Renderer *renderer)
+{
+    Uint16 ids[40 * 33];
+    for (int i = 0; i < 1320; i++) ids[i] = i % 4;
+    SDL_Texture *sheet = SDL_CreateTexture(renderer, SDL_PIXELFORMAT_ARGB8888,
+        SDL_TEXTUREACCESS_TARGET, 16, 16);
+    SDL_SetRenderTarget(renderer, sheet);
+    SDL_SetRenderDrawColor(renderer, 32, 64, 128, 255);
+    SDL_RenderClear(renderer);
+    SDL_Surface *materialized = SDL_RenderReadPixels(renderer, NULL);
+    assert(materialized);
+    SDL_DestroySurface(materialized);
+    SDL_SetRenderTarget(renderer, NULL);
+    SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255);
+    SDL_RenderClear(renderer);
+    Uint64 elapsed[2];
+    for (int mode = 0; mode < 2; mode++)
+    {
+        POCKET_grid_direct = mode != 0;
+        const Uint64 start = SDL_GetPerformanceCounter();
+        for (int i = 0; i < 100; i++)
+            assert(POCKET_CopyOpaqueGrid(renderer, sheet, ids, 40, 33, 0, -5));
+        elapsed[mode] = SDL_GetPerformanceCounter() - start;
+    }
+    POCKET_grid_direct = true;
+    const double scale = 1000000.0 / SDL_GetPerformanceFrequency() / 100;
+    fprintf(stderr, "HOST opaque grid us: scratch %.1f direct %.1f\n", elapsed[0] * scale, elapsed[1] * scale);
+    SDL_DestroyTexture(sheet);
+}
+
+/* Controlled rebuild+draw comparisons on the host, never Pocket estimates.
+ * Reuse the same source pixels and IDs for both implementations. */
+static void keyed_span_timing(SDL_Renderer *renderer)
+{
+    Uint32 pixels[16 * 16];
+    int ids[40 * 30];
+    for (int i = 0; i < 256; i++) pixels[i] = i % 3 ? 0xff4080c0u : 0;
+    for (int i = 0; i < 1200; i++) ids[i] = i % 7 ? i % 4 : -1;
+    SDL_Texture *sheet = SDL_CreateTexture(renderer, SDL_PIXELFORMAT_ARGB8888,
+        SDL_TEXTUREACCESS_STREAMING, 16, 16);
+    SDL_SetTextureBlendMode(sheet, SDL_BLENDMODE_BLEND);
+    SDL_UpdateTexture(sheet, NULL, pixels, 16 * 4);
+    SDL_Texture *foreground = SDL_CreateTexture(renderer, SDL_PIXELFORMAT_ARGB8888,
+        SDL_TEXTUREACCESS_TARGET, 320, 240);
+    SDL_SetTextureBlendMode(foreground, SDL_BLENDMODE_BLEND);
+    POCKET_SetTextureRuns(foreground, true);
+    POCKET_TileLayer *layer = POCKET_CreateTileLayer(320, 240);
+    Uint64 elapsed[2][2];
+    for (int mode = 0; mode < 2; mode++)
+    {
+        POCKET_keyed_spans_fast = mode != 0;
+        for (int kind = 0; kind < 2; kind++)
+        {
+            const Uint64 start = SDL_GetPerformanceCounter();
+            for (int i = 0; i < 100; i++)
+            {
+                if (kind == 0)
+                {
+                    SDL_SetRenderTarget(renderer, foreground);
+                    assert(POCKET_CopyKeyedGrid(renderer, sheet, ids, 40, 30));
+                }
+                else assert(POCKET_PutTileGrid(layer, sheet, ids, 40, 30, 0));
+                SDL_SetRenderTarget(renderer, NULL);
+                SDL_SetRenderDrawColor(renderer, 32, 64, 128, 255);
+                SDL_RenderClear(renderer);
+                if (kind == 0) SDL_RenderTexture(renderer, foreground, NULL, NULL);
+                else assert(POCKET_DrawTileLayer(renderer, layer, 0));
+            }
+            elapsed[kind][mode] = SDL_GetPerformanceCounter() - start;
+        }
+    }
+    POCKET_keyed_spans_fast = true;
+    const double scale = 1000000.0 / SDL_GetPerformanceFrequency() / 100;
+    fprintf(stderr, "HOST keyed rebuild+draw us: texture %.1f -> %.1f; layer %.1f -> %.1f\n",
+        elapsed[0][0] * scale, elapsed[0][1] * scale, elapsed[1][0] * scale, elapsed[1][1] * scale);
+    POCKET_DestroyTileLayer(layer);
+    SDL_DestroyTexture(foreground);
+    SDL_DestroyTexture(sheet);
+}
+#endif
+
 void RENDER_OPS(SDL_Renderer *renderer, Capture *capture)
 {
+#ifdef SDL_RenderClear
+    opaque_grid_timing(renderer);
+    keyed_span_timing(renderer);
+#endif
+    opaque_repeat_grid(renderer, capture);
+    keyed_span_patterns(renderer, capture);
+    keyed_grid(renderer, capture);
+    recolor_tile_layer(renderer, capture);
+    bulk_tile_grid(renderer,capture);
+    run_cache_patterns(renderer,capture);
     /* As Screen.cpp does; SDL's default is linear. */
     SDL_SetDefaultTextureScaleMode(renderer, SDL_SCALEMODE_NEAREST);
     SDL_Texture *sprite = make_sprite(renderer);
+#ifdef SDL_RenderClear
+    POCKET_SetTextureRuns(sprite, true);
+#endif
+    SDL_SetRenderTarget(renderer, NULL);
+    SDL_SetRenderDrawColor(renderer, 40, 60, 90, 255);
+    SDL_RenderClear(renderer);
+    draw_sprite(renderer, sprite, 15, 25, 16, 16, SDL_FLIP_NONE);
+    capture_target(renderer, capture, "first copy with run cache");
+#ifdef SDL_RenderClear
+    POCKET_SetTextureRuns(sprite, false);
+#endif
     /* On a target texture, exactly as SDL; then on the window. */
     SDL_Texture *canvas = SDL_CreateTexture(renderer, SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_TARGET, 320, 240);
     SDL_SetRenderTarget(renderer, canvas);

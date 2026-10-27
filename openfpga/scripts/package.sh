@@ -13,8 +13,8 @@ set -euo pipefail
 OPENFPGA_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 GAME_ROOT="$(cd "$OPENFPGA_ROOT/../desktop_version" && pwd)"
 RUNTIME_DIR="$OPENFPGA_ROOT/.deps/pocket-runtime"
-ELF="$OPENFPGA_ROOT/build/app.elf"
-OUT="$OPENFPGA_ROOT/build/sd"
+ELF="${PACKAGE_ELF:-$OPENFPGA_ROOT/build/app.elf}"
+OUT="${PACKAGE_OUT:-$OPENFPGA_ROOT/build/sd}"
 CORE_ID=zenibako.vvvvvv
 PLATFORM_ID=vvvvvv
 APP_NAME=vvvvvv

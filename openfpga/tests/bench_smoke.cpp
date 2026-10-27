@@ -15,6 +15,7 @@ bool POCKET_warp_tiles_fast = true;
 bool POCKET_copy_fast = true;
 bool POCKET_column_ring = true;
 bool POCKET_tower_grid_fast = true;
+bool POCKET_keyed_spans_fast = true;
 /* Host rendering has no Pocket-only text cache or transparent-run index. */
 void POCKET_CountSeeThrough(SDL_Texture*, int, int, int, int, int* clear, int* partial)
 {
@@ -39,8 +40,10 @@ static bool save_capture(SDL_Surface* surface, const char* path);
 #include "clock_pixels.h"
 #include "background_pixels.h"
 #include "tower_pixels.h"
+#include "tower_recolor.h"
 #include "font_alpha_pixels.h"
 #include "controls.h"
+#include "final_room.h"
 
 static void check_window_copy(void)
 {
@@ -98,6 +101,7 @@ static bool smoke_present(SDL_Renderer* renderer)
         }
     }
     sent_keys = POCKET_bench_keys;
+    observe_final_room(renderer);
     if (!captured_tower && part >= 0 && part < PART_COUNT && parts[part].name != NULL
         && SDL_strcmp(parts[part].name, "tower") == 0 && step >= 300)
     {
@@ -179,6 +183,7 @@ static bool smoke_present(SDL_Renderer* renderer)
         }
         if (++result_frames == report.pages() * 3)
         {
+            check_final_room();
             assert(captured_pages == report.pages());
             check_clock_pixels();
             check_background_pixels();
@@ -188,6 +193,8 @@ static bool smoke_present(SDL_Renderer* renderer)
                 report.size(), report.pages());
             printf("Gravitron smoke passed: %d frames, max %d enemies, timer %d, room %d,%d\n",
                 gravitron.frames, max_enemies, game.swntimer, game.roomx, game.roomy);
+            check_final_pixels();
+            check_tower_recolor();
             exit(0);
         }
     }

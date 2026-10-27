@@ -10,6 +10,10 @@ public:
 
     int at(int xp, int yp, int yoff);
 
+    /* Contiguous x=0..39 tiles, resolving vertical wrapping once per row. */
+    const short* row(int yp, int yoff) const;
+    const short* backrow(int yp, int yoff) const;
+
     int miniat(int xp, int yp, int yoff);
 
     void loadminitower1(void);
