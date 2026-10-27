@@ -247,6 +247,7 @@ proprietary and must not be redistributed. See licenses.tar.gz and GAME-DATA.md.
 
 def assemble(sd, tools, output, version, source_commit=None, *, repo=ROOT,
              runtime_lock=None, allow_dirty=False, runtime_source=None):
+    """Validate pinned inputs and archive exact sources before writing a candidate."""
     require_version(version)
     output = Path(output)
     if output.exists() or output.is_symlink():

@@ -100,6 +100,7 @@ class ReleaseTests(unittest.TestCase):
         return out
 
     def test_core_allowlist_excludes_owned_files_and_benchmark(self):
+        """Include only the declared SD assets, keeping private data out of the ZIP."""
         for relative in (COMMON + "data.zip", COMMON + "vvvvvv-music.bin", COMMON + "vvvvvv_0.sav",
                          COMMON + "source/data.zip", "Cores/zenibako.vvvvvvbench/core.json", "logs/error.log"):
             path = self.sd / relative
@@ -163,6 +164,7 @@ class ReleaseTests(unittest.TestCase):
                     self.core()
 
     def test_release_has_complete_checksums_sources_and_executable_bundles(self):
+        """Keep all release assets, notices and native executable modes intact."""
         out = self.release()
         expected = {"vvvvvv-openfpga.zip", "plugin.wasm", "plugin.json", "plugin_icon.png", "prepare-data.wasm",
                     "SHA256SUMS", "runtime.lock.json", "PROVENANCE.json", "source.tar.gz",

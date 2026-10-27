@@ -7,7 +7,7 @@ port is based on the VVVVVV source code. The `openfpga/` directory names
 the port; its hardware target remains the Analogue Pocket.
 
 The port is in progress. The plan and its phases are tracked in
-[zenibako/VVVVVV#1](https://github.com/zenibako/VVVVVV/issues/1).
+[zenibako/VVVVVV-pocket#1](https://github.com/zenibako/VVVVVV-pocket/issues/1).
 
 No game data is included. You need your own `data.zip`.
 

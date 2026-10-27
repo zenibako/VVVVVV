@@ -1,5 +1,5 @@
 {
-  "repository": "zenibako/VVVVVV",
+  "repository": "zenibako/VVVVVV-pocket",
   "zip_filter": "^vvvvvv-openfpga\\.zip$",
   "plugin_artifacts": ["plugin.wasm", "plugin.json", "plugin_icon.png"],
   "instructions": "GAME-DATA.md",

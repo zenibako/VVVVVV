@@ -13,6 +13,7 @@ WIDTH, HEIGHT = 521, 165
 
 
 def main():
+    """Export the original logo in APF format and copy the unmodified app icon."""
     # The source GIF cycles colours; use its first (cyan) frame for a static logo.
     with Image.open(ROOT.parent / "logo.gif") as original:
         logo = original.convert("RGBA")
@@ -25,7 +26,8 @@ def main():
     banner.save(preview)
 
     # APF platform images store the banner rotated 90 degrees counterclockwise.
-    # Each little-endian 16-bit pixel is inverted luminance followed by zero.
+    # Match the official core-template: brightness first, then a zero byte.
+    # The byte pair represents the documented 0xVV00 pixel in big-endian order.
     rotated = banner.transpose(Image.Transpose.ROTATE_90)
     encoded = bytearray(WIDTH * HEIGHT * 2)
     encoded[::2] = bytes(255 - value for value in rotated.tobytes())
