@@ -8,7 +8,10 @@ Read [release assembly](release/README.md) before preparing a release candidate.
 
 ## Establish the shared harness
 
-Use the session's established checkout path or `POCKET_HARNESS_ROOT`. Resolve it
+Use the canonical [pocket-dev-tools](https://github.com/zenibako/pocket-dev-tools)
+checkout, formerly `pocket-harness`: take an explicit session root, then
+`POCKET_DEV_TOOLS_ROOT`, then legacy `POCKET_HARNESS_ROOT`. Resolve conflicting
+explicit roots before choosing. Resolve the selected path
 to a canonical directory; a sibling name alone does not establish the dependency.
 Before proceeding, require these files in that checkout:
 
@@ -27,11 +30,47 @@ python3 -m benchmarks compare --help
 
 The latter must offer `software`, `platform`, `configuration`, `--vary`, and
 `--reason`. Stop and report a missing checkout/file/feature rather than assuming
-compatibility. When a session supplies the path, set `POCKET_HARNESS_ROOT` to that
-verified path first. Do not copy the shared skill or symlink it across repositories.
+compatibility. Set the legacy `POCKET_HARNESS_ROOT` used in these command
+examples to that already verified path; do not let an old environment value
+select a different checkout. Do not copy the shared skill or symlink it across repositories.
 All collector commands below run from this verified harness root. Its `build/`
 is the private location for definitions, metadata, logs, screenshots and bundles;
 none belong in this project's source or release archives.
+
+## Routine regression checks
+
+Use the [shared preserved-baseline contract](https://github.com/zenibako/pocket-dev-tools/blob/fd5fc7af6cb51b19bb800d6c2cd43b7c03cfcf58/benchmarks/REGRESSIONS.md)
+(introduced in shared commit `fd5fc7af6cb51b19bb800d6c2cd43b7c03cfcf58`) from the verified
+`pocket-dev-tools` checkout. Require its `benchmarks/REGRESSIONS.md` and record the
+actual shared commit; do not silently substitute an older checkout. Keep private
+source exports, accepted evidence, indices and candidate/failure records under
+that checkout's ignored directories. Do not ship them in this project's releases.
+
+Keep an accepted source/build and immutable host-sweep evidence separate from
+new candidate builds/runs. Preserve source/dirty inventory, assets, compiler and
+ordered flags, backend, seed, preset/route version, exact room/state and viewport
+roster, warmup, frame counts, 30 Hz pacing and enabled instrumentation. Match the
+host domain and controls before comparing a routine software change; focused,
+exhaustive and generic scripted-route workloads are different evidence.
+
+Run the independent renderer/pixel/RNG and applicable smoke checks before
+archiving a complete successful `vvvvvv-host` sweep, including its expected
+counts/footer. Retain failed/incomplete logs without converting them to PASS.
+Record a private baseline path/digest; create each candidate under a new name
+without rewriting or promoting over the accepted evidence. Test a known bad
+candidate against the project's output decision, not only the timing parser.
+
+Collector `verify` checks archive integrity and `compare` reports compatible
+numeric deltas. Neither reruns correctness tests, certifies equal output or
+applies an automatic performance threshold. There is no VVVVVV RTL adapter or
+`regression.py` automation; the shared Butterscotch command cannot accept these
+cases. Missing private assets or checks remain explicit coverage gaps.
+
+Keep device summaries and host microseconds separate, and repeat applicable
+Pocket launch/gameplay/save/audio/Memories/sleep checks for affected changes.
+Preserve the existing hardware, release/license and publication gates. Different
+runtime/compiler/platform settings require a separately declared experiment,
+not a relaxed software regression comparison.
 
 ## Select candidates and identify their actual bytes
 
