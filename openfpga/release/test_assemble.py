@@ -54,6 +54,14 @@ class ReleaseTests(unittest.TestCase):
                 "framework": {"sleep_supported": False, "hardware": {"link_port": False}},
                 "cores": [{"id": 0, "filename": "os20.rbf_r"}]}}
         (self.sd / (CORE + "core.json")).write_text(json.dumps(self.original_core))
+        self.game_slots = [{"id": 0, "name": "Game", "required": True,
+                            "parameters": 275, "extensions": ["json"]}]
+        self.game_slots += [{"id": i, "filename": name, "required": i not in (6, 10)} for i, name in (
+            (1, "os.bin"), (2, "vvvvvv.ini"), (3, "vvvvvv.elf"), (4, "data.zip"),
+            (5, "vvvvvv-repo.zip"), (6, "vvvvvv-music.bin"), (10, "vvvvvv_0.sav"))]
+        (self.sd / (CORE + "data.json")).write_text(json.dumps({"data": {"data_slots": self.game_slots}}))
+        (self.sd / "Assets/vvvvvv/zenibako.vvvvvv/vvvvvv.json").write_text(json.dumps(
+            {"instance": {"data_slots": self.game_slots[1:]}}))
         elf = bytearray(52)
         elf[:7] = b"\x7fELF\x01\x01\x01"
         elf[16:20] = b"\x02\x00\xf3\x00"
@@ -102,13 +110,12 @@ class ReleaseTests(unittest.TestCase):
     def makeandplay_fixture(self):
         """Public-looking synthetic inputs exercise the same locked validation path."""
         self.mp_sd = self.root / "mp-sd"
-        self.mp_core = "Cores/zenibako.vvvvvvmp/"
-        self.mp_common = "Assets/vvvvvvmp/common/"
+        self.mp_core = CORE
+        self.mp_common = COMMON
+        self.mp_assets = COMMON + "mp/"
+        (self.sd / (CORE + "LICENSE.txt")).write_bytes((self.repo / "LICENSE.md").read_bytes())
         for name in FILES:
-            renamed = name.replace("zenibako.vvvvvv/", "zenibako.vvvvvvmp/")
-            renamed = renamed.replace("Assets/vvvvvv/", "Assets/vvvvvvmp/")
-            renamed = renamed.replace("Platforms/vvvvvv", "Platforms/vvvvvvmp")
-            renamed = renamed.replace("Platforms/_images/vvvvvv", "Platforms/_images/vvvvvvmp")
+            renamed = name
             if renamed.endswith(("vvvvvv.elf", "vvvvvv.ini", "vvvvvv.json")) and not renamed.startswith("Platforms/"):
                 renamed = renamed.rsplit("/", 1)[0] + "/" + Path(renamed).name.replace("vvvvvv", "vvvvvv-mp")
             path = self.mp_sd / renamed
@@ -117,17 +124,13 @@ class ReleaseTests(unittest.TestCase):
         (self.mp_sd / (self.mp_core + "LICENSE.txt")).write_bytes((self.repo / "LICENSE.md").read_bytes())
         (self.mp_sd / (self.mp_core + "License-exceptions.txt")).write_bytes((self.repo / "License exceptions.md").read_bytes())
         (self.mp_sd / (self.mp_core + "MAKE-AND-PLAY.txt")).write_bytes(b"Make and Play altered port notice")
-        metadata = json.loads(json.dumps(self.original_core))
-        metadata["core"]["metadata"].update(platform_ids=["vvvvvvmp"], shortname="vvvvvvmp")
-        (self.mp_sd / (self.mp_core + "core.json")).write_text(json.dumps(metadata))
         slots = [{"id": i, "filename": name} for i, name in (
-            (0, "vvvvvv-mp.json"), (1, "os.bin"), (2, "vvvvvv-mp.ini"),
-            (3, "vvvvvv-mp.elf"), (4, "data.zip"), (5, "vvvvvv-repo.zip"),
-            (6, "vvvvvv-music.bin"), (10, "vvvvvv-mp_0.sav"))]
-        (self.mp_sd / (self.mp_core + "data.json")).write_text(json.dumps({"data": {"data_slots": slots}}))
-        instance = self.mp_sd / "Assets/vvvvvvmp/zenibako.vvvvvvmp/vvvvvv-mp.json"
-        instance.write_text(json.dumps({"instance": {"data_slots": slots[1:]}}))
-        (self.mp_sd / (self.mp_common + "vvvvvv-mp.ini")).write_text("ELF=vvvvvv-mp.elf\n")
+            (1, "os.bin"), (2, "vvvvvv-mp.ini"), (3, "vvvvvv-mp.elf"),
+            (4, "mp/vvvvvv-mp-data.zip"), (5, "vvvvvv-repo.zip"),
+            (6, "mp/vvvvvv-mp-music.bin"), (10, "vvvvvv-mp_0.sav"))]
+        instance = self.mp_sd / "Assets/vvvvvv/zenibako.vvvvvv/vvvvvv-mp.json"
+        instance.write_text(json.dumps({"instance": {"data_slots": slots}}))
+        (self.mp_sd / (self.mp_common + "vvvvvv-mp.ini")).write_text("ELF=vvvvvv-mp.elf\nARGS=-assets mp/vvvvvv-mp-data.zip\n")
         elf = self.mp_sd / (self.mp_common + "vvvvvv-mp.elf")
         elf.write_bytes(elf.read_bytes() + b"MAKE AND PLAY EDITION\0")
         data = io.BytesIO()
@@ -148,33 +151,58 @@ class ReleaseTests(unittest.TestCase):
         inputs["makeandplay-report.json"] = json.dumps(report).encode()
         inputs["notices/licenses/fixture.txt"] = notice
         for name, content in inputs.items():
-            path = self.mp_sd / self.mp_common / name
+            packaged = {"data.zip": "vvvvvv-mp-data.zip", "vvvvvv-music.bin": "vvvvvv-mp-music.bin"}.get(name, name)
+            path = self.mp_sd / self.mp_assets / packaged
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_bytes(content)
         return report
 
-    def test_makeandplay_separate_inventory_and_checksums(self):
+    def test_makeandplay_same_core_separate_asset_packages_and_checksums(self):
         report = self.makeandplay_fixture()
         # Neither extra saves nor purchased data from the standard tree may leak.
         (self.sd / COMMON / "data.zip").write_bytes(b"PURCHASED-SENTINEL")
         (self.mp_sd / self.mp_common / "vvvvvv-mp_0.sav").write_bytes(b"SAVE-SENTINEL")
         out = self.release(makeandplay_sd=self.mp_sd, makeandplay_lock=self.mp_lock)
-        with zipfile.ZipFile(out / "vvvvvv-openfpga.zip") as standard:
-            self.assertNotIn(COMMON + "data.zip", standard.namelist())
-            self.assertFalse(any("vvvvvvmp" in name for name in standard.namelist()))
+        with zipfile.ZipFile(out / "vvvvvv-openfpga.zip") as main:
+            names = set(main.namelist())
+            main_files = {name: main.read(name) for name in names}
+            self.assertIn("Assets/vvvvvv/zenibako.vvvvvv/vvvvvv.json", names)
+            self.assertIn("Assets/vvvvvv/zenibako.vvvvvv/vvvvvv-mp.json", names)
+            self.assertIn(COMMON + "vvvvvv.elf", names)
+            self.assertIn(COMMON + "vvvvvv-mp.elf", names)
+            self.assertIn(COMMON + "vvvvvv-mp.ini", names)
+            self.assertFalse(any(n.startswith(self.mp_assets) for n in names))
+            self.assertNotIn(self.mp_core + "License-exceptions.txt", names)
+            self.assertNotIn(self.mp_core + "MAKE-AND-PLAY.txt", names)
+            self.assertFalse(any(n.endswith(("data.zip", "music.bin", ".sav")) for n in names))
+            mp_instance = json.loads(main.read("Assets/vvvvvv/zenibako.vvvvvv/vvvvvv-mp.json"))
+            self.assertEqual(next(s["filename"] for s in mp_instance["instance"]["data_slots"] if s["id"] == 4),
+                             "mp/vvvvvv-mp-data.zip")
         with zipfile.ZipFile(out / "vvvvvv-makeandplay-openfpga.zip") as archive:
             names = set(archive.namelist())
+            for name in names & main_files.keys():
+                self.assertEqual(archive.read(name), main_files[name], name)
             self.assertIn(self.mp_core + "core.json", names)
-            self.assertIn("Platforms/vvvvvvmp.json", names)
-            self.assertIn(self.mp_common + "data.zip", names)
-            self.assertIn(self.mp_common + "vvvvvv-music.bin", names)
-            self.assertIn(self.mp_common + "notices/licenses/fixture.txt", names)
+            self.assertIn("Platforms/vvvvvv.json", names)
+            self.assertIn("Assets/vvvvvv/zenibako.vvvvvv/vvvvvv-mp.json", names)
+            self.assertNotIn("Assets/vvvvvv/zenibako.vvvvvv/vvvvvv.json", names)
+            self.assertNotIn(COMMON + "vvvvvv.elf", names)
+            self.assertNotIn(COMMON + "vvvvvv.ini", names)
+            self.assertIn(self.mp_assets + "vvvvvv-mp-data.zip", names)
+            self.assertIn(self.mp_assets + "vvvvvv-mp-music.bin", names)
+            self.assertIn(self.mp_assets + "notices/licenses/fixture.txt", names)
             self.assertIn(self.mp_core + "License-exceptions.txt", names)
             self.assertIn(b"Make and Play", archive.read(self.mp_core + "info.txt"))
             self.assertNotIn(b"SAVE-SENTINEL", b"".join(archive.read(n) for n in names))
-            self.assertFalse(any(n.startswith("Assets/vvvvvv/") for n in names))
+            self.assertNotIn(b"PURCHASED-SENTINEL", b"".join(archive.read(n) for n in names))
+            self.assertNotIn(COMMON + "data.zip", names)
+            self.assertFalse(any("vvvvvvmp" in name for name in names))
+            self.assertEqual([name for name in names if name.endswith("/core.json")], [CORE + "core.json"])
+            picker = json.loads(archive.read(CORE + "data.json"))["data"]["data_slots"][0]
+            self.assertNotIn("filename", picker)
+            self.assertEqual(picker["extensions"], ["json"])
             updater = json.loads(archive.read(self.mp_core + "updaters.json"))
-            self.assertNotIn("plugins", updater)  # This edition already has its public data.
+            self.assertEqual(updater["plugins"], ["https://github.com/zenibako/VVVVVV-pocket"])
         checksums = dict(line.split("  ", 1)[::-1] for line in (out / "SHA256SUMS").read_text().splitlines())
         self.assertIn("vvvvvv-openfpga.zip", checksums)
         self.assertIn("vvvvvv-makeandplay-openfpga.zip", checksums)
@@ -183,22 +211,70 @@ class ReleaseTests(unittest.TestCase):
             self.assertEqual(hashlib.sha256((out / name).read_bytes()).hexdigest(), digest)
         provenance = json.loads((out / "PROVENANCE.json").read_text())
         self.assertEqual(provenance["makeandplay"], report)
-        self.assertIn(self.mp_common + "data.zip", provenance["inputs_sha256"])
+        self.assertIn(self.mp_assets + "vvvvvv-mp-data.zip", provenance["inputs_sha256"])
         repeated = self.release("repeated", makeandplay_sd=self.mp_sd, makeandplay_lock=self.mp_lock)
         self.assertEqual({p.name: p.read_bytes() for p in out.iterdir()},
                          {p.name: p.read_bytes() for p in repeated.iterdir()})
 
     def test_makeandplay_rejects_changed_public_files_and_report(self):
         self.makeandplay_fixture()
-        for name in ("data.zip", "vvvvvv-music.bin", "makeandplay-report.json", "notices/licenses/fixture.txt"):
+        for name in ("vvvvvv-mp-data.zip", "vvvvvv-mp-music.bin", "makeandplay-report.json", "notices/licenses/fixture.txt"):
             with self.subTest(name=name):
-                path = self.mp_sd / self.mp_common / name
+                path = self.mp_sd / self.mp_assets / name
                 original = path.read_bytes()
                 path.write_bytes(b"purchased or altered input")
                 with self.assertRaises(ValueError):
                     self.release(makeandplay_sd=self.mp_sd, makeandplay_lock=self.mp_lock)
                 self.assertFalse((self.root / "out").exists())
                 path.write_bytes(original)
+
+    def test_makeandplay_rejects_conflicting_shared_files_before_output(self):
+        self.makeandplay_fixture()
+        for relative in (CORE + "audio.json", CORE + "data.json", COMMON + "vvvvvv-repo.zip",
+                         "Platforms/vvvvvv.json", "Platforms/_images/vvvvvv.bin"):
+            with self.subTest(relative=relative):
+                path = self.mp_sd / relative
+                original = path.read_bytes()
+                # Whitespace remains valid JSON but is not an identical shared input.
+                path.write_bytes(original + b" ")
+                with self.assertRaisesRegex(ValueError, "[Cc]onflict|[Cc]ollision|[Ss]hared"):
+                    self.release(makeandplay_sd=self.mp_sd, makeandplay_lock=self.mp_lock)
+                self.assertFalse((self.root / "out").exists())
+                path.write_bytes(original)
+
+    def test_makeandplay_requires_native_json_picker(self):
+        self.makeandplay_fixture()
+        path = self.mp_sd / CORE / "data.json"
+        original = path.read_bytes()
+        for edit in ({"filename": "vvvvvv.json"}, {"extensions": ["zip"]}, {"parameters": 3}):
+            with self.subTest(edit=edit):
+                doc = json.loads(original)
+                doc["data"]["data_slots"][0].update(edit)
+                path.write_text(json.dumps(doc))
+                with self.assertRaisesRegex(ValueError, "[Pp]icker|[Ii]nstance|[Ss]hared"):
+                    self.release(makeandplay_sd=self.mp_sd, makeandplay_lock=self.mp_lock)
+                self.assertFalse((self.root / "out").exists())
+
+    def test_makeandplay_requires_edition_asset_path_in_ini(self):
+        self.makeandplay_fixture()
+        path = self.mp_sd / COMMON / "vvvvvv-mp.ini"
+        path.write_text("ELF=vvvvvv-mp.elf\nARGS=\n")
+        with self.assertRaisesRegex(ValueError, "INI|asset|identity"):
+            self.release(makeandplay_sd=self.mp_sd, makeandplay_lock=self.mp_lock)
+        self.assertFalse((self.root / "out").exists())
+
+    def test_makeandplay_player_data_is_required_for_sync(self):
+        self.makeandplay_fixture()
+        # Both copies agree: this must fail the required-files contract rather
+        # than merely reject a different shared-file hash.
+        for tree in (self.sd, self.mp_sd):
+            path = tree / CORE / "data.json"
+            doc = json.loads(path.read_bytes())
+            next(slot for slot in doc["data"]["data_slots"] if slot["id"] == 4)["required"] = False
+            path.write_text(json.dumps(doc))
+        with self.assertRaisesRegex(ValueError, "[Rr]equired.*data|data.*[Rr]equired"):
+            self.release(makeandplay_sd=self.mp_sd, makeandplay_lock=self.mp_lock)
+        self.assertFalse((self.root / "out").exists())
 
     def test_makeandplay_requires_edition_marker_and_riscv_binary(self):
         self.makeandplay_fixture()
@@ -210,17 +286,16 @@ class ReleaseTests(unittest.TestCase):
                 self.release(makeandplay_sd=self.mp_sd, makeandplay_lock=self.mp_lock)
             self.assertFalse((self.root / "out").exists())
 
-    def test_makeandplay_rejects_standard_identity_and_shared_save(self):
+    def test_makeandplay_rejects_renamed_identity_and_shared_save(self):
         self.makeandplay_fixture()
         for relative, key in ((self.mp_core + "core.json", "core"),
-                              (self.mp_core + "data.json", "data"),
-                              ("Assets/vvvvvvmp/zenibako.vvvvvvmp/vvvvvv-mp.json", "instance")):
+                              ("Assets/vvvvvv/zenibako.vvvvvv/vvvvvv-mp.json", "instance")):
             with self.subTest(relative=relative):
                 path = self.mp_sd / relative
                 original = path.read_bytes()
                 doc = json.loads(original)
                 if key == "core":
-                    doc[key]["metadata"]["platform_ids"] = ["vvvvvv"]
+                    doc[key]["metadata"]["platform_ids"] = ["vvvvvvmp"]
                 else:
                     next(slot for slot in doc[key]["data_slots"] if slot["id"] == 10)["filename"] = "vvvvvv_0.sav"
                 path.write_text(json.dumps(doc))
@@ -236,7 +311,7 @@ class ReleaseTests(unittest.TestCase):
 
     def test_makeandplay_rejects_missing_or_changed_license_notices(self):
         self.makeandplay_fixture()
-        for relative in (self.mp_common + "notices/licenses/fixture.txt",
+        for relative in (self.mp_assets + "notices/licenses/fixture.txt",
                          self.mp_core + "License-exceptions.txt", self.mp_core + "LICENSE.txt"):
             with self.subTest(relative=relative):
                 path = self.mp_sd / relative
@@ -245,13 +320,13 @@ class ReleaseTests(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError, "Missing|missing"):
                     self.release(makeandplay_sd=self.mp_sd, makeandplay_lock=self.mp_lock)
                 path.write_bytes(b"wrong license notice")
-                with self.assertRaisesRegex(ValueError, "license|notice|SHA-256"):
+                with self.assertRaisesRegex(ValueError, "license|notice|SHA-256|Conflicting"):
                     self.release(makeandplay_sd=self.mp_sd, makeandplay_lock=self.mp_lock)
                 path.write_bytes(original)
 
     def test_makeandplay_provenance_and_archive_use_same_validated_snapshot(self):
         self.makeandplay_fixture()
-        path = self.mp_sd / self.mp_common / "data.zip"
+        path = self.mp_sd / self.mp_assets / "vvvvvv-mp-data.zip"
         original = path.read_bytes()
         archive_source = self.module.archive_source
 
@@ -262,9 +337,9 @@ class ReleaseTests(unittest.TestCase):
         self.module.archive_source = mutate_then_archive
         out = self.release(makeandplay_sd=self.mp_sd, makeandplay_lock=self.mp_lock)
         with zipfile.ZipFile(out / "vvvvvv-makeandplay-openfpga.zip") as archive:
-            self.assertEqual(archive.read(self.mp_common + "data.zip"), original)
+            self.assertEqual(archive.read(self.mp_assets + "vvvvvv-mp-data.zip"), original)
         provenance = json.loads((out / "PROVENANCE.json").read_text())
-        self.assertEqual(provenance["inputs_sha256"][self.mp_common + "data.zip"],
+        self.assertEqual(provenance["inputs_sha256"][self.mp_assets + "vvvvvv-mp-data.zip"],
                          hashlib.sha256(original).hexdigest())
 
     def test_makeandplay_rejects_wrong_runtime_and_symlink_inputs(self):
@@ -275,7 +350,7 @@ class ReleaseTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "SHA-256|hash"):
             self.release(makeandplay_sd=self.mp_sd, makeandplay_lock=self.mp_lock)
         path.write_bytes(original)
-        data = self.mp_sd / self.mp_common / "data.zip"
+        data = self.mp_sd / self.mp_assets / "vvvvvv-mp-data.zip"
         data.unlink()
         data.symlink_to(self.sd / COMMON / "vvvvvv-repo.zip")
         with self.assertRaisesRegex(ValueError, "[Ss]ymlink"):

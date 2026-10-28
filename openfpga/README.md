@@ -9,7 +9,8 @@ the port; its hardware target remains the Analogue Pocket.
 The port is in progress. The plan and its phases are tracked in
 [zenibako/VVVVVV-pocket#1](https://github.com/zenibako/VVVVVV-pocket/issues/1).
 
-No game data is included. You need your own `data.zip`.
+The Make and Play package includes its official free assets. The full story
+campaign requires your own `data.zip` and prepared music.
 
 ## Layout
 
@@ -67,20 +68,28 @@ Make and Play is a separate player edition with the official free distribution's
 original story campaign. The Pocket editor remains disabled; bundled levels are
 selected and played with the normal controller menus.
 
-Both editions can be installed together:
+One `zenibako.vvvvvv` core supports both editions. Pocket's native file picker
+offers `vvvvvv.json` (the full game) and `vvvvvv-mp.json` (Make and Play); after
+launching Make and Play, use its in-game Levels menu to select a community level.
+Both entries use platform `vvvvvv` and the same core. The main catalog ZIP
+contains both launch files; the free-edition ZIP supplies only Make and Play:
 
 | | Full game | Make and Play |
 |---|---|---|
-| Core | `zenibako.vvvvvv` | `zenibako.vvvvvvmp` |
-| Platform/assets | `vvvvvv` | `vvvvvvmp` |
+| Launch file | `vvvvvv.json` | `vvvvvv-mp.json` |
+| Data in `Assets/vvvvvv/common/` | `data.zip` | `mp/vvvvvv-mp-data.zip` |
+| Music in `Assets/vvvvvv/common/` | `vvvvvv-music.bin` | `mp/vvvvvv-mp-music.bin` |
 | Application | `vvvvvv.elf` | `vvvvvv-mp.elf` |
 | Save | `vvvvvv_0.sav` | `vvvvvv-mp_0.sav` |
-| Release ZIP | `vvvvvv-openfpga.zip` | `vvvvvv-makeandplay-openfpga.zip` |
 
-The Make and Play ZIP includes the permitted public game data, converted music,
-fonts/languages, platform banner and notices. It needs no purchased installation
-or preparation plugin. The full-game ZIP keeps its existing bring-your-own-data
-contract and its separate files and progress.
+The self-contained `vvvvvv-makeandplay-openfpga.zip` includes the permitted
+public Make and Play data, converted music and notices, plus shared
+fonts/languages, runtime and platform banner. It installs into the existing
+core and needs no purchased installation or preparation plugin. The main
+`vvvvvv-openfpga.zip` includes both launch options, but no game assets. The full
+game keeps its bring-your-own-data contract and its own progress. Install the
+free-edition package to supply its required assets. Installing both packages
+adds both launch options to one core; their shared files are identical.
 
 To build Make and Play from the repository root:
 
@@ -104,10 +113,29 @@ remain ignored. The edition's build and objects live in `build/makeandplay/`,
 separate from full-game and benchmark objects.
 
 The release assembler accepts `--makeandplay-sd openfpga/build/makeandplay/sd`.
-It validates the public assets and edition binary before emitting the separate
-ZIP; the standard release allowlist never includes those game-data files. See
-[release assembly](release/README.md). The existing catalog entry still selects
-the full-game ZIP; a Make and Play listing is a separate submission.
+It validates both package trees and their shared files. The main ZIP declares
+the Make and Play launch files without assets; the separate free-edition ZIP
+contains only its MAKEANDPLAY executable and public assets, excluding the
+full-game executable and its compiled original levels. Purchased data remains
+excluded from both. See
+[release assembly](release/README.md). The existing catalog entry and ZIP filter
+identify the same core; a second catalog/core entry is unnecessary.
+
+Pocket Sync derives Required Files from the core and launch-file definitions.
+The Make and Play instance declares `mp/vvvvvv-mp-data.zip` and
+`mp/vvvvvv-mp-music.bin`, both supplied by the self-contained free-edition
+package. All 17 official levels are inside the data ZIP, rather than separate
+required files. The catalog API exports core-level required-slot roles, while
+Pocket Sync expands concrete files from both launch definitions. Automatic
+download/repair through an external archive provider requires those files in
+that provider's inventory;
+the catalog itself cannot attach arbitrary download URLs. Full-game data and
+music still come from the user's owned installation and preparation plugin.
+
+The release workflow also runs a host contract against the exact pinned
+runtime's file lookup and this port's SDL initialization, verifying the selected
+asset paths and soundtrack alias. Run it locally with
+`python3 openfpga/tests/makeandplay_slots_test.py --runtime-source /path/to/matched/runtime`.
 
 For an accelerated real-engine controller check on a host with shared SDL3:
 
@@ -130,8 +158,9 @@ after its assertions without normal engine teardown, so its example disables
 leak detection while retaining address/undefined-behaviour checks. Build the
 `host-render` target with the same options to repeat it using the Pocket RGB565
 renderer (`host-makeandplay-smoke/render/vvvvvv`). Host results do not establish physical Pocket
-boot, audio or save persistence: test the self-contained ZIP on a clean card and
-alongside the full-game core before marking device acceptance complete.
+boot, audio or save persistence: test edition selection and Make and Play on a
+clean card, then both launch options with owned data installed, before marking
+device acceptance complete.
 
 ## Benchmark builds
 

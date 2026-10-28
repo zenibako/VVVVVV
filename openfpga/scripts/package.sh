@@ -8,6 +8,8 @@
 # the game's core and shares its platform, data.zip and music. Its own
 # files, its instance json and save too, are named vvvvvv-bench* so no
 # file of the game's has the same name, wherever a copy puts it.
+# MAKEANDPLAY=1 emits a complementary tree for the same player core,
+# with its own instance/app/save and verified public assets under common/mp/.
 set -euo pipefail
 
 OPENFPGA_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -29,8 +31,6 @@ PY
 }
 if [[ "${MAKEANDPLAY:-0}" == 1 ]]; then
     [[ "${BENCH:-0}" != 1 ]] || { echo "Make and Play cannot use the campaign benchmark" >&2; exit 1; }
-    CORE_ID=zenibako.vvvvvvmp
-    PLATFORM_ID=vvvvvvmp
     APP_NAME=vvvvvv-mp
     ELF="${PACKAGE_ELF:-$OPENFPGA_ROOT/build/makeandplay/app.elf}"
     OUT="${PACKAGE_OUT:-$OPENFPGA_ROOT/build/makeandplay/sd}"
@@ -68,20 +68,24 @@ cp "$OPENFPGA_ROOT/dist/platforms/vvvvvv.json" "$OUT/Platforms/$PLATFORM_ID.json
 cp "$OPENFPGA_ROOT/dist/platforms/_images/vvvvvv.bin" "$OUT/Platforms/_images/$PLATFORM_ID.bin"
 cp "$OPENFPGA_ROOT/dist/instance/vvvvvv.json" "$INSTANCE_DIR/$APP_NAME.json"
 cp "$RUNTIME_DIR/os.bin" "$COMMON_DIR/"
-sed "s/^ELF=vvvvvv\.elf$/ELF=$APP_NAME.elf/" "$OPENFPGA_ROOT/dist/vvvvvv.ini" > "$COMMON_DIR/$APP_NAME.ini"
+INI_SED=(-e "s/^ELF=vvvvvv\.elf$/ELF=$APP_NAME.elf/")
+if [[ "${MAKEANDPLAY:-0}" == 1 ]]; then
+    INI_SED+=(-e 's|^ARGS=$|ARGS=-assets mp/vvvvvv-mp-data.zip|')
+fi
+sed "${INI_SED[@]}" "$OPENFPGA_ROOT/dist/vvvvvv.ini" > "$COMMON_DIR/$APP_NAME.ini"
 cp "$ELF" "$COMMON_DIR/$APP_NAME.elf"
 
 if [[ "$APP_NAME" != vvvvvv ]]; then
-    # The core's slots and instance name the benchmark's instance json (the
-    # Game slot, which the core launches straight into), ini, elf and save, and
-    # the core is named for the Pocket's core list.
-    python3 - "$CORE_DIR" "$INSTANCE_DIR/$APP_NAME.json" "$APP_NAME" "$PLATFORM_ID" "$OUT/Platforms/$PLATFORM_ID.json" <<'PY'
+    # The two player editions share one core; their selected instance names
+    # the corresponding app, assets and save. The benchmark remains a
+    # separate core with a fixed instance so it still launches directly.
+    python3 - "$CORE_DIR" "$INSTANCE_DIR/$APP_NAME.json" "$APP_NAME" "$PLATFORM_ID" <<'PY'
 import json
 import pathlib
 import sys
 
 core_dir, instance, app = pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2]), sys.argv[3]
-platform, platform_json = sys.argv[4], pathlib.Path(sys.argv[5])
+platform = sys.argv[4]
 renames = {"vvvvvv.ini": app + ".ini", "vvvvvv.elf": app + ".elf",
            "vvvvvv_0.sav": app + "_0.sav", "vvvvvv.json": app + ".json"}
 
@@ -89,22 +93,25 @@ def rename_slots(path, key):
     doc = json.loads(path.read_text())
     for slot in doc[key]["data_slots"]:
         slot["filename"] = renames.get(slot.get("filename"), slot.get("filename"))
+        if key == "data" and slot["id"] == 0:
+            slot["filename"] = app + ".json"
     path.write_text(json.dumps(doc, indent=4) + "\n")
 
-rename_slots(core_dir / "data.json", "data")
 rename_slots(instance, "instance")
-core = json.loads((core_dir / "core.json").read_text())
-metadata = core["core"]["metadata"]
-metadata["shortname"] = "vvvvvvmp" if app == "vvvvvv-mp" else "vvvvvvbench"
-metadata["platform_ids"] = [platform]
-metadata["description"] = ("VVVVVV: Make and Play, with bundled player levels."
-                           if app == "vvvvvv-mp" else
-                           "VVVVVV benchmark: a scripted run that times its frames and shows the results.")
-(core_dir / "core.json").write_text(json.dumps(core, indent=4) + "\n")
 if app == "vvvvvv-mp":
-    info = json.loads(platform_json.read_text())
-    info["platform"]["name"] = "VVVVVV: Make and Play"
-    platform_json.write_text(json.dumps(info, indent=4) + "\n")
+    doc = json.loads(instance.read_text())
+    paths = {4: "mp/vvvvvv-mp-data.zip", 6: "mp/vvvvvv-mp-music.bin"}
+    for slot in doc["instance"]["data_slots"]:
+        slot["filename"] = paths.get(slot["id"], slot["filename"])
+    instance.write_text(json.dumps(doc, indent=4) + "\n")
+else:
+    rename_slots(core_dir / "data.json", "data")
+    core = json.loads((core_dir / "core.json").read_text())
+    metadata = core["core"]["metadata"]
+    metadata["shortname"] = "vvvvvvbench"
+    metadata["platform_ids"] = [platform]
+    metadata["description"] = "VVVVVV benchmark: a scripted run that times its frames and shows the results."
+    (core_dir / "core.json").write_text(json.dumps(core, indent=4) + "\n")
 PY
 fi
 
@@ -115,12 +122,14 @@ VVVVVV: Make and Play for Analogue Pocket (altered port).
 Based on VVVVVV, copyright Terry Cavanagh 2010-2020.
 Compiled with MAKEANDPLAY; the original campaign is excluded.
 Public Make and Play assets are included under the repository's license exception.
-See LICENSE.txt, License-exceptions.txt and common/notices for attribution.
+See LICENSE.txt, License-exceptions.txt and common/mp/notices for attribution.
 Official edition: https://thelettervsixtim.es/makeandplay/
 EOF
-    cp "$MAKEANDPLAY_ASSETS/data.zip" "$MAKEANDPLAY_ASSETS/vvvvvv-music.bin" \
-        "$MAKEANDPLAY_ASSETS/makeandplay-report.json" "$COMMON_DIR/"
-    cp -R "$MAKEANDPLAY_ASSETS/notices" "$COMMON_DIR/notices"
+    mkdir -p "$COMMON_DIR/mp"
+    cp "$MAKEANDPLAY_ASSETS/data.zip" "$COMMON_DIR/mp/vvvvvv-mp-data.zip"
+    cp "$MAKEANDPLAY_ASSETS/vvvvvv-music.bin" "$COMMON_DIR/mp/vvvvvv-mp-music.bin"
+    cp "$MAKEANDPLAY_ASSETS/makeandplay-report.json" "$COMMON_DIR/mp/"
+    cp -R "$MAKEANDPLAY_ASSETS/notices" "$COMMON_DIR/mp/notices"
 fi
 
 # The fonts and lang folders in one zip, laid out as the Android build's
@@ -155,7 +164,7 @@ PY
 if [[ "${MAKEANDPLAY:-0}" == 1 ]]; then
     # Check the copied bytes too; changing a source after the first check must
     # not replace a previously valid SD package with unverified game assets.
-    python3 "$OPENFPGA_ROOT/release/makeandplay.py" --verify "$COMMON_DIR"
+    python3 "$OPENFPGA_ROOT/release/makeandplay.py" --verify-packaged "$COMMON_DIR/mp"
     verify_makeandplay_binary "$COMMON_DIR/$APP_NAME.elf"
     rm -rf "$FINAL_OUT"
     mv "$OUT" "$FINAL_OUT"

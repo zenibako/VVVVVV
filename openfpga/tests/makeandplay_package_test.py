@@ -39,10 +39,10 @@ class EditionPackagingTests(unittest.TestCase):
         # independent tests in release/test_makeandplay.py.
         (self.port / "release/makeandplay.py").write_text(
             "import pathlib,sys\n"
-            "assert sys.argv[1]=='--verify'\n"
+            "assert sys.argv[1] in ('--verify','--verify-packaged')\n"
             "p=pathlib.Path(sys.argv[2])\n"
-            "assert all((p/n).read_bytes()==b'verified public fixture' for n in "
-            "('data.zip','vvvvvv-music.bin','makeandplay-report.json'))\n"
+            "names=('vvvvvv-mp-data.zip','vvvvvv-mp-music.bin') if sys.argv[1]=='--verify-packaged' else ('data.zip','vvvvvv-music.bin')\n"
+            "assert all((p/n).read_bytes()==b'verified public fixture' for n in names+('makeandplay-report.json',))\n"
             "assert (p/'notices/LICENSE').read_text()=='public distribution notice'\n"
             "if (p/'swap-after-verification').exists():\n"
             "    (p/'data.zip').write_bytes(b'changed after verification')\n")
@@ -55,40 +55,69 @@ class EditionPackagingTests(unittest.TestCase):
         return subprocess.run(["bash", str(self.port / "scripts/package.sh")],
                               env=env, capture_output=True, text=True)
 
-    def test_editions_coexist_without_shared_inputs_or_progress(self):
-        self.assertEqual(self.package(output="standard").returncode, 0)
+    def test_editions_share_one_core_with_picker_and_isolated_progress(self):
+        full = self.package(output="standard")
+        self.assertEqual(full.returncode, 0, full.stderr)
         mp = self.package(edition=True, output="makeandplay")
         self.assertEqual(mp.returncode, 0, mp.stderr)
         standard = self.repo / "standard"
         tree = self.repo / "makeandplay"
-        core = tree / "Cores/zenibako.vvvvvvmp"
-        common = tree / "Assets/vvvvvvmp/common"
-        self.assertFalse((tree / "Cores/zenibako.vvvvvv").exists())
-        self.assertFalse((tree / "Assets/vvvvvv").exists())
+        core = tree / "Cores/zenibako.vvvvvv"
+        common = tree / "Assets/vvvvvv/common"
+        public = common / "mp"
+        self.assertFalse((tree / "Cores/zenibako.vvvvvvmp").exists())
+        self.assertFalse((tree / "Assets/vvvvvvmp").exists())
         metadata = json.loads((core / "core.json").read_text())["core"]["metadata"]
-        self.assertEqual(metadata["shortname"], "vvvvvvmp")
-        self.assertEqual(metadata["platform_ids"], ["vvvvvvmp"])
+        self.assertEqual(metadata["shortname"], "vvvvvv")
+        self.assertEqual(metadata["platform_ids"], ["vvvvvv"])
         slots = {s["id"]: s for s in json.loads((core / "data.json").read_text())["data"]["data_slots"]}
-        self.assertEqual(slots[0]["filename"], "vvvvvv-mp.json")
-        self.assertEqual(slots[3]["filename"], "vvvvvv-mp.elf")
-        self.assertEqual(slots[10]["filename"], "vvvvvv-mp_0.sav")
-        instance = json.loads((tree / "Assets/vvvvvvmp/zenibako.vvvvvvmp/vvvvvv-mp.json").read_text())
+        self.assertNotIn("filename", slots[0])
+        self.assertEqual(slots[0]["extensions"], ["json"])
+        self.assertEqual(slots[0]["parameters"], 275)
+        self.assertEqual(slots[3]["filename"], "vvvvvv.elf")
+        self.assertEqual(slots[10]["filename"], "vvvvvv_0.sav")
+        instance = json.loads((tree / "Assets/vvvvvv/zenibako.vvvvvv/vvvvvv-mp.json").read_text())
         instance_slots = {s["id"]: s["filename"] for s in instance["instance"]["data_slots"]}
-        self.assertEqual(instance_slots[10], slots[10]["filename"])
-        self.assertIn("ELF=vvvvvv-mp.elf", (common / "vvvvvv-mp.ini").read_text())
-        self.assertEqual((common / "data.zip").read_bytes(), b"verified public fixture")
-        self.assertTrue((common / "vvvvvv-music.bin").exists())
-        self.assertTrue((common / "makeandplay-report.json").exists())
+        self.assertEqual(instance_slots, {1: "os.bin", 2: "vvvvvv-mp.ini", 3: "vvvvvv-mp.elf",
+                                         4: "mp/vvvvvv-mp-data.zip", 5: "vvvvvv-repo.zip",
+                                         6: "mp/vvvvvv-mp-music.bin", 10: "vvvvvv-mp_0.sav"})
+        ini = (common / "vvvvvv-mp.ini").read_text()
+        self.assertIn("ELF=vvvvvv-mp.elf", ini)
+        self.assertIn("ARGS=-assets mp/vvvvvv-mp-data.zip", ini)
+        self.assertEqual((public / "vvvvvv-mp-data.zip").read_bytes(), b"verified public fixture")
+        self.assertTrue((public / "vvvvvv-mp-music.bin").exists())
+        self.assertTrue((public / "makeandplay-report.json").exists())
         self.assertTrue((core / "License-exceptions.txt").exists())
         self.assertTrue((core / "MAKE-AND-PLAY.txt").exists())
-        self.assertEqual((tree / "Platforms/_images/vvvvvvmp.bin").read_bytes(),
+        self.assertEqual((tree / "Platforms/_images/vvvvvv.bin").read_bytes(),
                          (ROOT / "dist/platforms/_images/vvvvvv.bin").read_bytes())
-        self.assertIn("Make and Play", (tree / "Platforms/vvvvvvmp.json").read_text())
         self.assertFalse((standard / "Assets/vvvvvv/common/data.zip").exists())
-        self.assertFalse((standard / "Assets/vvvvvvmp").exists())
-        self.assertIn("vvvvvv_0.sav", (standard / "Cores/zenibako.vvvvvv/data.json").read_text())
+        self.assertFalse((standard / "Assets/vvvvvv/common/mp").exists())
+        full_instance = json.loads((standard / "Assets/vvvvvv/zenibako.vvvvvv/vvvvvv.json").read_text())
+        self.assertEqual({s["id"]: s["filename"] for s in full_instance["instance"]["data_slots"]}[10],
+                         "vvvvvv_0.sav")
+        self.assertFalse((common / "data.zip").exists())
+        self.assertFalse((common / "vvvvvv.elf").exists())
+        # Shared core/runtime definitions must merge without choosing one
+        # edition's version over the other. Only the edition files differ.
+        full_files = {p.relative_to(standard) for p in standard.rglob("*") if p.is_file()}
+        mp_files = {p.relative_to(tree) for p in tree.rglob("*") if p.is_file()}
+        shared = full_files & mp_files
+        self.assertIn(Path("Cores/zenibako.vvvvvv/data.json"), shared)
+        for relative in shared:
+            self.assertEqual((standard / relative).read_bytes(), (tree / relative).read_bytes(),
+                             str(relative))
         with zipfile.ZipFile(common / "vvvvvv-repo.zip") as z:
             self.assertIn("graphics/font.png", z.namelist())
+
+    def test_benchmark_keeps_its_fixed_autostart_instance(self):
+        result = self.package(bench=True, output="benchmark")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        core = self.repo / "benchmark/Cores/zenibako.vvvvvvbench"
+        slots = {s["id"]: s for s in json.loads((core / "data.json").read_text())["data"]["data_slots"]}
+        self.assertEqual(slots[0]["filename"], "vvvvvv-bench.json")
+        self.assertEqual(slots[3]["filename"], "vvvvvv-bench.elf")
+        self.assertEqual(slots[10]["filename"], "vvvvvv-bench_0.sav")
 
     def test_rejects_unverified_assets_before_replacing_output(self):
         (self.assets / "data.zip").write_bytes(b"wrong input")

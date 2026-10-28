@@ -130,6 +130,21 @@ class MakeAndPlayTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "music|vvvvvv-music"):
             self.module.validate_prepared(self.output, self.lock)
 
+    def test_packaged_assets_use_unique_names_with_the_same_public_hashes(self):
+        report = self.prepare()
+        for original, packaged in (("data.zip", "vvvvvv-mp-data.zip"),
+                                   ("vvvvvv-music.bin", "vvvvvv-mp-music.bin")):
+            self.output.joinpath(original).rename(self.output / packaged)
+        self.assertEqual(self.module.validate_prepared(self.output, self.lock, packaged=True), report)
+        self.output.joinpath("vvvvvv-mp-music.bin").write_bytes(b"unrelated archive file")
+        with self.assertRaisesRegex(ValueError, "music"):
+            self.module.validate_prepared(self.output, self.lock, packaged=True)
+
+    def test_packaged_verification_rejects_generic_archive_filenames(self):
+        self.prepare()
+        with self.assertRaisesRegex(ValueError, "vvvvvv-mp-data.zip"):
+            self.module.validate_prepared(self.output, self.lock, packaged=True)
+
     def test_verify_tolerates_common_apf_files_with_verified_notices(self):
         report = self.prepare()
         self.output.joinpath("os.bin").write_bytes(b"APF runtime")

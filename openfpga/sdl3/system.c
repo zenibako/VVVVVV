@@ -6,10 +6,19 @@
 
 #include "of_timer.h"
 #include "pocket_audio.h"
+#ifdef MAKEANDPLAY
+#include "of_file.h"
+#endif
 
 bool SDL_Init(SDL_InitFlags flags)
 {
     (void) flags;
+#ifdef MAKEANDPLAY
+    /* The selected instance backs slot 6 with a uniquely named public pack.
+     * Keep the player's logical filename while avoiding catalog/archive
+     * collisions with the purchased edition's soundtrack. */
+    of_file_slot_register(6, "vvvvvv-music.bin");
+#endif
     return true;
 }
 

@@ -112,16 +112,19 @@ def _levels(data, lock):
     return levels
 
 
-def validate_prepared(directory, lock=None) -> dict:
+def validate_prepared(directory, lock=None, *, packaged=False) -> dict:
     """Verify public assets, every locked notice and sanitized provenance.
 
-    Both prepared output and APF common are accepted; unrelated APF files are
-    ignored, but the distribution notices are required in either directory.
+    Packaged output uses edition-specific basenames to avoid archive-provider
+    collisions. Hashes and the public provenance report are identical in both
+    layouts; every original distribution notice remains required.
     """
     lock = load_lock() if lock is None else lock
     for name, item, maximum in (("data.zip", "data", MAX_DATA),
                                 ("vvvvvv-music.bin", "music", MAX_MUSIC)):
-        data = _regular(directory, name, min(maximum, lock[item]["size"]))
+        filename = ({"data.zip": "vvvvvv-mp-data.zip", "vvvvvv-music.bin": "vvvvvv-mp-music.bin"}[name]
+                    if packaged else name)
+        data = _regular(directory, filename, min(maximum, lock[item]["size"]))
         _identity(data, lock[item], name)
         if name == "data.zip":
             _levels(data, lock)
@@ -224,18 +227,23 @@ def prepare(converter, output, archive=None, *, lock=None) -> dict:
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--verify", type=Path, metavar="DIRECTORY")
+    verification = parser.add_mutually_exclusive_group()
+    verification.add_argument("--verify", type=Path, metavar="DIRECTORY")
+    verification.add_argument("--verify-packaged", type=Path, metavar="DIRECTORY",
+                              help="verify the edition-specific filenames installed under common/mp")
     parser.add_argument("--converter", type=Path)
     parser.add_argument("--output", type=Path)
     parser.add_argument("--archive", type=Path, help="exact pinned official Linux distribution ZIP")
     args = parser.parse_args()
-    if args.verify:
+    verification_dir = args.verify or args.verify_packaged
+    if verification_dir:
         if args.converter or args.output or args.archive:
             parser.error("--verify cannot be combined with preparation options")
     elif not args.converter or not args.output:
         parser.error("preparation requires --converter and --output")
     try:
-        report = validate_prepared(args.verify) if args.verify else prepare(args.converter, args.output, args.archive)
+        report = (validate_prepared(verification_dir, packaged=bool(args.verify_packaged))
+                  if verification_dir else prepare(args.converter, args.output, args.archive))
     except (ValueError, OSError) as error:
         parser.exit(1, "Make and Play validation failed: " + str(error) + "\n")
     print(_json_bytes(report).decode(), end="")
