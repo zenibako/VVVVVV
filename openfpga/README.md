@@ -51,7 +51,8 @@ now the Chinese, Japanese and Korean fonts are left out to save memory.
 
 The package includes the VVVVVV logo as `Platforms/_images/vvvvvv.bin`, using
 the Pocket's monochrome platform-banner format. Pocket Sync uses the original
-Captain Viridian app icon as the plugin's `plugin_icon.png` release asset.
+Captain Viridian app artwork, exported at 40×40 pixels, as the plugin's
+`plugin_icon.png` release asset so its compact plugin row stays small.
 Regenerate both from the checked-in game artwork with
 `python3 openfpga/scripts/make-branding.py` (Python 3 and Pillow, from the
 repository root). See [artwork provenance](assets/branding/README.md).

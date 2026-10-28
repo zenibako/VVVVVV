@@ -10,9 +10,13 @@ This byte order matches the
 the documented upper-eight-bit pixel value `0xVV00` is stored as bytes `VV 00`.
 `vvvvvv-platform.png` previews the decoded banner.
 
-The Pocket Sync `tools/plugin_icon.png` is a byte-for-byte copy of
+The Pocket Sync `tools/plugin_icon.png` is a 40×40 export of
 `desktop_version/AppIcon.xcassets/AppIcon.appiconset/AppIcon.png`. It features
-Captain Viridian in the original game artwork. These images retain the game's
+Captain Viridian in the original game artwork, reduced with Pillow's Lanczos
+filter. Keep this export compact: Pocket Sync's core-detail plugin row uses the
+PNG's intrinsic dimensions, while its separate Plugins screen displays it at
+120×120. This is a client-layout workaround, not a plugin schema requirement.
+The original desktop app artwork remains unchanged. These images retain the game's
 copyright and [source license](../../../LICENSE.md); the tooling's MIT license
 does not relicense the game artwork. No generated character art is used.
 

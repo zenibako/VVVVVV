@@ -4,16 +4,16 @@
 Requires Pillow, like make-button-fonts.py. No game installation is needed.
 """
 from pathlib import Path
-import shutil
 
 from PIL import Image
 
 ROOT = Path(__file__).resolve().parents[1]
 WIDTH, HEIGHT = 521, 165
+PLUGIN_ICON_SIZE = (40, 40)
 
 
 def main():
-    """Export the original logo in APF format and copy the unmodified app icon."""
+    """Export the original logo in APF format and a compact Pocket Sync icon."""
     # The source GIF cycles colours; use its first (cyan) frame for a static logo.
     with Image.open(ROOT.parent / "logo.gif") as original:
         logo = original.convert("RGBA")
@@ -35,12 +35,11 @@ def main():
     destination.parent.mkdir(parents=True, exist_ok=True)
     destination.write_bytes(encoded)
 
-    # Keep Captain Viridian exactly as shipped in the checked-in app artwork.
-    shutil.copyfile(
-        ROOT.parent / "desktop_version/AppIcon.xcassets/AppIcon.appiconset/AppIcon.png",
-        ROOT / "tools/plugin_icon.png",
-    )
-    print(f"Exported {WIDTH}x{HEIGHT} platform banner and original Captain app icon.")
+    # Pocket Sync's compact plugin row uses the PNG's intrinsic dimensions.
+    # Resize the original artwork without changing the desktop app icon.
+    with Image.open(ROOT.parent / "desktop_version/AppIcon.xcassets/AppIcon.appiconset/AppIcon.png") as icon:
+        icon.resize(PLUGIN_ICON_SIZE, Image.Resampling.LANCZOS).save(ROOT / "tools/plugin_icon.png")
+    print(f"Exported {WIDTH}x{HEIGHT} platform banner and 40x40 Captain app icon.")
 
 
 if __name__ == "__main__":

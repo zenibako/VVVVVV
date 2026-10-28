@@ -108,7 +108,7 @@ the core or add it to the catalog.
 ## Licenses and attribution
 
 The preparation/plugin application code is MIT licensed (see `LICENSE`).
-The plugin icon is the original checked-in VVVVVV app artwork, copied unchanged;
+The plugin icon is a 40×40 export of the original checked-in VVVVVV app artwork;
 it retains the game's copyright and source license. See the
 [artwork provenance](../assets/branding/README.md).
 Pinned pocket-music and its patched decoders retain their original MIT
