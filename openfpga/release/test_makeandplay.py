@@ -8,6 +8,7 @@ from pathlib import Path
 import sys
 import tempfile
 import unittest
+from unittest import mock
 import zipfile
 
 SCRIPT = Path(__file__).with_name("makeandplay.py")
@@ -195,6 +196,14 @@ class MakeAndPlayTests(unittest.TestCase):
         self.converter.write_text('#!' + sys.executable + '\nimport sys\nsys.exit(1)\n')
         with self.assertRaisesRegex(ValueError, 'preparation failed'):
             self.prepare()
+        self.assertFalse(self.output.exists())
+        self.assertFalse(list(self.root.glob('.makeandplay-*')))
+
+    def test_converter_timeout_leaves_output_unpublished(self):
+        self.converter.write_text('#!' + sys.executable + '\nimport time\ntime.sleep(2)\n')
+        with mock.patch.object(self.module, 'CONVERTER_TIMEOUT', 0.1):
+            with self.assertRaisesRegex(ValueError, 'preparation timed out'):
+                self.prepare()
         self.assertFalse(self.output.exists())
         self.assertFalse(list(self.root.glob('.makeandplay-*')))
 

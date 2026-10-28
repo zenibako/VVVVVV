@@ -21,6 +21,7 @@ MAX_ARCHIVE = 70 * 1024 * 1024
 MAX_DATA = 64 * 1024 * 1024
 MAX_MUSIC = 256 * 1024 * 1024
 MAX_NOTICE = 1024 * 1024
+CONVERTER_TIMEOUT = 600  # seconds, including the public soundtrack conversion
 REPORT_NAME = "makeandplay-report.json"
 
 
@@ -195,8 +196,12 @@ def prepare(converter, output, archive=None, *, lock=None) -> dict:
         original.mkdir()
         (original / "data.zip").write_bytes(data)
         converted = root / "converted"
-        result = subprocess.run([str(Path(converter).resolve()), str(original.resolve()), str(converted.resolve())],
-                                stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False)
+        try:
+            result = subprocess.run([str(Path(converter).resolve()), str(original.resolve()), str(converted.resolve())],
+                                    stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False,
+                                    timeout=CONVERTER_TIMEOUT)
+        except subprocess.TimeoutExpired as error:
+            raise ValueError("Native Make and Play preparation timed out") from error
         if result.returncode:
             raise ValueError("Native Make and Play preparation failed")
         staged = root / "prepared"
