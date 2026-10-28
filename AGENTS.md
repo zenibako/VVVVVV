@@ -13,3 +13,7 @@ host versus device evidence boundaries and the existing correctness, hardware an
 [release gates](openfpga/release/README.md). Collection grants no deployment,
 pin changes or publication. Native/cross-platform work follows the
 [desktop guide](desktop_version/README.md).
+
+For release preparation, read the local
+[release skill](.agents/skills/pocket-release/SKILL.md), which routes to the
+shared pocket-dev-tools contract and retains this project's release gates.
