@@ -1,6 +1,6 @@
 ---
 name: pocket-benchmarking
-description: Use when choosing platform profiles, planning benchmark cores, or collecting and comparing Analogue Pocket benchmark evidence for VVVVVV; excludes unrelated desktop work.
+description: Use when choosing VVVVVV Pocket profiles, preserving routine regression baselines, planning benchmark cores, or collecting and comparing host/device evidence; excludes unrelated desktop work.
 ---
 
 # VVVVVV Pocket benchmarking router
@@ -31,3 +31,16 @@ cross-repository symlinks. The project guide owns local artifact paths and
 workload constraints. Prefer the existing dedicated `BENCH=1` core; full host CSV
 uses `vvvvvv-host`, while device pages use `device-summary` with original
 screenshots. Neither importing nor profile registration validates VVVVVV RTL.
+
+## Routine regression checks
+
+For recurring software checks, require the shared `benchmarks/REGRESSIONS.md`
+and read it with this project's benchmark guide. The contract was introduced in
+`fd5fc7af6cb51b19bb800d6c2cd43b7c03cfcf58`; record the actual verified shared
+checkout commit. Preserve the accepted reference, create independent candidates,
+and require project correctness and negative controls before interpreting deltas.
+A missing adapter or fixture is an explicit coverage gap. Collector `verify` or
+`compare` is not an output-regression gate or a substitute for device checks.
+Use VVVVVV's independent renderer/smoke checks and complete `vvvvvv-host` sweeps,
+with device evidence separate. There is no VVVVVV RTL adapter or automated
+`regression.py` gate; preserve failed/incomplete runs rather than claiming PASS.
