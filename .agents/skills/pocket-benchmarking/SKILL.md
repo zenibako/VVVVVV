@@ -5,12 +5,20 @@ description: Use when choosing platform profiles, planning benchmark cores, or c
 
 # VVVVVV Pocket benchmarking router
 
+## Shared repository identity
+
+The canonical repository is <https://github.com/zenibako/pocket-dev-tools>,
+formerly `pocket-harness`. For discovery use a root explicitly established in
+the session, then `POCKET_DEV_TOOLS_ROOT`, then legacy `POCKET_HARNESS_ROOT`.
+Resolve conflicting explicit roots before proceeding. Both sibling directory
+names are candidates only; validate the canonical benchmark skill and collector
+as described below. Existing local paths and CLI names remain supported.
+
 Read this checkout's [integration guide](../../../openfpga/BENCHMARKING.md),
 [Pocket workloads and checks](../../../openfpga/README.md), and
 [release gates](../../../openfpga/release/README.md).
 
-Resolve the established harness path supplied in the session or
-`POCKET_HARNESS_ROOT`; a sibling `pocket-harness` is only a candidate. Require its
+Resolve the shared checkout with the discovery rules above. Require its
 canonical `.agents/skills/pocket-benchmarking/SKILL.md`, `benchmarks/__main__.py`,
 `benchmarks/README.md`, `benchmarks/PLATFORMS.md`, and `benchmarks/SELECTION.md`.
 Read that canonical shared skill before following its relative references. From
