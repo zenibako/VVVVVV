@@ -128,8 +128,11 @@ class ReleaseTests(unittest.TestCase):
         benchmark = self.sd / "Cores/zenibako.vvvvvvbench/updaters.json"
         benchmark.parent.mkdir(parents=True)
         benchmark.write_text('{"fixture": "benchmark must stay excluded"}')
+        benchmark.with_name("core.json").write_text('{"fixture": "benchmark core must stay excluded"}')
         out = self.release()
         with zipfile.ZipFile(out / "vvvvvv-openfpga.zip") as archive:
+            self.assertFalse(any(name.startswith("Cores/zenibako.vvvvvvbench/")
+                                 for name in archive.namelist()))
             updater_paths = [name for name in archive.namelist() if name.endswith("/updaters.json")]
             self.assertEqual(updater_paths, [CORE + "updaters.json"])
             updater = json.loads(archive.read(updater_paths[0]))
