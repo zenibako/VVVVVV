@@ -125,6 +125,7 @@ class ReleaseTests(unittest.TestCase):
         self.assertIn(b"save states", entries[CORE + "info.txt"])
 
     def test_released_game_recommends_plugin_without_packaging_benchmark(self):
+        """Recommend the game plugin while excluding every benchmark-core file."""
         benchmark = self.sd / "Cores/zenibako.vvvvvvbench/updaters.json"
         benchmark.parent.mkdir(parents=True)
         benchmark.write_text('{"fixture": "benchmark must stay excluded"}')
