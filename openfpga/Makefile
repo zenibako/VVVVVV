@@ -274,7 +274,8 @@ ifeq ($(HOST_MAKEANDPLAY_SMOKE),1)
 ifneq ($(MAKEANDPLAY),1)
 $(error HOST_MAKEANDPLAY_SMOKE=1 requires MAKEANDPLAY=1)
 endif
-HOST_CXX_SRCS += $(OPENFPGA_ROOT)/tests/makeandplay_smoke.cpp
+HOST_DEFS += -DPOCKET_LEVEL_LOADING
+HOST_CXX_SRCS += $(OPENFPGA_ROOT)/tests/makeandplay_smoke.cpp $(OPENFPGA_ROOT)/src/pocket_level_loading.cpp
 HOST_SMOKE_SRC := $(OPENFPGA_ROOT)/tests/makeandplay_smoke.cpp
 HOST_INCLUDES += -I$(GAME_ROOT)/src
 endif

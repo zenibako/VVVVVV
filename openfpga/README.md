@@ -68,6 +68,10 @@ Make and Play is a separate player edition with the official free distribution's
 original story campaign. The Pocket editor remains disabled; bundled levels are
 selected and played with the normal controller menus.
 
+Opening **Play a Level** displays **Loading levels...** before scanning the level
+files, with a count that updates as levels are found. The same feedback appears
+when browsing player levels in the full-game edition.
+
 One `zenibako.vvvvvv` core supports both editions. Pocket's native file picker
 offers `vvvvvv.json` (the full game) and `vvvvvv-mp.json` (Make and Play); after
 launching Make and Play, use its in-game Levels menu to select a community level.

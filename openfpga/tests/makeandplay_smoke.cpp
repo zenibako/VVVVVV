@@ -51,6 +51,8 @@ enum SmokeStage {
 static SmokeStage stage = BOOT;
 static int renders, stage_frames, selected_level, active_frames;
 static int controller_selections, played_levels;
+static int loading_frames;
+static size_t loading_found;
 static bool saw_language, saw_title, saw_menu, captured_levels, checked_editor, saved_progress;
 static bool saw_controller_motion;
 static int last_x, last_y, last_rx, last_ry;
@@ -230,6 +232,21 @@ static void check_live_player(void)
 
 static void drive(SDL_Renderer* renderer)
 {
+    if (stage == LEVEL_LIST && game.currentmenuname == Menu::playerworlds)
+    {
+        const size_t found = cl.ListOfMetaData.size();
+        if (loading_frames == 0)
+        {
+            require(found == 0, "loading feedback is presented before metadata reads");
+            capture(renderer, "makeandplay-loading-start.bmp");
+        }
+        require(found >= loading_found && found <= SDL_arraysize(public_levels),
+            "loading feedback follows real metadata progress");
+        if (found == 8) capture(renderer, "makeandplay-loading-progress.bmp");
+        loading_found = found;
+        ++loading_frames;
+        return; /* Intermediate loading presents must not drive controller input. */
+    }
     ++renders;
     ++stage_frames;
     require(renders < 20000 && stage_frames < 1500, "bounded real-engine state transition");
@@ -306,6 +323,8 @@ static void drive(SDL_Renderer* renderer)
     case LEVEL_LIST:
     {
         require(game.currentmenuname == Menu::levellist, "controller opens real bundled level list");
+        require(loading_frames > 1 && loading_found == SDL_arraysize(public_levels),
+            "visible loading feedback precedes the level list and reaches the real count");
         check_inventory();
         if (graphics.fademode != FADE_NONE) return;
         if (!captured_levels)
@@ -401,8 +420,8 @@ static void drive(SDL_Renderer* renderer)
             require(controller_selections == 17 && played_levels == 17, "every public level entered actual gameplay");
             printf("Make and Play smoke passed: 17 public levels launched by controller, active gameplay, "
                 "campaign absent, editor disabled, private settings/checkpoint/stats reloaded; "
-                "initial language selector %s; %d rendered frames. Host correctness only.\n",
-                saw_language ? "exercised" : "already configured", renders);
+                "initial language selector %s; %d loading feedback frames; %d rendered frames. Host correctness only.\n",
+                saw_language ? "exercised" : "already configured", loading_frames, renders);
             fflush(stdout);
             exit(0);
         }
