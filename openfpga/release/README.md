@@ -78,6 +78,72 @@ updates and generated metadata. Inputs are read once, so subsequent source-tree
 changes cannot rewrite the recorded input identity. Verify it with `sha256sum -c SHA256SUMS` (Linux) or
 `shasum -a 256 -c SHA256SUMS` (macOS).
 
+## Make and Play candidate
+
+The release workflow builds both editions and retains the complete tools,
+source, runtime-source, notices and checksum inventory. Local assembly keeps its
+standard-only behavior unless `--makeandplay-sd` is supplied. Build the native
+converter and prepare the pinned public distribution before the isolated build:
+
+```sh
+make -C openfpga/tools cli
+python3 openfpga/release/makeandplay.py \
+  --converter openfpga/tools/build/prepare-data \
+  --output openfpga/.deps/makeandplay/prepared
+make -C openfpga MAKEANDPLAY=1
+make -C openfpga MAKEANDPLAY=1 package \
+  MAKEANDPLAY_ASSETS="$PWD/openfpga/.deps/makeandplay/prepared"
+python3 openfpga/release/assemble.py \
+  --sd openfpga/build/sd \
+  --makeandplay-sd openfpga/build/makeandplay/sd \
+  --tools openfpga/tools/build \
+  --output /tmp/vvvvvv-candidate-with-makeandplay \
+  --version v1.2.3 \
+  --runtime-source /path/to/pinned/openfpgaCore
+```
+
+Build/package the standard tree and all ten tool files as described above too.
+The public preparation directory must not already exist. The authoritative
+`makeandplay.lock.json` pins the official Linux Make and Play 2.4.4 archive,
+its root `data.zip`, the deterministic converted soundtrack, exactly 17 player
+levels, and the selected original distribution notices. The sanitized report
+contains public source identities and hashes, with no host paths. Cached public
+inputs stay under ignored `.deps/`; they are not source files.
+
+The additional output is `vvvvvv-makeandplay-openfpga.zip`, with core
+`zenibako.vvvvvvmp`, platform `vvvvvvmp`, application `vvvvvv-mp`, and separate
+save `vvvvvv-mp_0.sav`. Its strict allowlist admits `data.zip`,
+`vvvvvv-music.bin`, `makeandplay-report.json` and only the pinned distribution
+notices within `Assets/vvvvvvmp/common/`. All are snapshotted before validation,
+and those same bytes are archived and recorded in `PROVENANCE.json`. Runtime
+binaries must match the existing lock under their edition-specific paths. The
+ELF must be ELF32 RISC-V and contain the upstream `MAKE AND PLAY EDITION` marker;
+core/instance slots and the INI must use the separate application/save names.
+The standard collector rejects an edition-marked binary and continues to exclude
+all data/music, including Make and Play assets.
+
+The Make and Play ZIP includes the committed game license and its exception,
+an altered-edition notice, and the locked public-distribution notices. The
+exception allows these assets only when compiled with the makeandplay define
+and without the original campaign levels. Build evidence and actual edition
+smoke checks establish that condition; an ELF string alone cannot prove which
+source/compiler produced a supplied binary. Public notices also appear in
+`licenses.tar.gz`; complete tracked engine/port/tool sources remain in
+`source.tar.gz`. Both ZIPs and every accompanying artifact appear in
+`SHA256SUMS`.
+
+The Make and Play core is self-contained and does not recommend the purchased
+edition's preparation plugin. The existing catalog filter still selects only
+`vvvvvv-openfpga.zip`; this change does not list or publish the new edition.
+Hardware boot, player-level gameplay and save/reload remain acceptance checks
+before declaring the edition ready. The protected publication job still requires
+review, explicit release notes/version approval, matching source HEAD and the
+complete candidate; no publication is performed by local assembly.
+
+The shared contract was reconciled against
+[`pocket-dev-tools` release guidance at b5eafef](https://github.com/zenibako/pocket-dev-tools/blob/b5eafef17f9ebc3e61fef0bf4b825311dede32c0/docs/RELEASING.md).
+This local validation does not claim a run of a shared-checkout validator.
+
 ## Source and publication limits
 
 Source is archived from exact Git objects, including every initialized submodule

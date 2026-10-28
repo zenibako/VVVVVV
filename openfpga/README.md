@@ -60,6 +60,81 @@ repository root). See [artwork provenance](assets/branding/README.md).
 `make test` runs the compat-header, save-archive and sound checks on the
 host with AddressSanitizer and UBSan.
 
+## Make and Play edition
+
+Make and Play is a separate player edition with the official free distribution's
+17 community levels. It uses upstream's `MAKEANDPLAY` build, which omits the
+original story campaign. The Pocket editor remains disabled; bundled levels are
+selected and played with the normal controller menus.
+
+Both editions can be installed together:
+
+| | Full game | Make and Play |
+|---|---|---|
+| Core | `zenibako.vvvvvv` | `zenibako.vvvvvvmp` |
+| Platform/assets | `vvvvvv` | `vvvvvvmp` |
+| Application | `vvvvvv.elf` | `vvvvvv-mp.elf` |
+| Save | `vvvvvv_0.sav` | `vvvvvv-mp_0.sav` |
+| Release ZIP | `vvvvvv-openfpga.zip` | `vvvvvv-makeandplay-openfpga.zip` |
+
+The Make and Play ZIP includes the permitted public game data, converted music,
+fonts/languages, platform banner and notices. It needs no purchased installation
+or preparation plugin. The full-game ZIP keeps its existing bring-your-own-data
+contract and its separate files and progress.
+
+To build Make and Play from the repository root:
+
+```sh
+make -C openfpga deps
+make -C openfpga/tools cli
+python3 openfpga/release/makeandplay.py \
+  --converter openfpga/tools/build/prepare-data \
+  --output openfpga/.deps/makeandplay/prepared
+make -C openfpga MAKEANDPLAY=1 -j2
+make -C openfpga MAKEANDPLAY=1 package \
+  MAKEANDPLAY_ASSETS="$PWD/openfpga/.deps/makeandplay/prepared"
+```
+
+The helper downloads only the pinned official 2.4.4 distribution and verifies
+the archive, data, converted music, level inventory and retained notices against
+`release/makeandplay.lock.json`. It refuses an existing output directory; verify
+an already prepared directory with `python3 openfpga/release/makeandplay.py
+--verify openfpga/.deps/makeandplay/prepared`. Downloaded assets and build outputs
+remain ignored. The edition's build and objects live in `build/makeandplay/`,
+separate from full-game and benchmark objects.
+
+The release assembler accepts `--makeandplay-sd openfpga/build/makeandplay/sd`.
+It validates the public assets and edition binary before emitting the separate
+ZIP; the standard release allowlist never includes those game-data files. See
+[release assembly](release/README.md). The existing catalog entry still selects
+the full-game ZIP; a Make and Play listing is a separate submission.
+
+For an accelerated real-engine controller check on a host with shared SDL3:
+
+```sh
+make -C openfpga MAKEANDPLAY=1 HOST_MAKEANDPLAY_SMOKE=1 host SDL3_PREFIX=/opt/homebrew
+mkdir -p openfpga/build/makeandplay/check/saves openfpga/build/makeandplay/check/captures
+engine="$PWD/openfpga/build/makeandplay/host-makeandplay-smoke/vvvvvv"
+assets="$PWD/openfpga/.deps/makeandplay/prepared/data.zip"
+save_dir="$PWD/openfpga/build/makeandplay/check/saves/"
+cd openfpga/build/makeandplay/check/captures
+ASAN_OPTIONS=detect_leaks=0 VVV_MAKEANDPLAY_SMOKE_BASEDIR="$save_dir" SDL_VIDEODRIVER=dummy \
+  SDL_AUDIODRIVER=dummy SDL_RENDER_DRIVER=software \
+  "$engine" -assets "$assets" -basedir "$save_dir"
+```
+
+This checks the title/player menus, all 17 controller launches, active gameplay,
+campaign/editor exclusion and private settings/checkpoint/statistics roundtrips.
+It captures the menus and gameplay. Like the benchmark smoke driver, it exits
+after its assertions without normal engine teardown, so its example disables
+leak detection while retaining address/undefined-behaviour checks. Build the
+`host-render` target with the same options to repeat it using the Pocket RGB565
+renderer (`host-makeandplay-smoke/render/vvvvvv`). Host results do not establish physical Pocket
+boot, audio or save persistence: test the self-contained ZIP on a clean card and
+alongside the full-game core before marking device acceptance complete.
+
+## Benchmark builds
+
 `make BENCH=1` builds the scripted benchmark; `make BENCH=1 package`
 packages it as the separate `zenibako.vvvvvvbench` core. Use fresh object
 and build directories when switching between the game and benchmark.

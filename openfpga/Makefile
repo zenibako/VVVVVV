@@ -26,6 +26,14 @@ SDL3_ROOT    ?= $(OPENFPGA_ROOT)/.deps/sdl3
 SDK_DIR      := $(SDK_ROOT)/src/sdk
 OBJ_DIR      := $(OPENFPGA_ROOT)/build/obj
 BUILD_DIR    := $(OPENFPGA_ROOT)/build
+ifeq ($(MAKEANDPLAY),1)
+APP          := vvvvvv-mp
+BUILD_DIR    := $(OPENFPGA_ROOT)/build/makeandplay
+OBJ_DIR      := $(BUILD_DIR)/obj
+ifneq ($(filter 1,$(BENCH) $(FINAL_SWEEP) $(HOST_BENCH_SMOKE)),)
+$(error MAKEANDPLAY=1 cannot use the original-campaign benchmark)
+endif
+endif
 ifeq ($(FINAL_SWEEP),1)
 BUILD_DIR    := $(OPENFPGA_ROOT)/build/final-sweep
 ifeq ($(FINAL_SWEEP_ALL),1)
@@ -73,6 +81,9 @@ OPENFPGA_DEFS := -DVVV_POCKET -D_GNU_SOURCE \
 	-DPHYSFS_SUPPORTS_DEFAULT=0 -DPHYSFS_SUPPORTS_ZIP=1 \
 	-DPHYSFS_PLATFORM_SDL3=1 \
 	-DSB_CONFIG_UNITY
+ifeq ($(MAKEANDPLAY),1)
+OPENFPGA_DEFS += -DMAKEANDPLAY
+endif
 # SHOW_FPS=1 draws the presented frame rate in the top right corner.
 ifeq ($(SHOW_FPS),1)
 OPENFPGA_DEFS += -DPOCKET_SHOW_FPS
@@ -131,7 +142,8 @@ deps:
 
 # The SD card tree in build/sd, without game data.
 package: $(BUILD_DIR)/app.elf
-	BENCH=$(BENCH) PACKAGE_ELF="$(BUILD_DIR)/app.elf" PACKAGE_OUT="$(BUILD_DIR)/sd" bash $(OPENFPGA_ROOT)/scripts/package.sh
+	BENCH=$(BENCH) MAKEANDPLAY=$(MAKEANDPLAY) MAKEANDPLAY_ASSETS="$(MAKEANDPLAY_ASSETS)" \
+		PACKAGE_ELF="$(BUILD_DIR)/app.elf" PACKAGE_OUT="$(BUILD_DIR)/sd" bash $(OPENFPGA_ROOT)/scripts/package.sh
 
 # The game's button fonts with Pocket glyphs added; the output is committed.
 button-fonts:
@@ -221,6 +233,9 @@ HOST_SANITIZE ?= -fsanitize=address,undefined
 # Host build: same game sources and compat headers, desktop SDL3 and FAudio.
 SDL3_PREFIX ?= /usr/local
 HOST_DIR := $(BUILD_DIR)/host
+ifeq ($(HOST_MAKEANDPLAY_SMOKE),1)
+HOST_DIR := $(BUILD_DIR)/host-makeandplay-smoke
+endif
 HOST_BIN := $(HOST_DIR)/vvvvvv
 # PhysFS uses its SDL3 platform backend here too, which works the same on
 # Linux and macOS.
@@ -233,6 +248,9 @@ HOST_CXX_SRCS := $(GAME_CXX_SRCS) $(THIRD_PARTY)/tinyxml2/tinyxml2.cpp \
 HOST_DEFS := -D_GNU_SOURCE -DLODEPNG_NO_COMPILE_ALLOCATORS -DLODEPNG_NO_COMPILE_DISK \
 	-DPHYSFS_SUPPORTS_DEFAULT=0 -DPHYSFS_SUPPORTS_ZIP=1 -DPHYSFS_PLATFORM_SDL3=1 \
 	-DSB_CONFIG_UNITY -DFAUDIO_SDL3_PLATFORM
+ifeq ($(MAKEANDPLAY),1)
+HOST_DEFS += -DMAKEANDPLAY
+endif
 HOST_INCLUDES := -I$(SDL3_PREFIX)/include $(filter-out -I$(SDL3_ROOT)/include,$(OPENFPGA_INCLUDES)) \
 	-I$(THIRD_PARTY)/FAudio/include -I$(THIRD_PARTY)/FAudio/src
 # Opt-in accelerated host check of the real benchmark route and game logic.
@@ -250,12 +268,23 @@ else
 BENCH_SMOKE_SRC := $(OPENFPGA_ROOT)/tests/bench_smoke.cpp
 endif
 HOST_CXX_SRCS += $(OPENFPGA_ROOT)/src/pocket_bench_startup.cpp $(BENCH_SMOKE_SRC)
+HOST_SMOKE_SRC := $(BENCH_SMOKE_SRC)
+endif
+ifeq ($(HOST_MAKEANDPLAY_SMOKE),1)
+ifneq ($(MAKEANDPLAY),1)
+$(error HOST_MAKEANDPLAY_SMOKE=1 requires MAKEANDPLAY=1)
+endif
+HOST_CXX_SRCS += $(OPENFPGA_ROOT)/tests/makeandplay_smoke.cpp
+HOST_SMOKE_SRC := $(OPENFPGA_ROOT)/tests/makeandplay_smoke.cpp
+HOST_INCLUDES += -I$(GAME_ROOT)/src
 endif
 host_object = $(HOST_DIR)/obj/$(subst ../,__parent__/,$(basename $(1))).o
 HOST_OBJS := $(foreach src,$(HOST_C_SRCS) $(HOST_CXX_SRCS),$(call host_object,$(src)))
-ifeq ($(HOST_BENCH_SMOKE),1)
+ifneq ($(filter 1,$(HOST_BENCH_SMOKE) $(HOST_MAKEANDPLAY_SMOKE)),)
 # Exercise the device's controls, title prompt and text cache on host SDL.
 $(foreach src,Font Game Input KeyPoll Render ButtonGlyphs,$(call host_object,$(GAME_ROOT)/src/$(src).cpp)): HOST_DEFS += -DVVV_POCKET
+endif
+ifeq ($(HOST_BENCH_SMOKE),1)
 $(call host_object,$(BENCH_SMOKE_SRC)): \
 	$(OPENFPGA_ROOT)/src/pocket_final_sweep.cpp $(OPENFPGA_ROOT)/src/pocket_final_rooms.h \
 	$(OPENFPGA_ROOT)/src/pocket_bench.cpp $(OPENFPGA_ROOT)/src/pocket_bench.h $(OPENFPGA_ROOT)/src/pocket_bench_report.h \
@@ -283,7 +312,7 @@ ifeq ($(shell uname -s),Darwin)
 # Apple's toolchain has libc++abi in place of libsupc++, and links SDL3
 # as the shared library Homebrew installs.
 HOST_LIBS ?= -L$(SDL3_PREFIX)/lib -Wl,-rpath,$(SDL3_PREFIX)/lib -lSDL3 -lc++abi -lm
-else ifeq ($(HOST_BENCH_SMOKE),1)
+else ifneq ($(filter 1,$(HOST_BENCH_SMOKE) $(HOST_MAKEANDPLAY_SMOKE)),)
 # The smoke harness overrides SDL timing and presentation entry points;
 # a static SDL archive can supply duplicate definitions of those symbols.
 HOST_LIBS ?= -L$(SDL3_PREFIX)/lib -Wl,-rpath,$(SDL3_PREFIX)/lib -lSDL3 -lsupc++ -lm -lpthread -ldl
@@ -334,14 +363,16 @@ HOST_RENDER_BIN := $(HOST_RENDER_DIR)/vvvvvv
 host_render_object = $(HOST_RENDER_DIR)/obj/$(subst ../,__parent__/,$(basename $(1))).o
 HOST_RENDER_C_SRCS := $(HOST_C_SRCS) $(RENDER_SRCS)
 HOST_RENDER_OBJS := $(foreach src,$(HOST_RENDER_C_SRCS) $(HOST_CXX_SRCS),$(call host_render_object,$(src)))
-ifeq ($(HOST_BENCH_SMOKE),1)
+ifneq ($(filter 1,$(HOST_BENCH_SMOKE) $(HOST_MAKEANDPLAY_SMOKE)),)
 $(foreach src,Font Game Input KeyPoll Render ButtonGlyphs,$(call host_render_object,$(GAME_ROOT)/src/$(src).cpp)): HOST_DEFS += -DVVV_POCKET
 $(call host_render_object,$(GAME_ROOT)/src/Graphics.cpp): HOST_DEFS += -DVVV_POCKET
-$(call host_render_object,$(BENCH_SMOKE_SRC)): HOST_DEFS += -DPOCKET_SMOKE_RENDER
+$(call host_render_object,$(HOST_SMOKE_SRC)): HOST_DEFS += -DPOCKET_SMOKE_RENDER
+ifeq ($(HOST_BENCH_SMOKE),1)
 $(call host_render_object,$(BENCH_SMOKE_SRC)): \
 	$(OPENFPGA_ROOT)/src/pocket_final_sweep.cpp $(OPENFPGA_ROOT)/src/pocket_final_rooms.h \
 	$(OPENFPGA_ROOT)/src/pocket_bench.cpp $(OPENFPGA_ROOT)/src/pocket_bench.h $(OPENFPGA_ROOT)/src/pocket_bench_report.h \
 	$(OPENFPGA_ROOT)/src/pocket_bench_profile.h $(OPENFPGA_ROOT)/tests/clock_pixels.h $(OPENFPGA_ROOT)/tests/final_room.h $(OPENFPGA_ROOT)/tests/font_alpha_pixels.h $(OPENFPGA_ROOT)/tests/controls.h $(OPENFPGA_ROOT)/tests/background_pixels.h $(OPENFPGA_ROOT)/tests/tower_pixels.h $(OPENFPGA_ROOT)/tests/tower_recolor.h $(GAME_ROOT)/src/Font.h
+endif
 else
 HOST_RENDER_OBJS += $(HOST_RENDER_DIR)/obj/present.o
 endif

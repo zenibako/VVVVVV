@@ -18,6 +18,26 @@ OUT="${PACKAGE_OUT:-$OPENFPGA_ROOT/build/sd}"
 CORE_ID=zenibako.vvvvvv
 PLATFORM_ID=vvvvvv
 APP_NAME=vvvvvv
+verify_makeandplay_binary() {
+    python3 - "$1" <<'PY'
+from pathlib import Path
+import sys
+path = Path(sys.argv[1])
+if not path.is_file() or b"MAKE AND PLAY EDITION" not in path.read_bytes():
+    raise SystemExit("Bundled assets require a built Make and Play edition binary")
+PY
+}
+if [[ "${MAKEANDPLAY:-0}" == 1 ]]; then
+    [[ "${BENCH:-0}" != 1 ]] || { echo "Make and Play cannot use the campaign benchmark" >&2; exit 1; }
+    CORE_ID=zenibako.vvvvvvmp
+    PLATFORM_ID=vvvvvvmp
+    APP_NAME=vvvvvv-mp
+    ELF="${PACKAGE_ELF:-$OPENFPGA_ROOT/build/makeandplay/app.elf}"
+    OUT="${PACKAGE_OUT:-$OPENFPGA_ROOT/build/makeandplay/sd}"
+    MAKEANDPLAY_ASSETS="${MAKEANDPLAY_ASSETS:-$OPENFPGA_ROOT/.deps/makeandplay/prepared}"
+    python3 "$OPENFPGA_ROOT/release/makeandplay.py" --verify "$MAKEANDPLAY_ASSETS"
+    verify_makeandplay_binary "$ELF"
+fi
 if [[ "${BENCH:-0}" == 1 ]]; then
     CORE_ID=zenibako.vvvvvvbench
     APP_NAME=vvvvvv-bench
@@ -28,7 +48,14 @@ for file in os20.rbf_r loader.bin os.bin; do
     [[ -f "$RUNTIME_DIR/$file" ]] || { echo "Missing the Pocket runtime; run make deps" >&2; exit 1; }
 done
 
-rm -rf "$OUT"
+FINAL_OUT="$OUT"
+if [[ "${MAKEANDPLAY:-0}" == 1 ]]; then
+    mkdir -p "$(dirname "$FINAL_OUT")"
+    OUT="$(mktemp -d "$FINAL_OUT.stage.XXXXXX")"
+    trap 'rm -rf "$OUT"' EXIT
+else
+    rm -rf "$OUT"
+fi
 CORE_DIR="$OUT/Cores/$CORE_ID"
 COMMON_DIR="$OUT/Assets/$PLATFORM_ID/common"
 INSTANCE_DIR="$OUT/Assets/$PLATFORM_ID/$CORE_ID"
@@ -37,8 +64,8 @@ mkdir -p "$CORE_DIR" "$COMMON_DIR" "$INSTANCE_DIR" "$OUT/Platforms/_images"
 cp "$OPENFPGA_ROOT"/dist/core/*.json "$CORE_DIR/"
 cp "$RUNTIME_DIR/os20.rbf_r" "$RUNTIME_DIR/loader.bin" "$CORE_DIR/"
 cp "$GAME_ROOT/../LICENSE.md" "$CORE_DIR/LICENSE.txt"
-cp "$OPENFPGA_ROOT/dist/platforms/$PLATFORM_ID.json" "$OUT/Platforms/"
-cp "$OPENFPGA_ROOT/dist/platforms/_images/$PLATFORM_ID.bin" "$OUT/Platforms/_images/"
+cp "$OPENFPGA_ROOT/dist/platforms/vvvvvv.json" "$OUT/Platforms/$PLATFORM_ID.json"
+cp "$OPENFPGA_ROOT/dist/platforms/_images/vvvvvv.bin" "$OUT/Platforms/_images/$PLATFORM_ID.bin"
 cp "$OPENFPGA_ROOT/dist/instance/vvvvvv.json" "$INSTANCE_DIR/$APP_NAME.json"
 cp "$RUNTIME_DIR/os.bin" "$COMMON_DIR/"
 sed "s/^ELF=vvvvvv\.elf$/ELF=$APP_NAME.elf/" "$OPENFPGA_ROOT/dist/vvvvvv.ini" > "$COMMON_DIR/$APP_NAME.ini"
@@ -48,12 +75,13 @@ if [[ "$APP_NAME" != vvvvvv ]]; then
     # The core's slots and instance name the benchmark's instance json (the
     # Game slot, which the core launches straight into), ini, elf and save, and
     # the core is named for the Pocket's core list.
-    python3 - "$CORE_DIR" "$INSTANCE_DIR/$APP_NAME.json" "$APP_NAME" <<'PY'
+    python3 - "$CORE_DIR" "$INSTANCE_DIR/$APP_NAME.json" "$APP_NAME" "$PLATFORM_ID" "$OUT/Platforms/$PLATFORM_ID.json" <<'PY'
 import json
 import pathlib
 import sys
 
 core_dir, instance, app = pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2]), sys.argv[3]
+platform, platform_json = sys.argv[4], pathlib.Path(sys.argv[5])
 renames = {"vvvvvv.ini": app + ".ini", "vvvvvv.elf": app + ".elf",
            "vvvvvv_0.sav": app + "_0.sav", "vvvvvv.json": app + ".json"}
 
@@ -66,10 +94,33 @@ def rename_slots(path, key):
 rename_slots(core_dir / "data.json", "data")
 rename_slots(instance, "instance")
 core = json.loads((core_dir / "core.json").read_text())
-core["core"]["metadata"]["shortname"] = "vvvvvvbench"
-core["core"]["metadata"]["description"] = "VVVVVV benchmark: a scripted run that times its frames and shows the results."
+metadata = core["core"]["metadata"]
+metadata["shortname"] = "vvvvvvmp" if app == "vvvvvv-mp" else "vvvvvvbench"
+metadata["platform_ids"] = [platform]
+metadata["description"] = ("VVVVVV: Make and Play, with bundled player levels."
+                           if app == "vvvvvv-mp" else
+                           "VVVVVV benchmark: a scripted run that times its frames and shows the results.")
 (core_dir / "core.json").write_text(json.dumps(core, indent=4) + "\n")
+if app == "vvvvvv-mp":
+    info = json.loads(platform_json.read_text())
+    info["platform"]["name"] = "VVVVVV: Make and Play"
+    platform_json.write_text(json.dumps(info, indent=4) + "\n")
 PY
+fi
+
+if [[ "${MAKEANDPLAY:-0}" == 1 ]]; then
+    cp "$GAME_ROOT/../License exceptions.md" "$CORE_DIR/License-exceptions.txt"
+    cat > "$CORE_DIR/MAKE-AND-PLAY.txt" <<'EOF'
+VVVVVV: Make and Play for Analogue Pocket (altered port).
+Based on VVVVVV, copyright Terry Cavanagh 2010-2020.
+Compiled with MAKEANDPLAY; the original campaign is excluded.
+Public Make and Play assets are included under the repository's license exception.
+See LICENSE.txt, License-exceptions.txt and common/notices for attribution.
+Official edition: https://thelettervsixtim.es/makeandplay/
+EOF
+    cp "$MAKEANDPLAY_ASSETS/data.zip" "$MAKEANDPLAY_ASSETS/vvvvvv-music.bin" \
+        "$MAKEANDPLAY_ASSETS/makeandplay-report.json" "$COMMON_DIR/"
+    cp -R "$MAKEANDPLAY_ASSETS/notices" "$COMMON_DIR/notices"
 fi
 
 # The fonts and lang folders in one zip, laid out as the Android build's
@@ -101,5 +152,16 @@ with zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED) as archive:
         archive.writestr(info, entries[name].read_bytes())
 PY
 
-echo "SD card tree ready: $OUT"
-echo "Add your data.zip as $COMMON_DIR/data.zip"
+if [[ "${MAKEANDPLAY:-0}" == 1 ]]; then
+    # Check the copied bytes too; changing a source after the first check must
+    # not replace a previously valid SD package with unverified game assets.
+    python3 "$OPENFPGA_ROOT/release/makeandplay.py" --verify "$COMMON_DIR"
+    verify_makeandplay_binary "$COMMON_DIR/$APP_NAME.elf"
+    rm -rf "$FINAL_OUT"
+    mv "$OUT" "$FINAL_OUT"
+    trap - EXIT
+fi
+echo "SD card tree ready: $FINAL_OUT"
+if [[ "${MAKEANDPLAY:-0}" != 1 ]]; then
+    echo "Add your data.zip as $COMMON_DIR/data.zip"
+fi
