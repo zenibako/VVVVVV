@@ -1,0 +1,57 @@
+{
+  "schema": 1,
+  "edition": "makeandplay",
+  "version": "2.4.4",
+  "archive": {
+    "url": "https://thelettervsixtim.es/makeandplay/vvvvvv-mp-linux-04212026.zip",
+    "size": 65564426,
+    "sha256": "a6b704a8e5e5a71a04632eeadbd3c6d4e24b97f3872bb7b0366230d9d06b8ca1"
+  },
+  "data": {
+    "path": "data.zip",
+    "size": 61404595,
+    "sha256": "6fae3cdec06062d05827d4181c438153f3ea3900437a44db73bcd29799fe57e0"
+  },
+  "music": {
+    "path": "vvvvvv-music.bin",
+    "size": 59689912,
+    "sha256": "e07ec917f9291921c371476cfa8abedceadf7d414bf10be123fecd37620123bf"
+  },
+  "conversion": {
+    "repository": "zenibako/pocket-music",
+    "commit": "9cc67a266e2b9faea62ea89a3216d2dc3ee3134d",
+    "format": "OFM2",
+    "tracks": 16
+  },
+  "levels": [
+    "levels/333333_easy.vvvvvv",
+    "levels/4kvvvv.vvvvvv",
+    "levels/a_new_dimension.vvvvvv",
+    "levels/linewrap.vvvvvv",
+    "levels/pyramid.vvvvvv",
+    "levels/quantumtunnel12.vvvvvv",
+    "levels/roadtrip.vvvvvv",
+    "levels/seasons.vvvvvv",
+    "levels/soulsearching.vvvvvv",
+    "levels/the_dual_challenge.vvvvvv",
+    "levels/towerofpower.vvvvvv",
+    "levels/variationventure.vvvvvv",
+    "levels/varietyshow.vvvvvv",
+    "levels/vertexvortex.vvvvvv",
+    "levels/vertiginousviridian.vvvvvv",
+    "levels/victuals.vvvvvv",
+    "levels/vvvvvvgoldenspiral.vvvvvv"
+  ],
+  "notices": {
+    "Linux.README": "0ee293ef3208803aaadda06735535f62ba533d36d180e40dfb88561c7caeaeb3",
+    "fonts/font_ko_license.txt": "f6302a9d205e641e4a77b505b4e060e159420fa2c36def4076e8d3d035ddcbb4",
+    "fonts/font_sc_tc_license.txt": "1e8eda919c7bdc03a93e2f327ad5100f04855828c08d33f99f1195ba0b71922b",
+    "licenses/FAudio.txt": "25d947e97aef8d529e1157f51bb5606124e7aec945bba2c21c494aad0f453635",
+    "licenses/LodePNG.txt": "a028aa09e123883fe77af8fb8bee41b40616daa035fdd1b7d8baf1584ecb0787",
+    "licenses/PhysicsFS.txt": "111b286674ab4720fd1b693ef8628a94bca8f06484d5fe3d75bd6db22fdc1cb2",
+    "licenses/SDL.txt": "831e9ecd18ad986e8b5ec7ad88a99b5ab3eeb7184b2e7e15202fa938049f38b7",
+    "licenses/SheenBidi.txt": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
+    "licenses/TinyXML2.txt": "9332252e9b9e46db8285d4a3f0bf25f139bf1dca6781b956d57f2302efca6432",
+    "licenses/c-hashmap.txt": "aef69c999c09cac662b6e12bb0cddff4470d4179470038d5ca407430904743f1"
+  }
+}

@@ -2,9 +2,9 @@ name: openfpga preparation tools
 
 on:
   push:
-    paths: ['openfpga/tools/**', 'openfpga/release/**', '.github/workflows/openfpga-tools.yml', '.github/workflows/openfpga-release.yml']
+    paths: ['openfpga/tools/**', 'openfpga/release/**', 'openfpga/Makefile', 'openfpga/scripts/package.sh', 'openfpga/sdl3/savefs.c', 'openfpga/tests/makeandplay*', '.github/workflows/openfpga-tools.yml', '.github/workflows/openfpga-release.yml']
   pull_request:
-    paths: ['openfpga/tools/**', 'openfpga/release/**', '.github/workflows/openfpga-tools.yml', '.github/workflows/openfpga-release.yml']
+    paths: ['openfpga/tools/**', 'openfpga/release/**', 'openfpga/Makefile', 'openfpga/scripts/package.sh', 'openfpga/sdl3/savefs.c', 'openfpga/tests/makeandplay*', '.github/workflows/openfpga-tools.yml', '.github/workflows/openfpga-release.yml']
   workflow_call:
 
 permissions:
@@ -30,7 +30,9 @@ jobs:
           REQUIRE_PLUGIN_TESTS: '1'
         run: make test
       - name: Test release assembly
-        run: python3 -m unittest discover -s openfpga/release -p 'test_*.py'
+        run: |
+          python3 -m unittest discover -s openfpga/release -p 'test_*.py'
+          python3 openfpga/tests/makeandplay_package_test.py
   windows-input:
     name: Windows preparation checks
     runs-on: windows-latest

@@ -26,6 +26,10 @@
 #include "Vlogging.h"
 #include "XMLUtils.h"
 
+#if defined(VVV_POCKET) || defined(POCKET_LEVEL_LOADING)
+#include "pocket_level_loading.h"
+#endif
+
 #ifdef _WIN32
 #define SCNx32 "x"
 #define SCNu32 "u"
@@ -250,6 +254,9 @@ static void levelMetaDataCallback(const char* filename)
     {
         vlog_warn("Level %s not found :(", filename_.c_str());
     }
+#if defined(VVV_POCKET) || defined(POCKET_LEVEL_LOADING)
+    POCKET_ShowLevelLoading(cl.ListOfMetaData.size());
+#endif
 }
 
 static void unloadZips(void)
@@ -273,6 +280,10 @@ void customlevelclass::getDirectoryData(void)
 {
 
     ListOfMetaData.clear();
+
+#if defined(VVV_POCKET) || defined(POCKET_LEVEL_LOADING)
+    POCKET_ShowLevelLoading(0);
+#endif
 
     FILESYSTEM_clearLevelDirError();
 

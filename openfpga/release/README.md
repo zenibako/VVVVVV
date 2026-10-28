@@ -78,6 +78,97 @@ updates and generated metadata. Inputs are read once, so subsequent source-tree
 changes cannot rewrite the recorded input identity. Verify it with `sha256sum -c SHA256SUMS` (Linux) or
 `shasum -a 256 -c SHA256SUMS` (macOS).
 
+## Make and Play candidate
+
+The release workflow builds both editions and retains the complete tools,
+source, runtime-source, notices and checksum inventory. Local assembly keeps its
+standard-only behavior unless `--makeandplay-sd` is supplied. Build the native
+converter and prepare the pinned public distribution before the isolated build:
+
+```sh
+make -C openfpga/tools cli
+python3 openfpga/release/makeandplay.py \
+  --converter openfpga/tools/build/prepare-data \
+  --output openfpga/.deps/makeandplay/prepared
+make -C openfpga MAKEANDPLAY=1
+make -C openfpga MAKEANDPLAY=1 package \
+  MAKEANDPLAY_ASSETS="$PWD/openfpga/.deps/makeandplay/prepared"
+python3 openfpga/release/assemble.py \
+  --sd openfpga/build/sd \
+  --makeandplay-sd openfpga/build/makeandplay/sd \
+  --tools openfpga/tools/build \
+  --output /tmp/vvvvvv-candidate-with-makeandplay \
+  --version v1.2.3 \
+  --runtime-source /path/to/pinned/openfpgaCore
+```
+
+Build/package the standard tree and all ten tool files as described above too.
+The public preparation directory must not already exist. The authoritative
+`makeandplay.lock.json` pins the official Linux Make and Play 2.4.4 archive,
+its root `data.zip`, the deterministic converted soundtrack, exactly 17 player
+levels, and the selected original distribution notices. The sanitized report
+contains public source identities and hashes, with no host paths. Cached public
+inputs stay under ignored `.deps/`; they are not source files.
+
+Supplying `--makeandplay-sd` prepares two ZIPs for the same core
+`zenibako.vvvvvv` and platform `vvvvvv`. Shared files must be byte-identical;
+conflicting overlays fail assembly. The first slot requests a JSON launch file
+rather than fixing a default, so Pocket can offer both edition launch files.
+
+- `vvvvvv-openfpga.zip`: the main catalog download, with both executables and
+  launch files, but no purchased or public game assets. Its Make and Play
+  instance declares the uniquely named free-edition required files.
+- `vvvvvv-makeandplay-openfpga.zip`: the self-contained free edition, with only
+  its MAKEANDPLAY executable/launch file and the verified public assets. It
+  excludes the full-game executable, full-game launch file and original levels.
+  Installing it alone offers Make and Play; installing it alongside the main
+  package adds its assets to the same existing core.
+
+This packaging boundary follows the Make and Play license exception: the
+asset-bearing package compiles with MAKEANDPLAY and excludes original levels.
+Original campaign room arrays are compiled into the full-game executable; that
+executable must not enter the public asset package. The main package's full-game
+filenames and save remain unchanged. Make and Play uses `vvvvvv-mp_0.sav`.
+
+The public allowlist admits the locked data/music bytes under unique basenames
+`vvvvvv-mp-data.zip` and `vvvvvv-mp-music.bin`, plus `makeandplay-report.json` and
+original distribution notices within `Assets/vvvvvv/common/mp/`. The report
+retains original source filenames and hashes. Verify installed assets with
+`makeandplay.py --verify-packaged DIRECTORY`. The INI passes
+`-assets mp/vvvvvv-mp-data.zip`; the instance maps slot 6 to
+`mp/vvvvvv-mp-music.bin`. Device SDL initialization binds the player's canonical
+music name to that selected slot. SDK and runtime pins remain unchanged.
+
+These inputs are snapshotted before validation, and the same bytes are archived
+and recorded in `PROVENANCE.json`. The MP ELF must be ELF32 RISC-V with upstream's
+`MAKE AND PLAY EDITION` marker; shared runtime binaries must match the runtime
+lock. Both package inventories, source/provenance, original license/exception,
+public notices, and every accompanying artifact are covered by `SHA256SUMS`.
+Complete tracked engine/port/tool sources remain in `source.tar.gz`; notices are
+also retained in `licenses.tar.gz`. An ELF string alone cannot establish source;
+matched build and real-engine smoke evidence are required too.
+
+The existing catalog entry and `^vvvvvv-openfpga\.zip$` filter keep identifying
+the main download. Pocket Sync expands the local instance definitions to show
+required files, including the Make and Play level bundle (all 17 levels) and
+converted music. The catalog API only exports core-level required slots; it
+does not expand instance files or accept arbitrary download URLs/hashes. Install
+the self-contained Make and Play ZIP to supply its files. Download/repair through
+Sync's configured archive provider separately requires those unique files in
+that provider's inventory; the catalog alone cannot add this capability. Never
+supply purchased full-game data to that provider. No second core listing or
+external submission is performed here.
+
+Hardware file-picker selection, launch, controls/audio and save/reload remain
+acceptance checks. Test both options with owned full-game data installed, and
+Make and Play without it. Protected publication still requires review, explicit
+release notes/version approval, matching source HEAD and the complete candidate;
+local assembly publishes nothing.
+
+The shared contract was reconciled against
+[`pocket-dev-tools` release guidance at b5eafef](https://github.com/zenibako/pocket-dev-tools/blob/b5eafef17f9ebc3e61fef0bf4b825311dede32c0/docs/RELEASING.md).
+This local validation does not claim a run of a shared-checkout validator.
+
 ## Source and publication limits
 
 Source is archived from exact Git objects, including every initialized submodule

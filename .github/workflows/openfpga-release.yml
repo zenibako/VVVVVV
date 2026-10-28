@@ -50,7 +50,46 @@ jobs:
           bash openfpga/tools/scripts/install-ci-toolchain.sh "$RUNNER_TEMP/plugin-toolchain"
       - name: Compile native, WASI and Pocket Sync tools
         working-directory: openfpga/tools
-        run: make all
+        run: make all cli
+      - name: Prepare locked official Make and Play files
+        run: |
+          python3 openfpga/release/makeandplay.py --converter openfpga/tools/build/prepare-data \
+            --output openfpga/.deps/makeandplay/prepared
+      - name: Build and package the Make and Play launch option
+        run: |
+          make -C openfpga MAKEANDPLAY=1 -j2
+          make -C openfpga MAKEANDPLAY=1 package MAKEANDPLAY_ASSETS="$PWD/openfpga/.deps/makeandplay/prepared"
+      - name: Build the pinned SDL3 for headless engine checks
+        run: |
+          git -C openfpga/.deps/sdl3 sparse-checkout disable
+          cmake -S openfpga/.deps/sdl3 -B "$RUNNER_TEMP/sdl3-build" \
+            -DCMAKE_INSTALL_PREFIX="$RUNNER_TEMP/sdl3-install" \
+            -DSDL_SHARED=ON -DSDL_STATIC=OFF -DSDL_TESTS=OFF -DSDL_TEST_LIBRARY=OFF \
+            -DSDL_UNIX_CONSOLE_BUILD=ON -DSDL_X11=OFF -DSDL_WAYLAND=OFF \
+            -DSDL_ALSA=OFF -DSDL_PIPEWIRE=OFF -DSDL_PULSEAUDIO=OFF \
+            -DSDL_JACK=OFF -DSDL_SNDIO=OFF -DSDL_KMSDRM=OFF
+          cmake --build "$RUNNER_TEMP/sdl3-build" --parallel 2
+          cmake --install "$RUNNER_TEMP/sdl3-build"
+      - name: Verify controller playback of all public Make and Play levels
+        run: |
+          make -C openfpga MAKEANDPLAY=1 HOST_MAKEANDPLAY_SMOKE=1 host host-render \
+            SDL3_PREFIX="$RUNNER_TEMP/sdl3-install" -j2
+          mkdir -p "$RUNNER_TEMP/makeandplay-check/saves" "$RUNNER_TEMP/makeandplay-check/captures"
+          engine="$PWD/openfpga/build/makeandplay/host-makeandplay-smoke/vvvvvv"
+          assets="$PWD/openfpga/build/makeandplay/sd/Assets/vvvvvv/common/mp/vvvvvv-mp-data.zip"
+          cd "$RUNNER_TEMP/makeandplay-check/captures"
+          ASAN_OPTIONS=detect_leaks=0 VVV_MAKEANDPLAY_SMOKE_BASEDIR="$RUNNER_TEMP/makeandplay-check/saves/" \
+            SDL_VIDEODRIVER=dummy SDL_AUDIODRIVER=dummy SDL_RENDER_DRIVER=software \
+            "$engine" -assets "$assets" -basedir "$RUNNER_TEMP/makeandplay-check/saves/"
+      - name: Verify the public levels with the Pocket RGB565 renderer
+        run: |
+          mkdir -p "$RUNNER_TEMP/makeandplay-render-check/saves" "$RUNNER_TEMP/makeandplay-render-check/captures"
+          engine="$PWD/openfpga/build/makeandplay/host-makeandplay-smoke/render/vvvvvv"
+          assets="$PWD/openfpga/build/makeandplay/sd/Assets/vvvvvv/common/mp/vvvvvv-mp-data.zip"
+          cd "$RUNNER_TEMP/makeandplay-render-check/captures"
+          ASAN_OPTIONS=detect_leaks=0 VVV_MAKEANDPLAY_SMOKE_BASEDIR="$RUNNER_TEMP/makeandplay-render-check/saves/" \
+            SDL_VIDEODRIVER=dummy SDL_AUDIODRIVER=dummy SDL_RENDER_DRIVER=software \
+            "$engine" -assets "$assets" -basedir "$RUNNER_TEMP/makeandplay-render-check/saves/"
       - name: Verify the exact plugin being released
         working-directory: openfpga/tools
         env:
@@ -64,12 +103,31 @@ jobs:
           git -C "$RUNNER_TEMP/runtime-source" fetch --depth 1 origin "$runtime_sha"
           git -C "$RUNNER_TEMP/runtime-source" checkout --detach FETCH_HEAD
           git -C "$RUNNER_TEMP/runtime-source" -c url.https://github.com/.insteadOf=git@github.com: submodule update --init --recursive
+      - name: Verify selected-edition file bindings against the pinned runtime
+        run: python3 openfpga/tests/makeandplay_slots_test.py --runtime-source "$RUNNER_TEMP/runtime-source"
       - name: Assemble reviewed-source candidate
         run: |
           python3 openfpga/release/assemble.py --sd openfpga/build/sd --tools openfpga/tools/build \
+            --makeandplay-sd openfpga/build/makeandplay/sd \
             --output openfpga/build/release --version "$VERSION" --runtime-source "$RUNNER_TEMP/runtime-source"
           (cd openfpga/build/release && sha256sum -c SHA256SUMS)
           python3 -c 'import json; assert json.load(open("openfpga/build/release/PROVENANCE.json"))["publishable"]'
+          python3 - <<'PY'
+          import zipfile
+          from pathlib import Path
+          release = Path('openfpga/build/release')
+          with zipfile.ZipFile(release / 'vvvvvv-openfpga.zip') as core:
+              for name in ('Assets/vvvvvv/zenibako.vvvvvv/vvvvvv.json',
+                           'Assets/vvvvvv/zenibako.vvvvvv/vvvvvv-mp.json'):
+                  assert name in core.namelist(), name
+              assert not any(name.startswith('Assets/vvvvvv/common/mp/') for name in core.namelist())
+          with zipfile.ZipFile(release / 'vvvvvv-makeandplay-openfpga.zip') as free:
+              for name in ('Assets/vvvvvv/common/mp/vvvvvv-mp-data.zip',
+                           'Assets/vvvvvv/common/mp/vvvvvv-mp-music.bin'):
+                  assert name in free.namelist(), name
+              assert 'Assets/vvvvvv/common/vvvvvv.elf' not in free.namelist()
+              assert 'Assets/vvvvvv/zenibako.vvvvvv/vvvvvv.json' not in free.namelist()
+          PY
       - uses: actions/upload-artifact@v4
         with:
           name: vvvvvv-openfpga-candidate
@@ -100,8 +158,10 @@ jobs:
       - name: Publish the complete verified set
         run: |
           test -n "$RELEASE_NOTES" || { echo 'Supply your release description before publishing.' >&2; exit 1; }
+          test -f release/vvvvvv-openfpga.zip
+          test -f release/vvvvvv-makeandplay-openfpga.zip
           (cd release && sha256sum -c SHA256SUMS)
-          python3 -c 'import json,os; p=json.load(open("release/PROVENANCE.json")); assert p["publishable"]; assert p["source_commit"] == os.environ["SOURCE_SHA"]'
+          python3 -c 'import json,os; p=json.load(open("release/PROVENANCE.json")); assert p["publishable"]; assert p["source_commit"] == os.environ["SOURCE_SHA"]; assert p["makeandplay"]["edition"] == "makeandplay"'
           if git show-ref --verify --quiet "refs/tags/$VERSION"; then
             tag_sha=$(git rev-parse --verify "refs/tags/$VERSION^{commit}")
             test "$tag_sha" = "$SOURCE_SHA" || { echo 'Existing tag does not match the built source; refusing publication.' >&2; exit 1; }

@@ -30,6 +30,8 @@
 #ifdef POCKET_BENCH
 /* The benchmark core's own slot, so it never touches the game's save. */
 #define POCKET_SAVE_FILE "vvvvvv-bench_0.sav"
+#elif defined(MAKEANDPLAY)
+#define POCKET_SAVE_FILE "vvvvvv-mp_0.sav"
 #else
 #define POCKET_SAVE_FILE "vvvvvv_0.sav"
 #endif
